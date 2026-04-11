@@ -54,6 +54,7 @@ extern char hostname[MAX_SIZE];
 extern volatile sig_atomic_t fg_child_pid;
 extern volatile sig_atomic_t sigchld_received;
 extern string previous_directory;
+extern int last_exit_status;
 extern char **environ;
 
 // ── prompt.cpp ──────────────────────────────────────────────────

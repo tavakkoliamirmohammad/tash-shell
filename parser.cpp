@@ -78,6 +78,18 @@ string expand_variables(const string &input) {
     while (i < input.size()) {
         if (input[i] == '$') {
             i++;
+            // Special variable: $? — last exit status
+            if (i < input.size() && input[i] == '?') {
+                result += to_string(last_exit_status);
+                i++;
+                continue;
+            }
+            // Special variable: $$ — shell PID
+            if (i < input.size() && input[i] == '$') {
+                result += to_string(getpid());
+                i++;
+                continue;
+            }
             if (i < input.size() && input[i] == '{') {
                 // ${VAR} syntax
                 i++; // skip '{'

@@ -406,3 +406,29 @@ TEST(CommandSubstitutionTest, UnmatchedParen) {
     string result = expand_command_substitution("$(echo hello");
     EXPECT_EQ(result, "$(echo hello");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Special variables: $? and $$
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ExpandVarsTest, DollarQuestionExitStatus) {
+    last_exit_status = 42;
+    EXPECT_EQ(expand_variables("$?"), "42");
+    last_exit_status = 0;
+}
+
+TEST(ExpandVarsTest, DollarDollarPID) {
+    string result = expand_variables("$$");
+    EXPECT_EQ(result, to_string(getpid()));
+}
+
+TEST(ExpandVarsTest, DollarQuestionInContext) {
+    last_exit_status = 7;
+    EXPECT_EQ(expand_variables("exit: $?"), "exit: 7");
+    last_exit_status = 0;
+}
+
+TEST(ExpandVarsTest, DollarDollarInContext) {
+    string result = expand_variables("pid=$$");
+    EXPECT_EQ(result, "pid=" + to_string(getpid()));
+}
