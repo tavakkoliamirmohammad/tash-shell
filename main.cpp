@@ -16,6 +16,12 @@
 #include <unordered_set>
 #include <stdexcept>
 
+volatile sig_atomic_t sigchld_received = 0;
+
+void sigchld_handler(int signum) {
+    sigchld_received = 1;
+}
+
 // TODO fix string space bug
 //TODO add piping
 
@@ -165,6 +171,14 @@ void check_background_process_finished(unordered_map<pid_t, string> &background_
             write_stdout("Background process with " + to_string(pid_finished) + " finished\n");
         }
 
+    }
+}
+
+void reap_background_processes(unordered_map<pid_t, string> &background_processes) {
+    while (sigchld_received) {
+        sigchld_received = 0;
+        check_background_process_finished(background_processes);
+        // Loop again in case another SIGCHLD arrived while we were reaping
     }
 }
 
@@ -360,7 +374,18 @@ int main(int argc, char *argv[]) {
     stifle_history(10);
 //    execute_commands({"source", "/etc"}, background_processes, maximum_background_process);
     signal(SIGINT, sigint_handler);
+
+    // Install SIGCHLD handler with SA_RESTART so readline is not interrupted
+    struct sigaction sa;
+    sa.sa_handler = sigchld_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGCHLD, &sa, nullptr);
+
     while (true) {
+        // Reap any background processes that finished while user was typing
+        reap_background_processes(background_processes);
+
         line = readline(write_shell_prefix().c_str());
         if (line == NULL) {
             printf("\n");
@@ -377,10 +402,10 @@ int main(int argc, char *argv[]) {
             continue;
         }
 //        getline(input_stream, line);
-        check_background_process_finished(background_processes);
+        reap_background_processes(background_processes);
         vector<string> commands = tokenize_string(line, "&&");
         execute_commands(commands, background_processes, maximum_background_process);
-        check_background_process_finished(background_processes);
+        reap_background_processes(background_processes);
         free(line);
     }
     return 0;
