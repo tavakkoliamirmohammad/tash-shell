@@ -250,26 +250,39 @@ string expand_history(const string &line) {
 }
 
 vector<CommandSegment> parse_command_line(const string &line) {
+    // Strip comments: everything after '#' outside quotes is ignored
+    string stripped = line;
+    {
+        size_t hash_pos = stripped.find('#');
+        if (hash_pos != string::npos) {
+            bool in_q = false;
+            for (size_t j = 0; j < hash_pos; j++) {
+                if (stripped[j] == '"' || stripped[j] == '\'') in_q = !in_q;
+            }
+            if (!in_q) stripped = stripped.substr(0, hash_pos);
+        }
+    }
+
     vector<CommandSegment> segments;
     string current;
     bool in_quotes = false;
     size_t i = 0;
     OperatorType next_op = OP_NONE;
 
-    while (i < line.size()) {
-        char c = line[i];
+    while (i < stripped.size()) {
+        char c = stripped[i];
         if (c == '"') {
             in_quotes = !in_quotes;
             current += c;
             ++i;
-        } else if (!in_quotes && c == '&' && i + 1 < line.size() && line[i + 1] == '&') {
+        } else if (!in_quotes && c == '&' && i + 1 < stripped.size() && stripped[i + 1] == '&') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});
             next_op = OP_AND;
             current.clear();
             i += 2;
-        } else if (!in_quotes && c == '|' && i + 1 < line.size() && line[i + 1] == '|') {
+        } else if (!in_quotes && c == '|' && i + 1 < stripped.size() && stripped[i + 1] == '|') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});
