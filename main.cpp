@@ -239,6 +239,9 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
             write_stderr("unalias: missing alias name\n");
         }
         return 0;
+    } else if (file == "clear") {
+        write_stdout("\033[2J\033[H");
+        return 0;
     } else if (file == "bglist") { show_background_process(background_processes); return 0; }
     else if (file == "bgkill") {
         if (arguments.size() < 3) { write_stderr("bgkill: missing process number\n"); return 1; }
@@ -369,6 +372,15 @@ void sigchld_handler(int signum) {
     sigchld_received = 1;
 }
 
+// ── Readline helpers ────────────────────────────────────────────
+
+int clear_screen(int count, int key) {
+    write(STDOUT_FILENO, "\033[2J\033[H", 7);
+    rl_on_new_line();
+    rl_redisplay();
+    return 0;
+}
+
 // ── Main ────────────────────────────────────────────────────────
 
 #ifndef TESTING_BUILD
@@ -422,6 +434,7 @@ int main(int argc, char *argv[]) {
 
     char *line;
     rl_initialize();
+    rl_bind_key(12, clear_screen);
     using_history();
     stifle_history(10);
 
