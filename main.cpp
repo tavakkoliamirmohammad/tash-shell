@@ -301,9 +301,6 @@ void sigint_handler(int signum) {
         kill(fg_child_pid, SIGINT);
     } else {
         write(STDOUT_FILENO, "\n", 1);
-        rl_on_new_line();
-        rl_replace_line("", 0);
-        rl_redisplay();
     }
 }
 
