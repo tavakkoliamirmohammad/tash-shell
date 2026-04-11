@@ -7,6 +7,7 @@ int last_exit_status = 0;
 volatile sig_atomic_t sigchld_received = 0;
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
 unordered_map<string, string> aliases;
+vector<string> dir_stack;
 volatile sig_atomic_t fg_child_pid = 0;
 char hostname[MAX_SIZE];
 
@@ -242,6 +243,98 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
     } else if (file == "clear") {
         write_stdout("\033[2J\033[H");
         return 0;
+    } else if (file == "which" || file == "type") {
+        if (arguments[1] == nullptr) {
+            write_stderr(file + ": missing argument\n");
+            return 1;
+        }
+        string name = arguments[1];
+        // Check builtins first
+        static const unordered_set<string> builtins_set = {
+            "cd", "pwd", "exit", "export", "unset", "alias", "unalias",
+            "clear", "bglist", "bgkill", "bgstop", "bgstart", "fg",
+            "history", "source", ".", "bg", "which", "type",
+            "pushd", "popd", "dirs"
+        };
+        if (builtins_set.count(name)) {
+            write_stdout(name + ": shell builtin\n");
+            return 0;
+        }
+        // Check aliases
+        if (aliases.count(name)) {
+            write_stdout(name + " is aliased to '" + aliases[name] + "'\n");
+            return 0;
+        }
+        // Search PATH
+        const char *path_env = getenv("PATH");
+        if (path_env) {
+            string path_str = path_env;
+            size_t start = 0;
+            while (start < path_str.size()) {
+                size_t end = path_str.find(':', start);
+                if (end == string::npos) end = path_str.size();
+                string dir = path_str.substr(start, end - start);
+                string full_path = dir + "/" + name;
+                if (access(full_path.c_str(), X_OK) == 0) {
+                    write_stdout(full_path + "\n");
+                    return 0;
+                }
+                start = end + 1;
+            }
+        }
+        write_stderr(name + " not found\n");
+        return 1;
+    } else if (file == "pushd") {
+        if (arguments[1] == nullptr) {
+            write_stderr("pushd: no directory specified\n");
+            return 1;
+        }
+        char cwd[MAX_SIZE];
+        if (getcwd(cwd, MAX_SIZE) == nullptr) {
+            write_stderr("pushd: cannot get current directory\n");
+            return 1;
+        }
+        if (chdir(arguments[1]) == -1) {
+            show_error_command(arguments);
+            return 1;
+        }
+        dir_stack.push_back(string(cwd));
+        char new_cwd[MAX_SIZE];
+        if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
+            string stack_str = string(new_cwd);
+            for (int si = (int)dir_stack.size() - 1; si >= 0; si--)
+                stack_str += " " + dir_stack[si];
+            write_stdout(stack_str + "\n");
+        }
+        return 0;
+    } else if (file == "popd") {
+        if (dir_stack.empty()) {
+            write_stderr("popd: directory stack empty\n");
+            return 1;
+        }
+        string target = dir_stack.back();
+        dir_stack.pop_back();
+        if (chdir(target.c_str()) == -1) {
+            write_stderr("popd: " + target + ": " + string(strerror(errno)) + "\n");
+            return 1;
+        }
+        char new_cwd[MAX_SIZE];
+        if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
+            string stack_str = string(new_cwd);
+            for (int si = (int)dir_stack.size() - 1; si >= 0; si--)
+                stack_str += " " + dir_stack[si];
+            write_stdout(stack_str + "\n");
+        }
+        return 0;
+    } else if (file == "dirs") {
+        char cwd[MAX_SIZE];
+        if (getcwd(cwd, MAX_SIZE) != nullptr) {
+            string stack_str = string(cwd);
+            for (int si = (int)dir_stack.size() - 1; si >= 0; si--)
+                stack_str += " " + dir_stack[si];
+            write_stdout(stack_str + "\n");
+        }
+        return 0;
     } else if (file == "bglist") { show_background_process(background_processes); return 0; }
     else if (file == "bgkill") {
         if (arguments.size() < 3) { write_stderr("bgkill: missing process number\n"); return 1; }
@@ -352,6 +445,12 @@ int execute_script_file(const string &path,
     string line;
     while (getline(file, line)) {
         if (line.empty()) continue;
+        while (!line.empty() && line.back() == '\\') {
+            line.pop_back();
+            string next;
+            if (!getline(file, next)) break;
+            line += next;
+        }
         vector<CommandSegment> segments = parse_command_line(line);
         execute_command_line(segments, background_processes, maximum_background_process);
     }
@@ -435,6 +534,7 @@ int main(int argc, char *argv[]) {
     char *line;
     rl_initialize();
     rl_bind_key(12, clear_screen);
+    rl_attempted_completion_function = tash_completion;
     using_history();
     stifle_history(10);
 
@@ -451,9 +551,16 @@ int main(int argc, char *argv[]) {
             free(line);
             continue;
         }
-        // Expand history references (!! and !N) before adding to history
+        // Backslash line continuation: if line ends with '\', read more
         string raw_line(line);
         free(line);
+        while (!raw_line.empty() && raw_line.back() == '\\') {
+            raw_line.pop_back(); // remove trailing backslash
+            char *cont = readline("> ");
+            if (cont == NULL) break;
+            raw_line += string(cont);
+            free(cont);
+        }
         string expanded = expand_history(raw_line);
         if (expanded.empty()) {
             continue;

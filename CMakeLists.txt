@@ -21,6 +21,7 @@ set(SHELL_SOURCES
     parser.cpp
     builtins.cpp
     process.cpp
+    completion.cpp
 )
 
 # ── Main shell binary ─────────────────────────────────────────
