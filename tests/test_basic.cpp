@@ -38,3 +38,13 @@ TEST(Basic, BadCommand) {
     auto r = run_shell("nonexistent_command_xyz_12345\nexit\n");
     EXPECT_NE(r.output.find("No such file or directory"), std::string::npos);
 }
+
+TEST(Basic, CommandSubstitutionSimple) {
+    auto r = run_shell("echo $(echo hello)\nexit\n");
+    EXPECT_NE(r.output.find("hello"), std::string::npos);
+}
+
+TEST(Basic, CommandSubstitutionInQuotes) {
+    auto r = run_shell("echo \"count: $(echo 42)\"\nexit\n");
+    EXPECT_NE(r.output.find("count: 42"), std::string::npos);
+}

@@ -36,6 +36,7 @@ void show_error_command(const vector<char *> &args) {
 int execute_single_command(string command, unordered_map<pid_t, string> &background_processes,
                            int maximum_background_process) {
     command = expand_variables(command);
+    command = expand_command_substitution(command);
     int flag = 0, append_flag = 0, input_flag = 0;
     string filename, input_filename;
 
