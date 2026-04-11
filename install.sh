@@ -48,7 +48,7 @@ if [ -z "${LATEST}" ]; then
     cmake --build build
 
     echo "Installing to ${INSTALL_DIR}..."
-    sudo install -m 755 build/shell.out "${INSTALL_DIR}/${BINARY_NAME}"
+    sudo install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
     rm -rf "${TMPDIR}"
 else
     echo "Downloading ${LATEST}..."
@@ -72,7 +72,7 @@ else
         cmake --build build
 
         echo "Installing to ${INSTALL_DIR}..."
-        sudo install -m 755 build/shell.out "${INSTALL_DIR}/${BINARY_NAME}"
+        sudo install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
         rm -rf "${TMPDIR}"
     fi
 fi

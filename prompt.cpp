@@ -10,42 +10,59 @@ string get_git_branch() {
     }
     int status = pclose(pipe);
     if (status != 0) return "";
-    // Strip trailing newline
     while (!branch.empty() && (branch.back() == '\n' || branch.back() == '\r')) {
         branch.pop_back();
     }
     return branch;
 }
 
+// Extract just the first name from login (before any dots/underscores)
+static string short_name(const string &full) {
+    // Try to get a short name: take first segment before common separators
+    for (size_t i = 0; i < full.size(); i++) {
+        if (full[i] == '.' || full[i] == '_' || full[i] == '-') {
+            if (i > 0) return full.substr(0, i);
+        }
+    }
+    // If name is very long (>12), truncate
+    if (full.size() > 12) return full.substr(0, 8);
+    return full;
+}
+
 string write_shell_prefix() {
     stringstream ss;
-    gethostname(hostname, MAX_SIZE);
     char cwd[MAX_SIZE];
     getcwd(cwd, MAX_SIZE);
     const char *login = getlogin();
     const char *home = getenv("HOME");
-    string user = login ? login : "user";
+    string user = login ? short_name(string(login)) : "user";
     string cwd_display = string(cwd);
     if (home) {
         cwd_display = regex_replace(cwd_display, regex(string(home)), "~");
     }
     string branch = get_git_branch();
-    // Only use colored prompt when stdout is a terminal.
-    // Plain prompt avoids a known heap-buffer-overflow in GNU readline's
-    // rl_redisplay when processing ANSI escape sequences non-interactively.
+
     if (isatty(STDOUT_FILENO)) {
-        ss << bold(red("\u21aa ")) << bold(green(user)) << bold(cyan("@")) << bold(green(hostname)) << " "
-           << bold(cyan(cwd_display));
+        // Option A: Two-line prompt
+        // ╭─ amir in ~/project/UNIX-CLI on  master
+        // ╰─❯
+        ss << "\001\e[0m\002";  // reset
+        ss << bold(cyan("\u256d\u2500 "));
+        ss << bold(green(user));
+        ss << bold(white(" in "));
+        ss << bold(cyan(cwd_display));
         if (!branch.empty()) {
-            ss << " " << bold(magenta("(" + branch + ")"));
+            ss << bold(white(" on "));
+            ss << bold(magenta("\ue0a0 " + branch));
         }
-        ss << bold(yellow(" shell> "));
+        ss << "\n";
+        ss << bold(cyan("\u256e\u2500")) << bold(yellow("\u276f "));
     } else {
-        ss << user << "@" << hostname << " " << cwd_display;
+        ss << user << " " << cwd_display;
         if (!branch.empty()) {
             ss << " (" << branch << ")";
         }
-        ss << " shell> ";
+        ss << " > ";
     }
     return ss.str();
 }

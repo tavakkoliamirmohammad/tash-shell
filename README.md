@@ -1,149 +1,138 @@
-# Tash (Tavakkoli's Shell)
+# Tash — A Modern Unix Shell
 
-A lightweight Unix shell written in C++ that supports command chaining, background job control, output redirection, colored output, command history, and tab auto-completion.
+A feature-rich Unix shell written in C++ with pipes, redirection, job control, command substitution, scripting, aliases, and more. Built as a deep exploration of systems programming — from `fork`/`exec` to signal handling to readline integration.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build](https://github.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/actions/workflows/build.yml/badge.svg)](https://github.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/actions)
 
 ## Features
 
-| Feature | Supported |
-|---------|-----------|
-| Foreground commands | Yes |
-| Background commands (`bg`) | Yes |
-| Pipes (`\|`) | Yes |
-| Output redirection (`>`, `>>`) | Yes |
-| Input redirection (`<`) | Yes |
-| Command chaining (`&&`, `\|\|`, `;`) | Yes |
-| Environment variables (`$VAR`, `export`, `unset`) | Yes |
-| Glob expansion (`*`, `?`, `[...]`) | Yes |
-| Command history (up/down arrows, `history`) | Yes |
-| Tab auto-completion | Yes |
-| Colored prompt & output | Yes |
-| Built-in commands (`cd`, `pwd`, `exit`, `history`, `export`, `unset`) | Yes |
-| Background job control (`bglist`, `bgkill`, `bgstop`, `bgstart`) | Yes |
-| Signal handling (Ctrl+C, Ctrl+D) | Yes |
-| Cross-platform (Linux + macOS) | Yes |
+| Category | Features |
+|----------|----------|
+| **Execution** | Pipes (`\|`), command substitution (`$(cmd)`), script execution (`tash script.sh`) |
+| **Redirection** | stdout (`>`, `>>`), stdin (`<`), stderr (`2>`, `2>&1`) |
+| **Operators** | `&&` (and), `\|\|` (or), `;` (sequential) |
+| **Variables** | `$VAR`, `${VAR}`, `$?` (exit status), `$$` (PID), `export`, `unset` |
+| **Expansion** | Glob (`*`, `?`, `[...]`), tilde (`~`), command substitution (`$(...)`) |
+| **Job Control** | `bg`, `fg`, `bglist`, `bgkill`, `bgstop`, `bgstart` |
+| **Navigation** | `cd`, `cd -`, `pushd`, `popd`, `dirs` |
+| **Aliases** | `alias ll='ls -la'`, `unalias`, expansion before execution |
+| **History** | Up/down arrows, `history`, `!!` (repeat last), `!n` (repeat nth) |
+| **Scripting** | `source file`, `tash script.sh`, `#` comments, `\` line continuation |
+| **Completion** | Tab completion for built-in commands and file paths |
+| **Prompt** | Two-line colored prompt with git branch, username, and path |
+| **Config** | `~/.tashrc` loaded on startup |
+| **Utilities** | `which`, `type`, `clear`, Ctrl+L, Ctrl+C, Ctrl+D |
+| **Platform** | Linux (Ubuntu, Fedora, Alpine) and macOS (Intel + ARM) |
 
-## Installation
+## Quick Start
+
+```sh
+# Build
+cmake -B build && cmake --build build
+
+# Run
+./build/tash.out
+```
 
 ### Prerequisites
 
-**Linux (Debian/Ubuntu):**
+**Linux:** `sudo apt install libreadline-dev` (or `dnf install readline-devel` on Fedora)
+
+**macOS:** No extra dependencies needed (uses built-in libedit)
+
+### Install System-Wide
 
 ```sh
-sudo apt update
-sudo apt-get install libreadline-dev
+curl -sSL https://raw.githubusercontent.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/master/install.sh | bash
 ```
 
-**macOS:**
-
-readline comes pre-installed via libedit. No extra dependencies are needed.
-
-### Build
-
-Compile directly with g++:
-
+Or with Homebrew:
 ```sh
-g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11
+brew install --formula Formula/tash.rb
 ```
 
-Or use CMake:
+## Usage
 
-```sh
-cmake -B build && cmake --build build
 ```
+╭─ amir in ~/projects/tash on  master
+╰─❯ ls | grep cpp | wc -l
+       6
 
-### Run
+╭─ amir in ~/projects/tash on  master
+╰─❯ echo "today is $(date +%A)"
+today is Friday
 
-```sh
-./shell.out
-```
+╭─ amir in ~/projects/tash on  master
+╰─❯ export NAME=world && echo $NAME
+world
 
-## Usage Examples
+╭─ amir in ~/projects/tash on  master
+╰─❯ alias ll='ls -la'
+╭─ amir in ~/projects/tash on  master
+╰─❯ ll *.cpp
 
-**Pipes** -- chain commands together:
+╭─ amir in ~/projects/tash on  master
+╰─❯ false || echo "fallback runs"
+fallback runs
 
-```sh
-ls | grep cpp | wc -l
-```
+╭─ amir in ~/projects/tash on  master
+╰─❯ bg sleep 60 && bglist
+Background process with 12345 Executing
+(1) sleep
+Total Background Jobs: 1
 
-**Redirection** -- redirect input and output:
-
-```sh
-sort < input.txt > output.txt
-```
-
-**Environment variables** -- set and use variables:
-
-```sh
-export NAME=world && echo $NAME
-```
-
-**Glob expansion** -- match files by pattern:
-
-```sh
-ls *.cpp
-```
-
-**Conditional operators** -- run commands based on success or failure:
-
-```sh
-make || echo "build failed"
-```
-
-**Background jobs** -- run a process in the background and list active jobs:
-
-```sh
-bg sleep 60 && bglist
+╭─ amir in ~/projects/tash on  master
+╰─❯ sort < input.txt > output.txt 2> errors.txt
 ```
 
 ## Built-in Commands
 
 | Command | Description |
 |---------|-------------|
-| `cd [dir]` | Change directory. With no argument, goes to `$HOME`. Supports `~`. |
-| `pwd` | Print the current working directory. |
+| `cd [dir]` | Change directory. `cd -` returns to previous. `cd ~` goes home. |
+| `pwd` | Print current directory. |
 | `exit` | Exit the shell. |
-| `history` | Show command history (up/down arrows also work). |
-| `export VAR=value` | Set an environment variable. |
-| `unset VAR` | Remove an environment variable. |
-| `bg <command>` | Run a command in the background. |
-| `bglist` | List all background jobs. |
-| `bgkill <n>` | Terminate background job number *n*. |
-| `bgstop <n>` | Pause (stop) background job number *n*. |
-| `bgstart <n>` | Resume a stopped background job number *n*. |
+| `history` | Show command history. `!!` repeats last, `!n` repeats nth. |
+| `export VAR=val` | Set environment variable. No args lists all. |
+| `unset VAR` | Remove environment variable. |
+| `alias name='cmd'` | Create alias. No args lists all. |
+| `unalias name` | Remove alias. |
+| `source file` | Execute file in current shell (`. file` also works). |
+| `which cmd` | Find command location or identify builtins. |
+| `type cmd` | Same as `which`. |
+| `clear` | Clear screen (Ctrl+L also works). |
+| `bg cmd` | Run command in background. |
+| `fg [n]` | Bring background job to foreground. |
+| `bglist` | List background jobs. |
+| `bgkill n` | Kill background job n. |
+| `bgstop n` | Stop background job n. |
+| `bgstart n` | Resume background job n. |
+| `pushd dir` | Push directory onto stack and cd. |
+| `popd` | Pop directory from stack and cd. |
+| `dirs` | Show directory stack. |
 
 ## Architecture
 
-Tash follows the classic **fork-exec** pattern used by Unix shells:
+```
+Input → Readline → History Expansion → Parse Operators (&&, ||, ;)
+  → For each command:
+      Strip Comments → Expand Variables ($VAR, $?, $$)
+      → Command Substitution $(...)  → Parse Redirections (>, >>, <, 2>)
+      → Split Pipes → Tokenize → Strip Quotes → Expand Aliases
+      → Expand Globs → Execute (fork/exec or builtin)
+```
 
-1. The main loop reads input via GNU Readline (providing history and tab completion).
-2. Input is tokenized and parsed, splitting on operators like `&&`.
-3. For each command the shell forks a child process, then calls `execvp` to replace the child with the requested program.
-4. The parent process waits for foreground children via `waitpid`, or tracks background children in an internal process table.
-5. Built-in commands (`cd`, `pwd`, `exit`, job control) are executed directly in the shell process -- no fork is needed.
-6. Signal handling intercepts Ctrl+C so it does not kill the shell itself.
+## Testing
+
+```sh
+cmake -B build -DBUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build --output-on-failure -V
+```
+
+142+ tests across 15 test files using Google Test, covering tokenizer, pipes, redirection, operators, environment variables, aliases, scripts, history, and more.
 
 ## License
 
-MIT License
-
-Copyright (c) 2020 Amir Mohammad Tavakkoli
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT License — Copyright (c) 2020 Amir Mohammad Tavakkoli
