@@ -1,8 +1,10 @@
 #include <unistd.h>
 #include <string>
+#include <sstream>
 #include <vector>
 #include <iostream>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <regex>
 #include "colors.h"
@@ -37,8 +39,10 @@ char hostname[MAX_SIZE];
 string write_shell_prefix() {
     stringstream ss;
     gethostname(hostname, MAX_SIZE);
+    char cwd[MAX_SIZE];
+    getcwd(cwd, MAX_SIZE);
     ss << bold(red("\u21aa ")) << bold(green(getlogin())) << bold(cyan("@")) << bold(green(hostname)) << " "
-       << bold(cyan(regex_replace(get_current_dir_name(), regex("/home/" + string(getlogin())), "~")))
+       << bold(cyan(regex_replace(string(cwd), regex(string(getenv("HOME"))), "~")))
        << bold(yellow(" shell> "));
     return ss.str();
 }
@@ -75,7 +79,7 @@ vector<string> tokenize_string(string line, const string &delimiter) {
     for (string &command : commands) {
         command = trim(command);
         if (command[0] == '~') {
-            command = regex_replace(command, regex("~"), "/home/" + string(getlogin()));
+            command = regex_replace(command, regex("~"), string(getenv("HOME")));
         }
     }
     return commands;
