@@ -19,13 +19,15 @@ TEST(Operators, OrRunsOnFailure) {
 }
 
 TEST(Operators, OrSkipsOnSuccess) {
-    auto r = run_shell("true || echo should_not_appear_xyz\nexit\n");
-    EXPECT_EQ(r.output.find("should_not_appear_xyz"), std::string::npos);
+    auto r = run_shell("true || echo or_skip_marker\nexit\n");
+    // GNU readline echoes the command (1 occurrence). If || correctly skips, no extra occurrence.
+    EXPECT_LE(count_occurrences(r.output, "or_skip_marker"), 1);
 }
 
 TEST(Operators, AndSkipsOnFailure) {
-    auto r = run_shell("false && echo should_not_appear_abc\nexit\n");
-    EXPECT_EQ(r.output.find("should_not_appear_abc"), std::string::npos);
+    auto r = run_shell("false && echo and_skip_marker\nexit\n");
+    // GNU readline echoes the command (1 occurrence). If && correctly skips, no extra occurrence.
+    EXPECT_LE(count_occurrences(r.output, "and_skip_marker"), 1);
 }
 
 TEST(Operators, AndRunsOnSuccess) {
