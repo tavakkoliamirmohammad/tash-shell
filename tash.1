@@ -1,0 +1,102 @@
+.TH TASH 1 "April 2026" "v1.0.0" "User Commands"
+.SH NAME
+tash \- Tavakkoli's Shell, a lightweight Unix shell
+.SH SYNOPSIS
+.B tash
+.RI [ script ]
+.SH DESCRIPTION
+.B tash
+is a lightweight Unix shell written in C++ with support for pipes, redirection, environment variables, command substitution, glob expansion, job control, and command history.
+.PP
+If a
+.I script
+file is given as an argument, tash executes it and exits. Otherwise, it starts an interactive session.
+.SH BUILT-IN COMMANDS
+.TP
+.B cd \fR[\fIdir\fR]
+Change directory. With no argument, goes to $HOME. \fBcd -\fR returns to the previous directory.
+.TP
+.B pwd
+Print the current working directory.
+.TP
+.B exit
+Exit the shell.
+.TP
+.B history
+Display numbered command history.
+.TP
+.B export \fR[\fIVAR=value\fR]
+Set an environment variable. With no argument, list all variables.
+.TP
+.B unset \fIVAR\fR
+Remove an environment variable.
+.TP
+.B alias \fR[\fIname=value\fR]
+Create a command alias. With no argument, list all aliases.
+.TP
+.B unalias \fIname\fR
+Remove an alias.
+.TP
+.B source \fIfile\fR
+Execute commands from a file in the current shell.
+.TP
+.B bg \fIcommand\fR
+Run a command in the background.
+.TP
+.B bglist
+List background jobs.
+.TP
+.B bgkill \fIn\fR
+Terminate background job number \fIn\fR.
+.TP
+.B bgstop \fIn\fR
+Suspend background job number \fIn\fR.
+.TP
+.B bgstart \fIn\fR
+Resume background job number \fIn\fR.
+.SH OPERATORS
+.TP
+.B &&
+Run next command only if the previous succeeded.
+.TP
+.B ||
+Run next command only if the previous failed.
+.TP
+.B ;
+Run next command unconditionally.
+.TP
+.B |
+Pipe stdout of one command to stdin of the next.
+.SH REDIRECTION
+.TP
+.B > \fIfile\fR
+Redirect stdout to file (overwrite).
+.TP
+.B >> \fIfile\fR
+Redirect stdout to file (append).
+.TP
+.B < \fIfile\fR
+Redirect stdin from file.
+.SH EXPANSION
+.TP
+.B $VAR \fRor\fB ${VAR}
+Environment variable expansion.
+.TP
+.B ~
+Home directory expansion.
+.TP
+.B * ? [...]
+Glob/wildcard expansion.
+.SH HISTORY
+.B !!
+repeats the last command.
+.B !n
+runs the nth command from history.
+.SH FILES
+.TP
+.B ~/.tashrc
+Startup commands executed when tash starts interactively.
+.SH AUTHOR
+Amir Mohammad Tavakkoli
+.SH LICENSE
+MIT License
