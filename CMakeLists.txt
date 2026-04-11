@@ -39,10 +39,20 @@ if(BUILD_TESTS)
     add_test(NAME TokenizerTests COMMAND test_tokenizer)
 
     # ── Integration tests ─────────────────────────────────────
-    add_executable(test_integration tests/test_integration.cpp)
-    target_include_directories(test_integration PRIVATE ${CMAKE_SOURCE_DIR})
+    add_executable(test_integration
+        tests/test_integration.cpp
+        tests/test_basic.cpp
+        tests/test_redirection.cpp
+        tests/test_background.cpp
+        tests/test_cd.cpp
+        tests/test_pipes.cpp
+        tests/test_history.cpp
+        tests/test_env_vars.cpp
+        tests/test_glob.cpp
+        tests/test_operators.cpp
+    )
+    target_include_directories(test_integration PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(test_integration GTest::gtest)
-    # Pass shell binary path to integration tests
     add_test(NAME IntegrationTests COMMAND test_integration)
     set_tests_properties(IntegrationTests PROPERTIES
         ENVIRONMENT "AMISH_SHELL_BIN=$<TARGET_FILE:shell.out>"
