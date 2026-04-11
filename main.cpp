@@ -4,6 +4,7 @@
 
 string previous_directory;
 int last_exit_status = 0;
+vector<string> dir_stack;
 volatile sig_atomic_t sigchld_received = 0;
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
 unordered_map<string, string> aliases;
@@ -226,6 +227,40 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
         } else {
             write_stderr("unalias: missing alias name\n");
         }
+        return 0;
+    } else if (file == "pushd") {
+        if (arguments[1] == nullptr) {
+            write_stderr("pushd: missing directory argument\n");
+            return 1;
+        }
+        char cwd[MAX_SIZE];
+        getcwd(cwd, MAX_SIZE);
+        if (chdir(arguments[1]) == 0) {
+            dir_stack.push_back(string(cwd));
+            char new_cwd[MAX_SIZE];
+            getcwd(new_cwd, MAX_SIZE);
+            write_stdout(string(new_cwd) + "\n");
+        } else {
+            show_error_command(arguments);
+            return 1;
+        }
+        return 0;
+    } else if (file == "popd") {
+        if (dir_stack.empty()) {
+            write_stderr("popd: directory stack empty\n");
+            return 1;
+        }
+        string dir = dir_stack.back();
+        dir_stack.pop_back();
+        chdir(dir.c_str());
+        write_stdout(dir + "\n");
+        return 0;
+    } else if (file == "dirs") {
+        char cwd[MAX_SIZE];
+        getcwd(cwd, MAX_SIZE);
+        write_stdout(string(cwd) + "\n");
+        for (auto it = dir_stack.rbegin(); it != dir_stack.rend(); ++it)
+            write_stdout(*it + "\n");
         return 0;
     } else if (file == "bglist") { show_background_process(background_processes); return 0; }
     else if (file == "bgkill") {

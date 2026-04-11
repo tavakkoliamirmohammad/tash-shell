@@ -55,6 +55,7 @@ extern volatile sig_atomic_t fg_child_pid;
 extern volatile sig_atomic_t sigchld_received;
 extern string previous_directory;
 extern int last_exit_status;
+extern vector<string> dir_stack;
 extern char **environ;
 
 // ── prompt.cpp ──────────────────────────────────────────────────

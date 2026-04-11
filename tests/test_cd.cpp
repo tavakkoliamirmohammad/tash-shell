@@ -55,3 +55,25 @@ TEST(Cd, CdDashNoOldpwd) {
     auto r = run_shell("cd -\nexit\n");
     EXPECT_NE(r.output.find("OLDPWD not set"), std::string::npos);
 }
+
+TEST(Cd, PushdPopd) {
+    auto r = run_shell("pushd /tmp\npwd\npopd\npwd\nexit\n");
+    // After pushd /tmp, pwd should show /tmp (or /private/tmp on macOS)
+    bool found_tmp = r.output.find("/tmp") != std::string::npos ||
+                     r.output.find("/private/tmp") != std::string::npos;
+    EXPECT_TRUE(found_tmp);
+    // After popd we should be back in original directory
+    // popd prints the directory it returns to, so it should appear in output
+    EXPECT_EQ(r.exit_code, 0);
+}
+
+TEST(Cd, DirsPrintsCurrent) {
+    auto r = run_shell("dirs\nexit\n");
+    // dirs should print at least the current working directory (a slash-prefixed path)
+    EXPECT_NE(r.output.find("/"), std::string::npos);
+}
+
+TEST(Cd, PopdEmptyStack) {
+    auto r = run_shell("popd\nexit\n");
+    EXPECT_NE(r.output.find("directory stack empty"), std::string::npos);
+}
