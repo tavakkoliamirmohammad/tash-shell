@@ -1,20 +1,45 @@
 #include "shell.h"
 
 void change_directory(vector<char *> args) {
+    char cwd[MAX_SIZE];
+    const char *target = nullptr;
+
     if (args.size() > 1 && args[1]) {
-        int res = chdir(args[1]);
-        if (res == -1) {
-            show_error_command(args);
+        string arg = args[1];
+        if (arg == "-") {
+            if (previous_directory.empty()) {
+                write_stderr("cd: OLDPWD not set\n");
+                return;
+            }
+            target = previous_directory.c_str();
+        } else {
+            target = args[1];
         }
     } else {
-        const char *home = getenv("HOME");
-        if (home) {
-            int res = chdir(home);
-            if (res == -1) {
-                show_error_command(args);
-            }
-        } else {
+        target = getenv("HOME");
+        if (!target) {
             write_stderr("cd: HOME not set\n");
+            return;
+        }
+    }
+
+    // Save current directory before changing
+    if (getcwd(cwd, MAX_SIZE) == nullptr) {
+        show_error_command(args);
+        return;
+    }
+
+    int res = chdir(target);
+    if (res == -1) {
+        show_error_command(args);
+    } else {
+        previous_directory = string(cwd);
+        // If cd -, print the new directory
+        if (args.size() > 1 && args[1] && string(args[1]) == "-") {
+            char new_cwd[MAX_SIZE];
+            if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
+                write_stdout(string(new_cwd) + "\n");
+            }
         }
     }
 }
