@@ -84,30 +84,23 @@ vector<string> tokenize_string(string line, const string &delimiter) {
     size_t dlen = delimiter.size();
 
     while (i < len) {
-        // Handle escape character
         if (i + 1 < len && line[i] == '\\' && (line[i + 1] == '"' || line[i + 1] == '\'' || line[i + 1] == '\\')) {
             current += line[i + 1];
             i += 2;
             continue;
         }
-
-        // Toggle double-quote state (only if not inside single quotes)
         if (line[i] == '"' && !in_single_quotes) {
             in_double_quotes = !in_double_quotes;
             current += line[i];
             ++i;
             continue;
         }
-
-        // Toggle single-quote state (only if not inside double quotes)
         if (line[i] == '\'' && !in_double_quotes) {
             in_single_quotes = !in_single_quotes;
             current += line[i];
             ++i;
             continue;
         }
-
-        // Check for delimiter match only when outside quotes
         if (!in_double_quotes && !in_single_quotes &&
             i + dlen <= len && line.compare(i, dlen, delimiter) == 0) {
             string token = current;
@@ -119,19 +112,16 @@ vector<string> tokenize_string(string line, const string &delimiter) {
             i += dlen;
             continue;
         }
-
         current += line[i];
         ++i;
     }
 
-    // Push the last token
     string token = current;
     token = trim(token);
     if (!token.empty()) {
         tokens.push_back(token);
     }
 
-    // Perform tilde expansion at the start of each token
     const char *home = getenv("HOME");
     if (home) {
         for (string &t : tokens) {
@@ -144,26 +134,38 @@ vector<string> tokenize_string(string line, const string &delimiter) {
     return tokens;
 }
 
-void foreground_process(vector<char *> args, const string &filename, int flag) {
+void foreground_process(vector<char *> args, const string &filename, int flag,
+                        const string &input_filename, int input_flag, int append_flag) {
     int status;
     int pid = fork();
     if (pid < 0) {
         exit_with_message("Error: Fork failed!", 1);
     } else if (pid == 0) {
+        if (input_flag) {
+            int in = open(input_filename.c_str(), O_RDONLY);
+            if (in < 0) {
+                write_stderr("An error has occurred\n");
+                exit(1);
+            }
+            dup2(in, STDIN_FILENO);
+            close(in);
+        }
         int out;
         if (flag) {
-            out = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (append_flag) {
+                out = open(filename.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+            } else {
+                out = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            }
             if (out < 0) {
                 write_stderr("An error has occurred\n");
                 exit(1);
             }
             dup2(out, STDOUT_FILENO);
+            close(out);
         }
         execvp(args[0], &args[0]);
         show_error_command(args);
-        if (flag) {
-            close(out);
-        }
         exit(0);
     } else {
         fg_child_pid = pid;
@@ -177,7 +179,8 @@ void foreground_process(vector<char *> args, const string &filename, int flag) {
 }
 
 void background_process(vector<char *> args, unordered_map<pid_t, string> &background_processes_list,
-                        int maximum_background_process, const string &filename, int flag) {
+                        int maximum_background_process, const string &filename, int flag,
+                        const string &input_filename, int input_flag, int append_flag) {
     if (background_processes_list.size() == maximum_background_process) {
         write_stderr("Error: Maximum number of background processes\n");
         return;
@@ -186,20 +189,31 @@ void background_process(vector<char *> args, unordered_map<pid_t, string> &backg
     if (pid < 0) {
         exit_with_message("Error: Fork failed!", 1);
     } else if (pid == 0) {
+        if (input_flag) {
+            int in = open(input_filename.c_str(), O_RDONLY);
+            if (in < 0) {
+                write_stderr("An error has occurred\n");
+                exit(1);
+            }
+            dup2(in, STDIN_FILENO);
+            close(in);
+        }
         int out;
         if (flag) {
-            out = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (append_flag) {
+                out = open(filename.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+            } else {
+                out = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            }
             if (out < 0) {
                 write_stderr("An error has occurred\n");
                 exit(1);
             }
             dup2(out, STDOUT_FILENO);
+            close(out);
         }
         execvp(args[1], &args[1]);
         show_error_command(vector<char *>(args.begin() + 1, args.end()));
-        if (flag) {
-            close(out);
-        }
         exit(1);
     } else {
         background_processes_list[pid] = args[1];
@@ -354,14 +368,35 @@ void execute_pipeline(vector<vector<char *>> &pipeline_args, const string &filen
 void execute_commands(const vector<string> &commands, unordered_map<pid_t, string> &background_processes,
                       int maximum_background_process) {
     for (string command:commands) {
-        // Handle output redirection (>) on the full command (including pipes)
-        vector<string> temp = tokenize_string(command, ">");
         int flag = 0;
+        int append_flag = 0;
+        int input_flag = 0;
         string filename;
+        string input_filename;
+
+        // Check for >> (append) first, since > is a substring of >>
+        vector<string> temp = tokenize_string(command, ">>");
         if (temp.size() > 1) {
             command = temp[0];
             filename = temp[1];
             flag = 1;
+            append_flag = 1;
+        } else {
+            // Check for > (overwrite)
+            temp = tokenize_string(command, ">");
+            if (temp.size() > 1) {
+                command = temp[0];
+                filename = temp[1];
+                flag = 1;
+            }
+        }
+
+        // Check for < (input redirection)
+        temp = tokenize_string(command, "<");
+        if (temp.size() > 1) {
+            command = temp[0];
+            input_filename = temp[1];
+            input_flag = 1;
         }
 
         // Split command by pipe character
@@ -482,9 +517,10 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
             background_process_signal(pid, SIGCONT);
 
         } else if (file == "bg") {
-            background_process(arguments, background_processes, maximum_background_process, filename, flag);
+            background_process(arguments, background_processes, maximum_background_process, filename, flag,
+                               input_filename, input_flag, append_flag);
         } else {
-            foreground_process(arguments, filename, flag);
+            foreground_process(arguments, filename, flag, input_filename, input_flag, append_flag);
         }
     }
 }
