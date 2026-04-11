@@ -626,6 +626,7 @@ void sigint_handler(int signum) {
     }
 }
 
+#ifndef TESTING_BUILD
 int main(int argc, char *argv[]) {
     if (argc != 1) {
         string error_message = "An error has occurred\n";
@@ -675,3 +676,4 @@ int main(int argc, char *argv[]) {
     }
     return 0;
 }
+#endif // TESTING_BUILD
