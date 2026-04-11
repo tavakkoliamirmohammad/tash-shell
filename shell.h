@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <stdexcept>
 #include <cstdlib>
+#include <fstream>
 
 #include "colors.h"
 
