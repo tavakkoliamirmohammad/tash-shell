@@ -37,6 +37,21 @@ inline ShellResult run_shell(const std::string &input) {
     return {output, exit_code};
 }
 
+inline ShellResult run_shell_script(const std::string &script_path) {
+    std::string cmd = shell_binary + " " + script_path + " 2>&1";
+    FILE *pipe = popen(cmd.c_str(), "r");
+
+    std::string output;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        output += buffer;
+    }
+    int status = pclose(pipe);
+    int exit_code = WEXITSTATUS(status);
+
+    return {output, exit_code};
+}
+
 inline std::string read_file(const std::string &path) {
     std::ifstream f(path);
     std::stringstream ss;

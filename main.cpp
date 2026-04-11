@@ -190,6 +190,12 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
             if (entry) { stringstream ss; ss << "  " << (i + 1) << "  " << entry->line << endl; write_stdout(ss.str()); }
         }
         return 0;
+    } else if (file == "source" || file == ".") {
+        if (arguments[1] == nullptr) {
+            write_stderr("source: missing file argument\n");
+            return 1;
+        }
+        return execute_script_file(arguments[1], background_processes, maximum_background_process);
     } else if (file == "bg") {
         background_process(arguments, background_processes, maximum_background_process, filename, flag,
                            input_filename, input_flag, append_flag);
@@ -216,6 +222,25 @@ void execute_command_line(const vector<CommandSegment> &segments,
     }
 }
 
+// ── Script file execution ──────────────────────────────────────
+
+int execute_script_file(const string &path,
+                        unordered_map<pid_t, string> &background_processes,
+                        int maximum_background_process) {
+    ifstream file(path);
+    if (!file.is_open()) {
+        write_stderr("tash: cannot open script: " + path + "\n");
+        return 1;
+    }
+    string line;
+    while (getline(file, line)) {
+        if (line.empty()) continue;
+        vector<CommandSegment> segments = parse_command_line(line);
+        execute_command_line(segments, background_processes, maximum_background_process);
+    }
+    return 0;
+}
+
 // ── Signal handlers ─────────────────────────────────────────────
 
 void sigint_handler(int signum) {
@@ -234,17 +259,13 @@ void sigchld_handler(int signum) {
 
 #ifndef TESTING_BUILD
 int main(int argc, char *argv[]) {
-    if (argc != 1) {
+    if (argc > 2) {
         string error_message = "An error has occurred\n";
         exit_with_message(error_message, 1);
     }
     unordered_map<pid_t, string> background_processes;
-    char *line;
     int maximum_background_process = 5;
-    rl_initialize();
-    using_history();
-    stifle_history(10);
-//    execute_commands({"source", "/etc"}, background_processes, maximum_background_process);
+
     signal(SIGINT, sigint_handler);
 
     // Install SIGCHLD handler with SA_RESTART so readline is not interrupted
@@ -253,6 +274,12 @@ int main(int argc, char *argv[]) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGCHLD, &sa, nullptr);
+
+    // Script mode: execute the given script file and exit
+    if (argc == 2) {
+        int rc = execute_script_file(argv[1], background_processes, maximum_background_process);
+        return rc;
+    }
 
     // Load ~/.tashrc if it exists
     const char *home_env = getenv("HOME");
@@ -270,6 +297,12 @@ int main(int argc, char *argv[]) {
             tashrc.close();
         }
     }
+
+    // Interactive mode
+    char *line;
+    rl_initialize();
+    using_history();
+    stifle_history(10);
 
     while (true) {
         // Reap any background processes that finished while user was typing
@@ -290,7 +323,6 @@ int main(int argc, char *argv[]) {
         } else {
             continue;
         }
-//        getline(input_stream, line);
         reap_background_processes(background_processes);
         vector<CommandSegment> segments = parse_command_line(line);
         execute_command_line(segments, background_processes, maximum_background_process);

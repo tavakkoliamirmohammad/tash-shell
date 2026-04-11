@@ -103,5 +103,8 @@ void execute_command_line(const vector<CommandSegment> &segments,
                           int maximum_background_process);
 void sigint_handler(int signum);
 void sigchld_handler(int signum);
+int execute_script_file(const string &path,
+                        unordered_map<pid_t, string> &background_processes,
+                        int maximum_background_process);
 
 #endif // SHELL_H
