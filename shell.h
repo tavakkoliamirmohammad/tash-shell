@@ -49,6 +49,7 @@ struct CommandSegment {
 // ── Global variable extern declarations ─────────────────────────
 
 extern unordered_set<string> colorful_commands;
+extern unordered_map<string, string> aliases;
 extern char hostname[MAX_SIZE];
 extern volatile sig_atomic_t fg_child_pid;
 extern volatile sig_atomic_t sigchld_received;

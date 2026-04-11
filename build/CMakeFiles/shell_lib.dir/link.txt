@@ -1,0 +1,2 @@
+/usr/bin/ar qc libshell_lib.a CMakeFiles/shell_lib.dir/main.cpp.o CMakeFiles/shell_lib.dir/colors.cpp.o CMakeFiles/shell_lib.dir/prompt.cpp.o CMakeFiles/shell_lib.dir/parser.cpp.o CMakeFiles/shell_lib.dir/builtins.cpp.o CMakeFiles/shell_lib.dir/process.cpp.o
+/usr/bin/ranlib libshell_lib.a
