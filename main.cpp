@@ -84,30 +84,23 @@ vector<string> tokenize_string(string line, const string &delimiter) {
     size_t dlen = delimiter.size();
 
     while (i < len) {
-        // Handle escape character
         if (i + 1 < len && line[i] == '\\' && (line[i + 1] == '"' || line[i + 1] == '\'' || line[i + 1] == '\\')) {
             current += line[i + 1];
             i += 2;
             continue;
         }
-
-        // Toggle double-quote state (only if not inside single quotes)
         if (line[i] == '"' && !in_single_quotes) {
             in_double_quotes = !in_double_quotes;
             current += line[i];
             ++i;
             continue;
         }
-
-        // Toggle single-quote state (only if not inside double quotes)
         if (line[i] == '\'' && !in_double_quotes) {
             in_single_quotes = !in_single_quotes;
             current += line[i];
             ++i;
             continue;
         }
-
-        // Check for delimiter match only when outside quotes
         if (!in_double_quotes && !in_single_quotes &&
             i + dlen <= len && line.compare(i, dlen, delimiter) == 0) {
             string token = current;
@@ -119,19 +112,16 @@ vector<string> tokenize_string(string line, const string &delimiter) {
             i += dlen;
             continue;
         }
-
         current += line[i];
         ++i;
     }
 
-    // Push the last token
     string token = current;
     token = trim(token);
     if (!token.empty()) {
         tokens.push_back(token);
     }
 
-    // Perform tilde expansion at the start of each token
     const char *home = getenv("HOME");
     if (home) {
         for (string &t : tokens) {
