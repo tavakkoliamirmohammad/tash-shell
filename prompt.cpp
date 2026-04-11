@@ -12,8 +12,15 @@ string write_shell_prefix() {
     if (home) {
         cwd_display = regex_replace(cwd_display, regex(string(home)), "~");
     }
-    ss << bold(red("\u21aa ")) << bold(green(user)) << bold(cyan("@")) << bold(green(hostname)) << " "
-       << bold(cyan(cwd_display))
-       << bold(yellow(" shell> "));
+    // Only use colored prompt when stdout is a terminal.
+    // Plain prompt avoids a known heap-buffer-overflow in GNU readline's
+    // rl_redisplay when processing ANSI escape sequences non-interactively.
+    if (isatty(STDOUT_FILENO)) {
+        ss << bold(red("\u21aa ")) << bold(green(user)) << bold(cyan("@")) << bold(green(hostname)) << " "
+           << bold(cyan(cwd_display))
+           << bold(yellow(" shell> "));
+    } else {
+        ss << user << "@" << hostname << " " << cwd_display << " shell> ";
+    }
     return ss.str();
 }
