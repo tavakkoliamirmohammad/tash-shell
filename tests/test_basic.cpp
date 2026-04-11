@@ -53,3 +53,7 @@ TEST(Basic, NoBannerWhenNotTTY) {
     auto r = run_shell("exit\n");
     EXPECT_EQ(r.output.find("Welcome"), std::string::npos);
 }
+TEST(Basic, ClearBuiltinDoesNotCrash) {
+    auto r = run_shell("clear\nexit\n");
+    EXPECT_NE(r.exit_code, 139);
+}
