@@ -77,5 +77,7 @@ else
     fi
 fi
 
+sudo install -m 644 tash.1 /usr/local/share/man/man1/tash.1 2>/dev/null || true
+
 echo "Tash shell installed successfully!"
 echo "Run 'tash' to start the shell."
