@@ -13,6 +13,7 @@
 #include <readline/history.h>
 #include <unordered_map>
 #include <unordered_set>
+#include <stdexcept>
 
 // TODO fix string space bug
 //TODO add piping
@@ -254,7 +255,21 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
         } else if (file == "bglist") {
             show_background_process(background_processes);
         } else if (file == "bgkill") {
-            pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
+            if (arguments.size() < 3) {
+                write_stderr("bgkill: missing process number\n");
+                return;
+            }
+            int n;
+            try {
+                n = stoi(arguments[1]);
+            } catch (const std::invalid_argument&) {
+                write_stderr("bgkill: invalid process number\n");
+                return;
+            } catch (const std::out_of_range&) {
+                write_stderr("bgkill: process number out of range\n");
+                return;
+            }
+            pid_t pid = get_nth_background_process(background_processes, n);
             if (pid == -1) {
                 stringstream ss;
                 ss << file << ": " << "Invalid n number" << endl;
@@ -264,7 +279,21 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
             background_process_signal(pid, SIGTERM);
 
         } else if (file == "bgstop") {
-            pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
+            if (arguments.size() < 3) {
+                write_stderr("bgstop: missing process number\n");
+                return;
+            }
+            int n;
+            try {
+                n = stoi(arguments[1]);
+            } catch (const std::invalid_argument&) {
+                write_stderr("bgstop: invalid process number\n");
+                return;
+            } catch (const std::out_of_range&) {
+                write_stderr("bgstop: process number out of range\n");
+                return;
+            }
+            pid_t pid = get_nth_background_process(background_processes, n);
             if (pid == -1) {
                 stringstream ss;
                 ss << file << ": " << "Invalid n number" << endl;
@@ -274,7 +303,21 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
             background_process_signal(pid, SIGSTOP);
 
         } else if (file == "bgstart") {
-            pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
+            if (arguments.size() < 3) {
+                write_stderr("bgstart: missing process number\n");
+                return;
+            }
+            int n;
+            try {
+                n = stoi(arguments[1]);
+            } catch (const std::invalid_argument&) {
+                write_stderr("bgstart: invalid process number\n");
+                return;
+            } catch (const std::out_of_range&) {
+                write_stderr("bgstart: process number out of range\n");
+                return;
+            }
+            pid_t pid = get_nth_background_process(background_processes, n);
             if (pid == -1) {
                 stringstream ss;
                 ss << file << ": " << "Invalid n number" << endl;
