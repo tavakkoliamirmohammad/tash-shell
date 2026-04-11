@@ -73,8 +73,15 @@ string write_shell_prefix() {
     gethostname(hostname, MAX_SIZE);
     char cwd[MAX_SIZE];
     getcwd(cwd, MAX_SIZE);
-    ss << bold(red("\u21aa ")) << bold(green(getlogin())) << bold(cyan("@")) << bold(green(hostname)) << " "
-       << bold(cyan(regex_replace(string(cwd), regex(string(getenv("HOME"))), "~")))
+    const char *login = getlogin();
+    const char *home = getenv("HOME");
+    string user = login ? login : "user";
+    string cwd_display = string(cwd);
+    if (home) {
+        cwd_display = regex_replace(cwd_display, regex(string(home)), "~");
+    }
+    ss << bold(red("\u21aa ")) << bold(green(user)) << bold(cyan("@")) << bold(green(hostname)) << " "
+       << bold(cyan(cwd_display))
        << bold(yellow(" shell> "));
     return ss.str();
 }
@@ -373,9 +380,14 @@ void change_directory(vector<char *> args) {
             show_error_command(args);
         }
     } else {
-        int res = chdir(getenv("HOME"));
-        if (res == -1) {
-            show_error_command(args);
+        const char *home = getenv("HOME");
+        if (home) {
+            int res = chdir(home);
+            if (res == -1) {
+                show_error_command(args);
+            }
+        } else {
+            write_stderr("cd: HOME not set\n");
         }
     }
 }

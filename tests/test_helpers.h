@@ -50,4 +50,18 @@ inline int get_file_perms(const std::string &path) {
     return st.st_mode & 0777;
 }
 
+// Count occurrences of a substring in a string.
+// On Linux, GNU readline echoes input to stdout when stdin is a file,
+// so the command text appears once in output. If the command actually
+// runs, its output adds a second occurrence.
+inline int count_occurrences(const std::string &haystack, const std::string &needle) {
+    int count = 0;
+    size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+        count++;
+        pos += needle.size();
+    }
+    return count;
+}
+
 #endif // TEST_HELPERS_H

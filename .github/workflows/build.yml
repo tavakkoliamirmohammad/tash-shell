@@ -10,7 +10,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, macos-13, macos-14]
+        os: [ubuntu-22.04, ubuntu-24.04, macos-14, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +43,11 @@ jobs:
         run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
       - name: Smoke test
         run: echo -e "pwd\nls\necho hello\nexit" | ./shell.out
+      - name: Build and run Google Tests
+        run: |
+          cmake -B build -DBUILD_TESTS=ON
+          cmake --build build
+          ctest --test-dir build --output-on-failure
 
   build-alpine:
     runs-on: ubuntu-latest
@@ -50,8 +55,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: apk add --no-cache g++ readline-dev cmake make
+        run: apk add --no-cache g++ readline-dev cmake make linux-headers
       - name: Build
         run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
       - name: Smoke test
         run: echo -e "pwd\nls\necho hello\nexit" | ./shell.out
+      - name: Build and run Google Tests
+        run: |
+          cmake -B build -DBUILD_TESTS=ON
+          cmake --build build
+          ctest --test-dir build --output-on-failure

@@ -19,13 +19,23 @@ TEST(Operators, OrRunsOnFailure) {
 }
 
 TEST(Operators, OrSkipsOnSuccess) {
-    auto r = run_shell("true || echo should_not_appear_xyz\nexit\n");
-    EXPECT_EQ(r.output.find("should_not_appear_xyz"), std::string::npos);
+    // Use file side-effect: if || correctly skips, the file won't be created
+    std::string marker = "/tmp/amish_or_skip_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    run_shell("true || echo proof > " + marker + "\nexit\n");
+    struct stat st;
+    EXPECT_NE(stat(marker.c_str(), &st), 0) << "File should not exist if || correctly skipped";
+    unlink(marker.c_str());
 }
 
 TEST(Operators, AndSkipsOnFailure) {
-    auto r = run_shell("false && echo should_not_appear_abc\nexit\n");
-    EXPECT_EQ(r.output.find("should_not_appear_abc"), std::string::npos);
+    // Use file side-effect: if && correctly skips, the file won't be created
+    std::string marker = "/tmp/amish_and_skip_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    run_shell("false && echo proof > " + marker + "\nexit\n");
+    struct stat st;
+    EXPECT_NE(stat(marker.c_str(), &st), 0) << "File should not exist if && correctly skipped";
+    unlink(marker.c_str());
 }
 
 TEST(Operators, AndRunsOnSuccess) {
