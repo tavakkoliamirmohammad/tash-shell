@@ -80,3 +80,33 @@ jobs:
           cmake --build install-build
           install -m 755 install-build/shell.out /usr/local/bin/tash
           echo -e "echo install_test\nexit" | /usr/local/bin/tash
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
+      - name: Build with AddressSanitizer
+        run: |
+          cmake -B build -DBUILD_TESTS=ON \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
+          cmake --build build
+      - name: Run unit tests with sanitizer
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ./build/test_tokenizer
+      - name: Run integration tests with sanitizer
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ctest --test-dir build --output-on-failure
+      - name: Smoke test with sanitizer
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: echo -e "pwd\nls\necho hello\nexit" | ./build/shell.out
