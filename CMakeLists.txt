@@ -72,6 +72,7 @@ if(BUILD_TESTS)
         tests/test_tashrc.cpp
         tests/test_alias.cpp
         tests/test_script.cpp
+        tests/test_comments.cpp
     )
     target_include_directories(test_integration PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(test_integration GTest::gtest)

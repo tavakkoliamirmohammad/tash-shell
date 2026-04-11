@@ -36,6 +36,18 @@ void show_error_command(const vector<char *> &args) {
 
 int execute_single_command(string command, unordered_map<pid_t, string> &background_processes,
                            int maximum_background_process) {
+    // Strip comments: everything after '#' outside quotes is ignored
+    size_t hash_pos = command.find('#');
+    if (hash_pos != string::npos) {
+        // Don't strip if # is inside quotes
+        bool in_quotes = false;
+        for (size_t i = 0; i < hash_pos; i++) {
+            if (command[i] == '"' || command[i] == '\'') in_quotes = !in_quotes;
+        }
+        if (!in_quotes) command = command.substr(0, hash_pos);
+    }
+    if (command.empty() || command.find_first_not_of(" \t") == string::npos) return 0;
+
     command = expand_variables(command);
     command = expand_command_substitution(command);
     int flag = 0, append_flag = 0, input_flag = 0;
