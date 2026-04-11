@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <regex>
 #include "colors.h"
 
