@@ -1,0 +1,57 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-13, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
+      - name: Build shell
+        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
+      - name: Smoke test
+        run: echo -e "pwd\nls\necho hello\nexit" | ./shell.out
+      - name: Build and run Google Tests
+        run: |
+          cmake -B build -DBUILD_TESTS=ON
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: amish-${{ matrix.os }}
+          path: shell.out
+
+  build-fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: dnf install -y gcc-c++ readline-devel cmake make
+      - name: Build
+        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
+      - name: Smoke test
+        run: echo -e "pwd\nls\necho hello\nexit" | ./shell.out
+
+  build-alpine:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apk add --no-cache g++ readline-dev cmake make
+      - name: Build
+        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
+      - name: Smoke test
+        run: echo -e "pwd\nls\necho hello\nexit" | ./shell.out
