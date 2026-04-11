@@ -59,6 +59,7 @@ extern char **environ;
 
 // ── prompt.cpp ──────────────────────────────────────────────────
 
+string get_git_branch();
 string write_shell_prefix();
 
 // ── parser.cpp ──────────────────────────────────────────────────

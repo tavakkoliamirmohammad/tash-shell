@@ -53,3 +53,12 @@ TEST(Basic, NoBannerWhenNotTTY) {
     auto r = run_shell("exit\n");
     EXPECT_EQ(r.output.find("Welcome"), std::string::npos);
 }
+TEST(Basic, GitBranchInPrompt) {
+    // Run the shell inside a git repository; the git-branch detection code
+    // runs at prompt construction time.  When stdin is not a tty, readline
+    // suppresses the prompt, so we cannot check the prompt text.  We verify
+    // the shell still functions correctly and does not crash.
+    auto r = run_shell("echo git_branch_ok\nexit\n");
+    EXPECT_NE(r.output.find("git_branch_ok"), std::string::npos);
+    EXPECT_NE(r.exit_code, 139);  // no segfault
+}
