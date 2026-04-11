@@ -191,6 +191,23 @@ int main(int argc, char *argv[]) {
     sa.sa_flags = SA_RESTART;
     sigaction(SIGCHLD, &sa, nullptr);
 
+    // Load ~/.tashrc if it exists
+    const char *home_env = getenv("HOME");
+    if (home_env) {
+        string tashrc_path = string(home_env) + "/.tashrc";
+        ifstream tashrc(tashrc_path);
+        if (tashrc.is_open()) {
+            string rc_line;
+            while (getline(tashrc, rc_line)) {
+                if (!rc_line.empty()) {
+                    vector<CommandSegment> rc_segments = parse_command_line(rc_line);
+                    execute_command_line(rc_segments, background_processes, maximum_background_process);
+                }
+            }
+            tashrc.close();
+        }
+    }
+
     while (true) {
         // Reap any background processes that finished while user was typing
         reap_background_processes(background_processes);
