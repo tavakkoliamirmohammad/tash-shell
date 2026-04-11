@@ -53,3 +53,8 @@ TEST(Basic, NoBannerWhenNotTTY) {
     auto r = run_shell("exit\n");
     EXPECT_EQ(r.output.find("Welcome"), std::string::npos);
 }
+TEST(Basic, TabCompletionRegistrationDoesNotCrash) {
+    auto r = run_shell("exit\n");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.output.find("GoodBye! See you soon!"), std::string::npos);
+}

@@ -1,4 +1,35 @@
 #include "shell.h"
+#include <cstring>
+
+// ── Tab-completion for built-in commands ───────────────────────
+
+static const vector<string> builtin_commands = {
+    "cd", "pwd", "exit", "history", "export", "unset",
+    "bglist", "bgkill", "bgstop", "bgstart", "bg",
+    "alias", "unalias", "source"
+};
+
+char *builtin_generator(const char *text, int state) {
+    static size_t idx;
+    if (!state) idx = 0;
+    while (idx < builtin_commands.size()) {
+        const string &cmd = builtin_commands[idx++];
+        if (cmd.find(text) == 0) {
+            return strdup(cmd.c_str());
+        }
+    }
+    return nullptr;
+}
+
+char **tash_completion(const char *text, int start, int end) {
+    (void)end;
+    if (start == 0) {
+        // First word — complete from builtins + default file completion
+        return rl_completion_matches(text, builtin_generator);
+    }
+    // For other words, fall back to default filename completion
+    return nullptr;
+}
 
 // ── Global variable definitions ─────────────────────────────────
 
@@ -382,6 +413,7 @@ int main(int argc, char *argv[]) {
     rl_initialize();
     using_history();
     stifle_history(10);
+    rl_attempted_completion_function = tash_completion;
 
     while (true) {
         // Reap any background processes that finished while user was typing
