@@ -68,6 +68,7 @@ string &trim(string &s, const char *t = " \t\n\r\f\v");
 vector<string> tokenize_string(string line, const string &delimiter);
 string expand_variables(const string &input);
 vector<string> expand_globs(const vector<string> &args);
+string strip_quotes(const string &s);
 vector<CommandSegment> parse_command_line(const string &line);
 
 // ── builtins.cpp ────────────────────────────────────────────────
