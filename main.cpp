@@ -20,6 +20,18 @@
 
 extern char **environ;
 
+enum OperatorType {
+    OP_NONE,
+    OP_AND,        // &&
+    OP_OR,         // ||
+    OP_SEMICOLON   // ;
+};
+
+struct CommandSegment {
+    string command;
+    OperatorType op;
+};
+
 volatile sig_atomic_t sigchld_received = 0;
 
 void sigchld_handler(int signum) {
@@ -211,8 +223,8 @@ vector<string> expand_globs(const vector<string> &args) {
     return expanded;
 }
 
-void foreground_process(vector<char *> args, const string &filename, int flag,
-                        const string &input_filename, int input_flag, int append_flag) {
+int foreground_process(vector<char *> args, const string &filename, int flag,
+                       const string &input_filename, int input_flag, int append_flag) {
     int status;
     int pid = fork();
     if (pid < 0) {
@@ -248,11 +260,9 @@ void foreground_process(vector<char *> args, const string &filename, int flag,
         fg_child_pid = pid;
         waitpid(pid, &status, WUNTRACED);
         fg_child_pid = 0;
-        int child_return_code = WEXITSTATUS(status);
-//        if (child_return_code != 0) {
-//            exit_with_message("Error: failed", 2);
-//        }
+        return WEXITSTATUS(status);
     }
+    return 1;
 }
 
 void background_process(vector<char *> args, unordered_map<pid_t, string> &background_processes_list,
@@ -381,6 +391,51 @@ void show_current_directory(vector<char *> args) {
     }
 }
 
+vector<CommandSegment> parse_command_line(const string &line) {
+    vector<CommandSegment> segments;
+    string current;
+    bool in_quotes = false;
+    size_t i = 0;
+    OperatorType next_op = OP_NONE;
+
+    while (i < line.size()) {
+        char c = line[i];
+        if (c == '"') {
+            in_quotes = !in_quotes;
+            current += c;
+            ++i;
+        } else if (!in_quotes && c == '&' && i + 1 < line.size() && line[i + 1] == '&') {
+            string cmd = current;
+            cmd = trim(cmd);
+            if (!cmd.empty()) segments.push_back({cmd, next_op});
+            next_op = OP_AND;
+            current.clear();
+            i += 2;
+        } else if (!in_quotes && c == '|' && i + 1 < line.size() && line[i + 1] == '|') {
+            string cmd = current;
+            cmd = trim(cmd);
+            if (!cmd.empty()) segments.push_back({cmd, next_op});
+            next_op = OP_OR;
+            current.clear();
+            i += 2;
+        } else if (!in_quotes && c == ';') {
+            string cmd = current;
+            cmd = trim(cmd);
+            if (!cmd.empty()) segments.push_back({cmd, next_op});
+            next_op = OP_SEMICOLON;
+            current.clear();
+            ++i;
+        } else {
+            current += c;
+            ++i;
+        }
+    }
+    string cmd = current;
+    cmd = trim(cmd);
+    if (!cmd.empty()) segments.push_back({cmd, next_op});
+    return segments;
+}
+
 void execute_pipeline(vector<vector<char *>> &pipeline_args, const string &filename, int redirect_flag) {
     int num_cmds = pipeline_args.size();
     // Create num_cmds-1 pipes. pipes[i] connects command i stdout to command i+1 stdin.
@@ -442,198 +497,124 @@ void execute_pipeline(vector<vector<char *>> &pipeline_args, const string &filen
     }
 }
 
-void execute_commands(const vector<string> &commands, unordered_map<pid_t, string> &background_processes,
-                      int maximum_background_process) {
-    for (string command:commands) {
-        command = expand_variables(command);
-        int flag = 0;
-        int append_flag = 0;
-        int input_flag = 0;
-        string filename;
-        string input_filename;
+int execute_single_command(string command, unordered_map<pid_t, string> &background_processes,
+                           int maximum_background_process) {
+    command = expand_variables(command);
+    int flag = 0, append_flag = 0, input_flag = 0;
+    string filename, input_filename;
 
-        // Check for >> (append) first, since > is a substring of >>
-        vector<string> temp = tokenize_string(command, ">>");
-        if (temp.size() > 1) {
-            command = temp[0];
-            filename = temp[1];
-            flag = 1;
-            append_flag = 1;
+    vector<string> temp = tokenize_string(command, ">>");
+    if (temp.size() > 1) {
+        command = temp[0]; filename = temp[1]; flag = 1; append_flag = 1;
+    } else {
+        temp = tokenize_string(command, ">");
+        if (temp.size() > 1) { command = temp[0]; filename = temp[1]; flag = 1; }
+    }
+    temp = tokenize_string(command, "<");
+    if (temp.size() > 1) { command = temp[0]; input_filename = temp[1]; input_flag = 1; }
+
+    vector<string> pipe_segments = tokenize_string(command, "|");
+    if (pipe_segments.size() > 1) {
+        vector<vector<string>> all_tokens(pipe_segments.size());
+        vector<vector<char *>> pipeline_args(pipe_segments.size());
+        for (size_t i = 0; i < pipe_segments.size(); i++) {
+            all_tokens[i] = tokenize_string(pipe_segments[i], " ");
+            if (colorful_commands.find(all_tokens[i][0]) != colorful_commands.end())
+                all_tokens[i].insert(all_tokens[i].begin() + 1, COLOR_FLAG);
+            for (const string &token : all_tokens[i])
+                pipeline_args[i].push_back(const_cast<char *>(token.c_str()));
+            pipeline_args[i].push_back(nullptr);
+        }
+        execute_pipeline(pipeline_args, filename, flag);
+        return 0;
+    }
+
+    vector<string> tokenize_command = tokenize_string(command, " ");
+    tokenize_command = expand_globs(tokenize_command);
+    if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end())
+        tokenize_command.insert(tokenize_command.begin() + 1, COLOR_FLAG);
+    vector<char *> arguments;
+    arguments.reserve(tokenize_command.size() + 2);
+    for (const string &token : tokenize_command)
+        arguments.push_back(const_cast<char *>(token.c_str()));
+    arguments.push_back(nullptr);
+
+    string file = arguments[0];
+    if (file == "cd") { change_directory(arguments); return 0; }
+    else if (file == "pwd") { show_current_directory(arguments); return 0; }
+    else if (file == "exit") { write_stdout("GoodBye! See you soon!\n"); exit(0); }
+    else if (file == "export") {
+        if (arguments[1] == nullptr) {
+            for (char **env = environ; *env != nullptr; env++) write_stdout(string(*env) + "\n");
         } else {
-            // Check for > (overwrite)
-            temp = tokenize_string(command, ">");
-            if (temp.size() > 1) {
-                command = temp[0];
-                filename = temp[1];
-                flag = 1;
-            }
-        }
-
-        // Check for < (input redirection)
-        temp = tokenize_string(command, "<");
-        if (temp.size() > 1) {
-            command = temp[0];
-            input_filename = temp[1];
-            input_flag = 1;
-        }
-
-        // Split command by pipe character
-        vector<string> pipe_segments = tokenize_string(command, "|");
-
-        if (pipe_segments.size() > 1) {
-            // Build argument lists for each segment of the pipeline
-            // We need to keep the tokenized strings alive for the duration of the pipeline
-            vector<vector<string>> all_tokens(pipe_segments.size());
-            vector<vector<char *>> pipeline_args(pipe_segments.size());
-
-            for (size_t i = 0; i < pipe_segments.size(); i++) {
-                all_tokens[i] = tokenize_string(pipe_segments[i], " ");
-                if (colorful_commands.find(all_tokens[i][0]) != colorful_commands.end()) {
-                    all_tokens[i].insert(all_tokens[i].begin() + 1, COLOR_FLAG);
-                }
-                for (const string &token : all_tokens[i]) {
-                    pipeline_args[i].push_back(const_cast<char *>(token.c_str()));
-                }
-                pipeline_args[i].push_back(nullptr);
-            }
-
-            execute_pipeline(pipeline_args, filename, flag);
-            continue;
-        }
-
-        // No pipes -- single command, execute as before
-        vector<string> tokenize_command = tokenize_string(command, " ");
-        tokenize_command = expand_globs(tokenize_command);
-        if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end()) {
-            tokenize_command.insert(tokenize_command.begin() + 1, COLOR_FLAG);
-        }
-        vector<char *> arguments;
-        arguments.reserve(tokenize_command.size() + 2);
-        for (const string &token : tokenize_command) {
-            arguments.push_back(const_cast<char *>(token.c_str()));
-        }
-        arguments.push_back(nullptr);
-        string file = arguments[0];
-        if (file == "cd") {
-            change_directory(arguments);
-        } else if (file == "pwd") {
-            show_current_directory(arguments);
-        } else if (file == "exit") {
-            write_stdout("GoodBye! See you soon!\n");
-            exit(0);
-        } else if (file == "export") {
-            if (arguments[1] == nullptr) {
-                // No arguments: list all environment variables
-                for (char **env = environ; *env != nullptr; env++) {
-                    write_stdout(string(*env) + "\n");
-                }
+            string arg = arguments[1];
+            size_t eq_pos = arg.find('=');
+            if (eq_pos != string::npos) {
+                setenv(arg.substr(0, eq_pos).c_str(), arg.substr(eq_pos + 1).c_str(), 1);
             } else {
-                string arg = arguments[1];
-                size_t eq_pos = arg.find('=');
-                if (eq_pos != string::npos) {
-                    string name = arg.substr(0, eq_pos);
-                    string value = arg.substr(eq_pos + 1);
-                    setenv(name.c_str(), value.c_str(), 1);
-                } else {
-                    write_stderr("export: invalid format. Usage: export VAR=value\n");
-                }
+                write_stderr("export: invalid format. Usage: export VAR=value\n");
             }
-        } else if (file == "unset") {
-            if (arguments[1] != nullptr) {
-                unsetenv(arguments[1]);
-            } else {
-                write_stderr("unset: missing variable name\n");
-            }
-        } else if (file == "bglist") {
-            show_background_process(background_processes);
-        } else if (file == "bgkill") {
-            if (arguments.size() < 3) {
-                write_stderr("bgkill: missing process number\n");
-                return;
-            }
-            int n;
-            try {
-                n = stoi(arguments[1]);
-            } catch (const std::invalid_argument&) {
-                write_stderr("bgkill: invalid process number\n");
-                return;
-            } catch (const std::out_of_range&) {
-                write_stderr("bgkill: process number out of range\n");
-                return;
-            }
-            pid_t pid = get_nth_background_process(background_processes, n);
-            if (pid == -1) {
-                stringstream ss;
-                ss << file << ": " << "Invalid n number" << endl;
-                write_stderr(ss.str());
-                return;
-            }
-            background_process_signal(pid, SIGTERM);
-
-        } else if (file == "bgstop") {
-            if (arguments.size() < 3) {
-                write_stderr("bgstop: missing process number\n");
-                return;
-            }
-            int n;
-            try {
-                n = stoi(arguments[1]);
-            } catch (const std::invalid_argument&) {
-                write_stderr("bgstop: invalid process number\n");
-                return;
-            } catch (const std::out_of_range&) {
-                write_stderr("bgstop: process number out of range\n");
-                return;
-            }
-            pid_t pid = get_nth_background_process(background_processes, n);
-            if (pid == -1) {
-                stringstream ss;
-                ss << file << ": " << "Invalid n number" << endl;
-                write_stderr(ss.str());
-                return;
-            }
-            background_process_signal(pid, SIGSTOP);
-
-        } else if (file == "bgstart") {
-            if (arguments.size() < 3) {
-                write_stderr("bgstart: missing process number\n");
-                return;
-            }
-            int n;
-            try {
-                n = stoi(arguments[1]);
-            } catch (const std::invalid_argument&) {
-                write_stderr("bgstart: invalid process number\n");
-                return;
-            } catch (const std::out_of_range&) {
-                write_stderr("bgstart: process number out of range\n");
-                return;
-            }
-            pid_t pid = get_nth_background_process(background_processes, n);
-            if (pid == -1) {
-                stringstream ss;
-                ss << file << ": " << "Invalid n number" << endl;
-                write_stderr(ss.str());
-                return;
-            }
-            background_process_signal(pid, SIGCONT);
-
-        } else if (file == "history") {
-            int len = history_length;
-            for (int i = 0; i < len; i++) {
-                HIST_ENTRY *entry = history_get(history_base + i);
-                if (entry) {
-                    stringstream ss;
-                    ss << "  " << (i + 1) << "  " << entry->line << endl;
-                    write_stdout(ss.str());
-                }
-            }
-        } else if (file == "bg") {
-            background_process(arguments, background_processes, maximum_background_process, filename, flag,
-                               input_filename, input_flag, append_flag);
-        } else {
-            foreground_process(arguments, filename, flag, input_filename, input_flag, append_flag);
         }
+        return 0;
+    } else if (file == "unset") {
+        if (arguments[1] != nullptr) unsetenv(arguments[1]);
+        else write_stderr("unset: missing variable name\n");
+        return 0;
+    } else if (file == "bglist") { show_background_process(background_processes); return 0; }
+    else if (file == "bgkill") {
+        if (arguments.size() < 3) { write_stderr("bgkill: missing process number\n"); return 1; }
+        int n; try { n = stoi(arguments[1]); }
+        catch (const std::invalid_argument&) { write_stderr("bgkill: invalid process number\n"); return 1; }
+        catch (const std::out_of_range&) { write_stderr("bgkill: process number out of range\n"); return 1; }
+        pid_t pid = get_nth_background_process(background_processes, n);
+        if (pid == -1) { write_stderr(file + ": Invalid n number\n"); return 1; }
+        background_process_signal(pid, SIGTERM); return 0;
+    } else if (file == "bgstop") {
+        if (arguments.size() < 3) { write_stderr("bgstop: missing process number\n"); return 1; }
+        int n; try { n = stoi(arguments[1]); }
+        catch (const std::invalid_argument&) { write_stderr("bgstop: invalid process number\n"); return 1; }
+        catch (const std::out_of_range&) { write_stderr("bgstop: process number out of range\n"); return 1; }
+        pid_t pid = get_nth_background_process(background_processes, n);
+        if (pid == -1) { write_stderr(file + ": Invalid n number\n"); return 1; }
+        background_process_signal(pid, SIGSTOP); return 0;
+    } else if (file == "bgstart") {
+        if (arguments.size() < 3) { write_stderr("bgstart: missing process number\n"); return 1; }
+        int n; try { n = stoi(arguments[1]); }
+        catch (const std::invalid_argument&) { write_stderr("bgstart: invalid process number\n"); return 1; }
+        catch (const std::out_of_range&) { write_stderr("bgstart: process number out of range\n"); return 1; }
+        pid_t pid = get_nth_background_process(background_processes, n);
+        if (pid == -1) { write_stderr(file + ": Invalid n number\n"); return 1; }
+        background_process_signal(pid, SIGCONT); return 0;
+    } else if (file == "history") {
+        int len = history_length;
+        for (int i = 0; i < len; i++) {
+            HIST_ENTRY *entry = history_get(history_base + i);
+            if (entry) { stringstream ss; ss << "  " << (i + 1) << "  " << entry->line << endl; write_stdout(ss.str()); }
+        }
+        return 0;
+    } else if (file == "bg") {
+        background_process(arguments, background_processes, maximum_background_process, filename, flag,
+                           input_filename, input_flag, append_flag);
+        return 0;
+    } else {
+        return foreground_process(arguments, filename, flag, input_filename, input_flag, append_flag);
+    }
+}
+
+void execute_command_line(const vector<CommandSegment> &segments,
+                          unordered_map<pid_t, string> &background_processes,
+                          int maximum_background_process) {
+    int last_exit = 0;
+    for (size_t i = 0; i < segments.size(); ++i) {
+        bool should_run = false;
+        switch (segments[i].op) {
+            case OP_NONE:      should_run = true; break;
+            case OP_AND:       should_run = (last_exit == 0); break;
+            case OP_OR:        should_run = (last_exit != 0); break;
+            case OP_SEMICOLON: should_run = true; break;
+        }
+        if (should_run)
+            last_exit = execute_single_command(segments[i].command, background_processes, maximum_background_process);
     }
 }
 
@@ -687,8 +668,8 @@ int main(int argc, char *argv[]) {
         }
 //        getline(input_stream, line);
         reap_background_processes(background_processes);
-        vector<string> commands = tokenize_string(line, "&&");
-        execute_commands(commands, background_processes, maximum_background_process);
+        vector<CommandSegment> segments = parse_command_line(line);
+        execute_command_line(segments, background_processes, maximum_background_process);
         reap_background_processes(background_processes);
         free(line);
     }
