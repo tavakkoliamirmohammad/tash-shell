@@ -290,9 +290,71 @@ void show_current_directory(vector<char *> args) {
     }
 }
 
+void execute_pipeline(vector<vector<char *>> &pipeline_args, const string &filename, int redirect_flag) {
+    int num_cmds = pipeline_args.size();
+    // Create num_cmds-1 pipes. pipes[i] connects command i stdout to command i+1 stdin.
+    vector<int> pipefds(2 * (num_cmds - 1));
+    for (int i = 0; i < num_cmds - 1; i++) {
+        if (pipe(&pipefds[2 * i]) < 0) {
+            exit_with_message("Error: Pipe creation failed!\n", 1);
+        }
+    }
+
+    vector<pid_t> pids(num_cmds);
+    for (int i = 0; i < num_cmds; i++) {
+        pids[i] = fork();
+        if (pids[i] < 0) {
+            exit_with_message("Error: Fork failed!\n", 1);
+        } else if (pids[i] == 0) {
+            // Child process
+
+            // If not the first command, redirect stdin from previous pipe's read end
+            if (i > 0) {
+                dup2(pipefds[2 * (i - 1)], STDIN_FILENO);
+            }
+            // If not the last command, redirect stdout to current pipe's write end
+            if (i < num_cmds - 1) {
+                dup2(pipefds[2 * i + 1], STDOUT_FILENO);
+            }
+
+            // If last command and output redirection is requested
+            if (i == num_cmds - 1 && redirect_flag) {
+                int out = open(filename.c_str(), O_RDWR | O_CREAT, 0666);
+                if (out < 0) {
+                    write_stderr("An error has occurred\n");
+                    exit(1);
+                }
+                dup2(out, STDOUT_FILENO);
+                close(out);
+            }
+
+            // Close all pipe fds in child
+            for (int j = 0; j < 2 * (num_cmds - 1); j++) {
+                close(pipefds[j]);
+            }
+
+            execvp(pipeline_args[i][0], &pipeline_args[i][0]);
+            show_error_command(pipeline_args[i]);
+            exit(1);
+        }
+    }
+
+    // Parent: close all pipe fds
+    for (int j = 0; j < 2 * (num_cmds - 1); j++) {
+        close(pipefds[j]);
+    }
+
+    // Wait for all children
+    for (int i = 0; i < num_cmds; i++) {
+        int status;
+        waitpid(pids[i], &status, 0);
+    }
+}
+
 void execute_commands(const vector<string> &commands, unordered_map<pid_t, string> &background_processes,
                       int maximum_background_process) {
     for (string command:commands) {
+        // Handle output redirection (>) on the full command (including pipes)
         vector<string> temp = tokenize_string(command, ">");
         int flag = 0;
         string filename;
@@ -302,6 +364,31 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
             flag = 1;
         }
 
+        // Split command by pipe character
+        vector<string> pipe_segments = tokenize_string(command, "|");
+
+        if (pipe_segments.size() > 1) {
+            // Build argument lists for each segment of the pipeline
+            // We need to keep the tokenized strings alive for the duration of the pipeline
+            vector<vector<string>> all_tokens(pipe_segments.size());
+            vector<vector<char *>> pipeline_args(pipe_segments.size());
+
+            for (size_t i = 0; i < pipe_segments.size(); i++) {
+                all_tokens[i] = tokenize_string(pipe_segments[i], " ");
+                if (colorful_commands.find(all_tokens[i][0]) != colorful_commands.end()) {
+                    all_tokens[i].emplace_back("--color=auto");
+                }
+                for (const string &token : all_tokens[i]) {
+                    pipeline_args[i].push_back(const_cast<char *>(token.c_str()));
+                }
+                pipeline_args[i].push_back(nullptr);
+            }
+
+            execute_pipeline(pipeline_args, filename, flag);
+            continue;
+        }
+
+        // No pipes -- single command, execute as before
         vector<string> tokenize_command = tokenize_string(command, " ");
         if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end()) {
             tokenize_command.emplace_back("--color=auto");
