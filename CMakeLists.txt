@@ -4,8 +4,18 @@ project(amish VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ── Source files shared by shell binary and test library ─────────
+set(SHELL_SOURCES
+    main.cpp
+    colors.cpp
+    prompt.cpp
+    parser.cpp
+    builtins.cpp
+    process.cpp
+)
+
 # ── Main shell binary ─────────────────────────────────────────
-add_executable(shell.out main.cpp colors.cpp)
+add_executable(shell.out ${SHELL_SOURCES})
 target_link_libraries(shell.out -lreadline)
 
 # ── Testing ───────────────────────────────────────────────────
@@ -25,10 +35,7 @@ if(BUILD_TESTS)
 
     # ── Unit tests (tokenizer, trim, etc.) ────────────────────
     # Build parser functions as a library so tests can link against them
-    add_library(shell_lib STATIC
-        main.cpp
-        colors.cpp
-    )
+    add_library(shell_lib STATIC ${SHELL_SOURCES})
     target_link_libraries(shell_lib -lreadline)
     # Exclude main() from the library
     target_compile_definitions(shell_lib PRIVATE TESTING_BUILD)
