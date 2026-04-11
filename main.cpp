@@ -310,6 +310,10 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, f);
     while (true) {
         line = readline(write_shell_prefix().c_str());
+        if (line == NULL) {
+            printf("\n");
+            break;
+        }
         int offset = where_history();
         if (*line) {
             if (offset >= 1 && strcmp(line, history_get(offset)->line) != 0) {
