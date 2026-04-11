@@ -49,3 +49,36 @@ TEST(Redirect, AppendDoesNotOverwrite) {
     EXPECT_NE(content.find("appended"), std::string::npos) << "Appended content should be present";
     unlink(testfile.c_str());
 }
+
+TEST(Redirect, StderrToFile) {
+    std::string errfile = "/tmp/tash_gtest_stderr_" + std::to_string(getpid()) + ".txt";
+    // ls on a nonexistent path writes an error to stderr
+    run_shell("ls /nonexistent_path_for_tash_test 2> " + errfile + "\nexit\n");
+    std::string content = read_file(errfile);
+    EXPECT_NE(content.find("No such file or directory"), std::string::npos)
+        << "stderr should be captured in the file, got: " + content;
+    unlink(errfile.c_str());
+}
+
+TEST(Redirect, StderrToStdout) {
+    // With 2>&1, stderr merges into stdout so the error message appears in output
+    auto r = run_shell("ls /nonexistent_path_for_tash_test 2>&1\nexit\n");
+    EXPECT_NE(r.output.find("No such file or directory"), std::string::npos)
+        << "stderr merged into stdout should contain the error, got: " + r.output;
+}
+
+TEST(Redirect, StderrToFileDoesNotAffectStdout) {
+    std::string outfile = "/tmp/tash_gtest_stdout_" + std::to_string(getpid()) + ".txt";
+    std::string errfile = "/tmp/tash_gtest_stderr2_" + std::to_string(getpid()) + ".txt";
+    // echo writes to stdout; redirect stdout to outfile and stderr to errfile
+    run_shell("echo hello > " + outfile + " 2> " + errfile + "\nexit\n");
+    std::string out_content = read_file(outfile);
+    std::string err_content = read_file(errfile);
+    EXPECT_NE(out_content.find("hello"), std::string::npos)
+        << "stdout should go to outfile, got: " + out_content;
+    // echo produces no stderr, so errfile should be empty
+    EXPECT_TRUE(err_content.empty())
+        << "stderr file should be empty for echo, got: " + err_content;
+    unlink(outfile.c_str());
+    unlink(errfile.c_str());
+}

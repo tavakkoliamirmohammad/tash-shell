@@ -82,10 +82,12 @@ void background_process_signal(pid_t pid, int signal);
 // ── process.cpp ─────────────────────────────────────────────────
 
 int foreground_process(vector<char *> args, const string &filename, int flag,
-                       const string &input_filename, int input_flag, int append_flag);
+                       const string &input_filename, int input_flag, int append_flag,
+                       const string &stderr_filename, int stderr_flag, int stderr_to_stdout);
 void background_process(vector<char *> args, unordered_map<pid_t, string> &background_processes_list,
                         int maximum_background_process, const string &filename, int flag,
-                        const string &input_filename, int input_flag, int append_flag);
+                        const string &input_filename, int input_flag, int append_flag,
+                        const string &stderr_filename, int stderr_flag, int stderr_to_stdout);
 void check_background_process_finished(unordered_map<pid_t, string> &background_processes);
 void reap_background_processes(unordered_map<pid_t, string> &background_processes);
 void execute_pipeline(vector<vector<char *>> &pipeline_args, const string &filename, int redirect_flag);
