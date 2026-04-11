@@ -25,10 +25,10 @@ set(SHELL_SOURCES
 )
 
 # ── Main shell binary ─────────────────────────────────────────
-add_executable(shell.out ${SHELL_SOURCES})
-target_link_libraries(shell.out PRIVATE ${READLINE_LIB})
-target_include_directories(shell.out PRIVATE ${READLINE_INCLUDE})
-target_compile_options(shell.out PRIVATE -Wall -Wextra)
+add_executable(tash.out ${SHELL_SOURCES})
+target_link_libraries(tash.out PRIVATE ${READLINE_LIB})
+target_include_directories(tash.out PRIVATE ${READLINE_INCLUDE})
+target_compile_options(tash.out PRIVATE -Wall -Wextra)
 
 # ── Testing ───────────────────────────────────────────────────
 option(BUILD_TESTS "Build test suite" ON)
@@ -79,6 +79,6 @@ if(BUILD_TESTS)
     target_link_libraries(test_integration GTest::gtest)
     add_test(NAME IntegrationTests COMMAND test_integration)
     set_tests_properties(IntegrationTests PROPERTIES
-        ENVIRONMENT "TASH_SHELL_BIN=$<TARGET_FILE:shell.out>"
+        ENVIRONMENT "TASH_SHELL_BIN=$<TARGET_FILE:tash.out>"
     )
 endif()

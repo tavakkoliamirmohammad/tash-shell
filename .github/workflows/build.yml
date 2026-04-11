@@ -24,20 +24,20 @@ jobs:
           cmake --build build
           ctest --test-dir build --output-on-failure
       - name: Smoke test
-        run: echo -e "pwd\nls\necho hello\nexit" | ./build/shell.out
+        run: echo -e "pwd\nls\necho hello\nexit" | ./build/tash.out
       - name: Test install script (from-source path)
         run: |
           INSTALL_DIR=${{ runner.temp }}/tash-install
           mkdir -p "$INSTALL_DIR"
           cmake -B install-build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build install-build
-          install -m 755 install-build/shell.out "$INSTALL_DIR/tash"
+          install -m 755 install-build/tash.out "$INSTALL_DIR/tash"
           echo -e "echo install_test\nexit" | "$INSTALL_DIR/tash"
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: tash-${{ matrix.os }}
-          path: build/shell.out
+          path: build/tash.out
 
   build-fedora:
     runs-on: ubuntu-latest
@@ -52,12 +52,12 @@ jobs:
           cmake --build build
           ctest --test-dir build --output-on-failure
       - name: Smoke test
-        run: echo -e "pwd\nls\necho hello\nexit" | ./build/shell.out
+        run: echo -e "pwd\nls\necho hello\nexit" | ./build/tash.out
       - name: Test install workflow
         run: |
           cmake -B install-build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build install-build
-          install -m 755 install-build/shell.out /usr/local/bin/tash
+          install -m 755 install-build/tash.out /usr/local/bin/tash
           echo -e "echo install_test\nexit" | /usr/local/bin/tash
 
   build-alpine:
@@ -73,12 +73,12 @@ jobs:
           cmake --build build
           ctest --test-dir build --output-on-failure
       - name: Smoke test
-        run: echo -e "pwd\nls\necho hello\nexit" | ./build/shell.out
+        run: echo -e "pwd\nls\necho hello\nexit" | ./build/tash.out
       - name: Test install workflow
         run: |
           cmake -B install-build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build install-build
-          install -m 755 install-build/shell.out /usr/local/bin/tash
+          install -m 755 install-build/tash.out /usr/local/bin/tash
           echo -e "echo install_test\nexit" | /usr/local/bin/tash
 
   sanitizer:
@@ -109,7 +109,7 @@ jobs:
       - name: Smoke test with sanitizer
         env:
           ASAN_OPTIONS: detect_leaks=0
-        run: echo -e "pwd\nls\necho hello\nexit" | ./build/shell.out
+        run: echo -e "pwd\nls\necho hello\nexit" | ./build/tash.out
 
   coverage:
     runs-on: ubuntu-24.04

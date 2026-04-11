@@ -12,7 +12,7 @@ class Tash < Formula
     system "cmake", "-B", "build", "-DBUILD_TESTS=OFF",
            "-DCMAKE_BUILD_TYPE=Release", *std_cmake_args
     system "cmake", "--build", "build"
-    bin.install "build/shell.out" => "tash"
+    bin.install "build/tash.out" => "tash"
   end
 
   test do

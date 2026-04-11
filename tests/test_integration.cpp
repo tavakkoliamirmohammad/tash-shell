@@ -9,7 +9,7 @@ int main(int argc, char **argv) {
     if (bin) {
         shell_binary = bin;
     } else {
-        shell_binary = "./shell.out";
+        shell_binary = "./tash.out";
     }
 
     return RUN_ALL_TESTS();
