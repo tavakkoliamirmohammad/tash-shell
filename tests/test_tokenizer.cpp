@@ -211,3 +211,106 @@ TEST(TokenizerTildeTest, NoTildeExpansion) {
     ASSERT_EQ(tokens.size(), 2u);
     EXPECT_EQ(tokens[1], "hello~world");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Environment variable expansion (PR #12)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ExpandVarsTest, SimpleVar) {
+    setenv("AMISH_TEST_UNIT", "hello", 1);
+    EXPECT_EQ(expand_variables("$AMISH_TEST_UNIT"), "hello");
+    unsetenv("AMISH_TEST_UNIT");
+}
+
+TEST(ExpandVarsTest, BracedVar) {
+    setenv("AMISH_TEST_UNIT", "world", 1);
+    EXPECT_EQ(expand_variables("${AMISH_TEST_UNIT}"), "world");
+    unsetenv("AMISH_TEST_UNIT");
+}
+
+TEST(ExpandVarsTest, UndefinedVarEmpty) {
+    EXPECT_EQ(expand_variables("$SURELY_UNDEFINED_VAR_XYZ"), "");
+}
+
+TEST(ExpandVarsTest, MixedText) {
+    setenv("AMISH_TEST_UNIT", "val", 1);
+    EXPECT_EQ(expand_variables("pre_$AMISH_TEST_UNIT_post"), "pre_");
+    // Note: AMISH_TEST_UNIT_post is treated as one var name (includes _post)
+    unsetenv("AMISH_TEST_UNIT");
+}
+
+TEST(ExpandVarsTest, LoneDollar) {
+    EXPECT_EQ(expand_variables("cost is $"), "cost is $");
+}
+
+TEST(ExpandVarsTest, NoVars) {
+    EXPECT_EQ(expand_variables("hello world"), "hello world");
+}
+
+TEST(ExpandVarsTest, EmptyInput) {
+    EXPECT_EQ(expand_variables(""), "");
+}
+
+TEST(ExpandVarsTest, MultipleVars) {
+    setenv("AMISH_A", "foo", 1);
+    setenv("AMISH_B", "bar", 1);
+    EXPECT_EQ(expand_variables("$AMISH_A and $AMISH_B"), "foo and bar");
+    unsetenv("AMISH_A");
+    unsetenv("AMISH_B");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// parse_command_line (PR #21)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ParseCommandLineTest, SingleCommand) {
+    auto segs = parse_command_line("echo hello");
+    ASSERT_EQ(segs.size(), 1u);
+    EXPECT_EQ(segs[0].command, "echo hello");
+    EXPECT_EQ(segs[0].op, OP_NONE);
+}
+
+TEST(ParseCommandLineTest, AndOperator) {
+    auto segs = parse_command_line("echo a && echo b");
+    ASSERT_EQ(segs.size(), 2u);
+    EXPECT_EQ(segs[0].command, "echo a");
+    EXPECT_EQ(segs[0].op, OP_NONE);
+    EXPECT_EQ(segs[1].command, "echo b");
+    EXPECT_EQ(segs[1].op, OP_AND);
+}
+
+TEST(ParseCommandLineTest, OrOperator) {
+    auto segs = parse_command_line("false || echo fallback");
+    ASSERT_EQ(segs.size(), 2u);
+    EXPECT_EQ(segs[0].command, "false");
+    EXPECT_EQ(segs[1].command, "echo fallback");
+    EXPECT_EQ(segs[1].op, OP_OR);
+}
+
+TEST(ParseCommandLineTest, SemicolonOperator) {
+    auto segs = parse_command_line("echo a ; echo b");
+    ASSERT_EQ(segs.size(), 2u);
+    EXPECT_EQ(segs[0].command, "echo a");
+    EXPECT_EQ(segs[1].command, "echo b");
+    EXPECT_EQ(segs[1].op, OP_SEMICOLON);
+}
+
+TEST(ParseCommandLineTest, MixedOperators) {
+    auto segs = parse_command_line("echo a && echo b || echo c ; echo d");
+    ASSERT_EQ(segs.size(), 4u);
+    EXPECT_EQ(segs[0].op, OP_NONE);
+    EXPECT_EQ(segs[1].op, OP_AND);
+    EXPECT_EQ(segs[2].op, OP_OR);
+    EXPECT_EQ(segs[3].op, OP_SEMICOLON);
+}
+
+TEST(ParseCommandLineTest, QuotedOperatorsNotSplit) {
+    auto segs = parse_command_line("echo \"a && b\"");
+    ASSERT_EQ(segs.size(), 1u);
+    EXPECT_EQ(segs[0].command, "echo \"a && b\"");
+}
+
+TEST(ParseCommandLineTest, EmptyInput) {
+    auto segs = parse_command_line("");
+    EXPECT_TRUE(segs.empty());
+}

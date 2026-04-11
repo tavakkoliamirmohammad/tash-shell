@@ -20,17 +20,19 @@
 
 extern char **environ;
 
+#ifndef SHELL_H
 enum OperatorType {
     OP_NONE,
-    OP_AND,        // &&
-    OP_OR,         // ||
-    OP_SEMICOLON   // ;
+    OP_AND,
+    OP_OR,
+    OP_SEMICOLON
 };
 
 struct CommandSegment {
     string command;
     OperatorType op;
 };
+#endif
 
 volatile sig_atomic_t sigchld_received = 0;
 
