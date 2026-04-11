@@ -251,6 +251,36 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
         pid_t pid = get_nth_background_process(background_processes, n);
         if (pid == -1) { write_stderr(file + ": Invalid n number\n"); return 1; }
         background_process_signal(pid, SIGCONT); return 0;
+    } else if (file == "fg") {
+        if (background_processes.empty()) {
+            write_stderr("fg: no background jobs\n");
+            return 1;
+        }
+        pid_t pid;
+        if (arguments[1] == nullptr) {
+            // No argument: bring the most recent (last) background job
+            // unordered_map has no order; pick the highest PID as "most recent"
+            pid = -1;
+            for (auto &p : background_processes) {
+                if (p.first > pid) pid = p.first;
+            }
+        } else {
+            int n;
+            try { n = stoi(arguments[1]); }
+            catch (const std::invalid_argument&) { write_stderr("fg: invalid job number\n"); return 1; }
+            catch (const std::out_of_range&) { write_stderr("fg: job number out of range\n"); return 1; }
+            pid = get_nth_background_process(background_processes, n);
+            if (pid == -1) { write_stderr("fg: invalid job number\n"); return 1; }
+        }
+        // Resume the process in case it is stopped
+        kill(pid, SIGCONT);
+        // Wait for it in the foreground
+        fg_child_pid = pid;
+        int status;
+        waitpid(pid, &status, WUNTRACED);
+        fg_child_pid = 0;
+        background_processes.erase(pid);
+        return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
     } else if (file == "history") {
         int len = history_length;
         for (int i = 0; i < len; i++) {

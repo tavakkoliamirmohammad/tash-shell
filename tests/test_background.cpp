@@ -26,3 +26,18 @@ TEST(Background, BgkillNonNumeric) {
     auto r = run_shell("bgkill abc\nexit\n");
     EXPECT_NE(r.output.find("invalid process number"), std::string::npos);
 }
+
+TEST(Background, FgNoJobs) {
+    auto r = run_shell("fg\nexit\n");
+    EXPECT_NE(r.output.find("fg: no background jobs"), std::string::npos);
+}
+
+TEST(Background, FgWithNumberNoJobs) {
+    auto r = run_shell("fg 1\nexit\n");
+    EXPECT_NE(r.output.find("fg: no background jobs"), std::string::npos);
+}
+
+TEST(Background, FgInvalidJobNumber) {
+    auto r = run_shell("bg sleep 60\nfg abc\nexit\n");
+    EXPECT_NE(r.output.find("fg: invalid job number"), std::string::npos);
+}
