@@ -1,4 +1,4 @@
-name: Build
+name: Build & Test
 
 on:
   push:
@@ -7,22 +7,66 @@ on:
     branches: [master]
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build-ubuntu:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libreadline-dev
       - name: Build
-        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11
+        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
       - name: Smoke test
-        run: echo -e "pwd\nls\nexit" | ./shell.out
+        run: |
+          echo -e "pwd\nls\necho hello\nexit" | ./shell.out
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: amish-${{ matrix.os }}
+          path: shell.out
 
   build-macos:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [macos-13, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11
+        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
       - name: Smoke test
-        run: echo -e "pwd\nls\nexit" | ./shell.out
+        run: |
+          echo -e "pwd\nls\necho hello\nexit" | ./shell.out
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: amish-${{ matrix.os }}
+          path: shell.out
+
+  build-fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: dnf install -y gcc-c++ readline-devel
+      - name: Build
+        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
+      - name: Smoke test
+        run: |
+          echo -e "pwd\nls\necho hello\nexit" | ./shell.out
+
+  build-alpine:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apk add --no-cache g++ readline-dev
+      - name: Build
+        run: g++ main.cpp colors.cpp -lreadline -o shell.out -std=c++11 -Wall -Wextra
+      - name: Smoke test
+        run: |
+          echo -e "pwd\nls\necho hello\nexit" | ./shell.out
