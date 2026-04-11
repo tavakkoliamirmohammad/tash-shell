@@ -20,17 +20,19 @@
 
 extern char **environ;
 
+#ifndef SHELL_H
 enum OperatorType {
     OP_NONE,
-    OP_AND,        // &&
-    OP_OR,         // ||
-    OP_SEMICOLON   // ;
+    OP_AND,
+    OP_OR,
+    OP_SEMICOLON
 };
 
 struct CommandSegment {
     string command;
     OperatorType op;
 };
+#endif
 
 volatile sig_atomic_t sigchld_received = 0;
 
@@ -626,6 +628,7 @@ void sigint_handler(int signum) {
     }
 }
 
+#ifndef TESTING_BUILD
 int main(int argc, char *argv[]) {
     if (argc != 1) {
         string error_message = "An error has occurred\n";
@@ -675,3 +678,4 @@ int main(int argc, char *argv[]) {
     }
     return 0;
 }
+#endif // TESTING_BUILD
