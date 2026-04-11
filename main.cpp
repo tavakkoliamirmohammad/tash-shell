@@ -516,6 +516,16 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
             }
             background_process_signal(pid, SIGCONT);
 
+        } else if (file == "history") {
+            int len = history_length;
+            for (int i = 0; i < len; i++) {
+                HIST_ENTRY *entry = history_get(history_base + i);
+                if (entry) {
+                    stringstream ss;
+                    ss << "  " << (i + 1) << "  " << entry->line << endl;
+                    write_stdout(ss.str());
+                }
+            }
         } else if (file == "bg") {
             background_process(arguments, background_processes, maximum_background_process, filename, flag,
                                input_filename, input_flag, append_flag);
