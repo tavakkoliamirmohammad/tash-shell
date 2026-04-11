@@ -51,6 +51,7 @@ extern unordered_set<string> colorful_commands;
 extern char hostname[MAX_SIZE];
 extern volatile sig_atomic_t fg_child_pid;
 extern volatile sig_atomic_t sigchld_received;
+extern string previous_directory;
 extern char **environ;
 
 // ── prompt.cpp ──────────────────────────────────────────────────

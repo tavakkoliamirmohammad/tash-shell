@@ -2,6 +2,7 @@
 
 // ── Global variable definitions ─────────────────────────────────
 
+string previous_directory;
 volatile sig_atomic_t sigchld_received = 0;
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
 volatile sig_atomic_t fg_child_pid = 0;
