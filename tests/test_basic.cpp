@@ -53,3 +53,19 @@ TEST(Basic, NoBannerWhenNotTTY) {
     auto r = run_shell("exit\n");
     EXPECT_EQ(r.output.find("Welcome"), std::string::npos);
 }
+TEST(Basic, BackslashLineContinuation) {
+    // Create a script with backslash continuation
+    std::string script_path = "/tmp/tash_test_continuation_" + std::to_string(getpid()) + ".sh";
+    {
+        std::ofstream f(script_path);
+        f << "echo hello \\" << "\n";
+        f << "world" << "\n";
+    }
+
+    auto r = run_shell_script(script_path);
+    EXPECT_NE(r.output.find("hello world"), std::string::npos)
+        << "Backslash continuation should join lines. Got: " << r.output;
+    EXPECT_EQ(r.exit_code, 0);
+
+    unlink(script_path.c_str());
+}

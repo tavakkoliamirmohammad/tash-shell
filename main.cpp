@@ -306,6 +306,13 @@ int execute_script_file(const string &path,
     }
     string line;
     while (getline(file, line)) {
+        // Handle backslash line continuation
+        while (!line.empty() && line.back() == '\\') {
+            line.pop_back(); // remove trailing backslash
+            string next;
+            if (!getline(file, next)) break;
+            line += next;
+        }
         if (line.empty()) continue;
         vector<CommandSegment> segments = parse_command_line(line);
         execute_command_line(segments, background_processes, maximum_background_process);
@@ -396,9 +403,18 @@ int main(int argc, char *argv[]) {
             free(line);
             continue;
         }
-        // Expand history references (!! and !N) before adding to history
-        string raw_line(line);
+        // Handle backslash line continuation
+        string full_line = line;
         free(line);
+        while (!full_line.empty() && full_line.back() == '\\') {
+            full_line.pop_back(); // remove trailing backslash
+            char *continuation = readline("> ");
+            if (continuation == NULL) break;
+            full_line += continuation;
+            free(continuation);
+        }
+        // Expand history references (!! and !N) before adding to history
+        string raw_line(full_line);
         string expanded = expand_history(raw_line);
         if (expanded.empty()) {
             continue;
