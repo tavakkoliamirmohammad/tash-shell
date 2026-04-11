@@ -354,3 +354,55 @@ TEST(StripQuotesTest, EmptySingleQuoted) {
 TEST(StripQuotesTest, NestedQuotes) {
     EXPECT_EQ(strip_quotes("\"it's\""), "it's");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Command substitution
+// ═══════════════════════════════════════════════════════════════
+
+TEST(CommandSubstitutionTest, SimpleEcho) {
+    string result = expand_command_substitution("$(echo hello)");
+    EXPECT_EQ(result, "hello");
+}
+
+TEST(CommandSubstitutionTest, EmbeddedInString) {
+    string result = expand_command_substitution("count: $(echo 42)");
+    EXPECT_EQ(result, "count: 42");
+}
+
+TEST(CommandSubstitutionTest, NoSubstitution) {
+    string result = expand_command_substitution("hello world");
+    EXPECT_EQ(result, "hello world");
+}
+
+TEST(CommandSubstitutionTest, EmptyInput) {
+    string result = expand_command_substitution("");
+    EXPECT_EQ(result, "");
+}
+
+TEST(CommandSubstitutionTest, NestedParens) {
+    // The inner command has parentheses in a subshell context
+    string result = expand_command_substitution("$(echo $(echo nested))");
+    EXPECT_EQ(result, "nested");
+}
+
+TEST(CommandSubstitutionTest, MultipleSubstitutions) {
+    string result = expand_command_substitution("$(echo a) and $(echo b)");
+    EXPECT_EQ(result, "a and b");
+}
+
+TEST(CommandSubstitutionTest, TrailingNewlineStripped) {
+    // printf adds no trailing newline, echo does — test that trailing newlines are stripped
+    string result = expand_command_substitution("$(echo hello)");
+    EXPECT_EQ(result, "hello");
+}
+
+TEST(CommandSubstitutionTest, LoneDollarSign) {
+    string result = expand_command_substitution("cost is $");
+    EXPECT_EQ(result, "cost is $");
+}
+
+TEST(CommandSubstitutionTest, UnmatchedParen) {
+    // No matching ')' — should keep literal text
+    string result = expand_command_substitution("$(echo hello");
+    EXPECT_EQ(result, "$(echo hello");
+}

@@ -118,6 +118,58 @@ string expand_variables(const string &input) {
     return result;
 }
 
+string expand_command_substitution(const string &input) {
+    string result;
+    size_t i = 0;
+    while (i < input.size()) {
+        // Look for $( pattern
+        if (i + 1 < input.size() && input[i] == '$' && input[i + 1] == '(') {
+            // Find the matching closing parenthesis, handling nested parens
+            size_t start = i + 2; // position right after "$("
+            int depth = 1;
+            size_t j = start;
+            while (j < input.size() && depth > 0) {
+                if (input[j] == '(') {
+                    depth++;
+                } else if (input[j] == ')') {
+                    depth--;
+                }
+                if (depth > 0) {
+                    j++;
+                }
+            }
+            if (depth == 0) {
+                // Extract the command between $( and )
+                string cmd = input.substr(start, j - start);
+                // Run the command with popen and capture stdout
+                string output;
+                FILE *pipe = popen(cmd.c_str(), "r");
+                if (pipe) {
+                    char buffer[256];
+                    while (fgets(buffer, sizeof(buffer), pipe)) {
+                        output += buffer;
+                    }
+                    pclose(pipe);
+                }
+                // Strip trailing newline(s)
+                while (!output.empty() && output.back() == '\n') {
+                    output.pop_back();
+                }
+                result += output;
+                i = j + 1; // skip past the closing ')'
+            } else {
+                // No matching ')' found, keep the literal text
+                result += input[i];
+                i++;
+            }
+        } else {
+            result += input[i];
+            i++;
+        }
+    }
+    return result;
+}
+
 vector<string> expand_globs(const vector<string> &args) {
     vector<string> expanded;
     for (const string &arg : args) {
