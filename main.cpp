@@ -77,22 +77,73 @@ void show_error_command(const vector<char *> &args) {
 }
 
 vector<string> tokenize_string(string line, const string &delimiter) {
-    string regularExpression = delimiter + R"((?=(?:[^\"]*\"[^\"]*\")*[^\"]*$))";
-    regex e(regularExpression);
-    regex_token_iterator<string::iterator> it(line.begin(), line.end(), e, -1);
-    vector<string> commands{it, {}};
-    commands.erase(
-            remove_if(
-                    commands.begin(), commands.end(),
-                    [](const string& c){ return c.empty();}),
-            commands.end());;
-    for (string &command : commands) {
-        command = trim(command);
-        if (command[0] == '~') {
-            command = regex_replace(command, regex("~"), string(getenv("HOME")));
+    vector<string> tokens;
+    string current;
+    bool in_double_quotes = false;
+    bool in_single_quotes = false;
+    size_t i = 0;
+    size_t len = line.size();
+    size_t dlen = delimiter.size();
+
+    while (i < len) {
+        // Handle escape character
+        if (i + 1 < len && line[i] == '\\' && (line[i + 1] == '"' || line[i + 1] == '\'' || line[i + 1] == '\\')) {
+            current += line[i + 1];
+            i += 2;
+            continue;
+        }
+
+        // Toggle double-quote state (only if not inside single quotes)
+        if (line[i] == '"' && !in_single_quotes) {
+            in_double_quotes = !in_double_quotes;
+            current += line[i];
+            ++i;
+            continue;
+        }
+
+        // Toggle single-quote state (only if not inside double quotes)
+        if (line[i] == '\'' && !in_double_quotes) {
+            in_single_quotes = !in_single_quotes;
+            current += line[i];
+            ++i;
+            continue;
+        }
+
+        // Check for delimiter match only when outside quotes
+        if (!in_double_quotes && !in_single_quotes &&
+            i + dlen <= len && line.compare(i, dlen, delimiter) == 0) {
+            string token = current;
+            token = trim(token);
+            if (!token.empty()) {
+                tokens.push_back(token);
+            }
+            current.clear();
+            i += dlen;
+            continue;
+        }
+
+        current += line[i];
+        ++i;
+    }
+
+    // Push the last token
+    string token = current;
+    token = trim(token);
+    if (!token.empty()) {
+        tokens.push_back(token);
+    }
+
+    // Perform tilde expansion at the start of each token
+    const char *home = getenv("HOME");
+    if (home) {
+        for (string &t : tokens) {
+            if (!t.empty() && t[0] == '~') {
+                t = string(home) + t.substr(1);
+            }
         }
     }
-    return commands;
+
+    return tokens;
 }
 
 void foreground_process(vector<char *> args, const string &filename, int flag) {
