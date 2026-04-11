@@ -1,4 +1,4 @@
-# Amish (Amir's Shell)
+# Tash (Tavakkoli's Shell)
 
 A lightweight Unix shell written in C++ that supports command chaining, background job control, output redirection, colored output, command history, and tab auto-completion.
 
@@ -115,7 +115,7 @@ bg sleep 60 && bglist
 
 ## Architecture
 
-Amish follows the classic **fork-exec** pattern used by Unix shells:
+Tash follows the classic **fork-exec** pattern used by Unix shells:
 
 1. The main loop reads input via GNU Readline (providing history and tab completion).
 2. Input is tokenized and parsed, splitting on operators like `&&`.

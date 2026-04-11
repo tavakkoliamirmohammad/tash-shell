@@ -27,16 +27,16 @@ jobs:
         run: echo -e "pwd\nls\necho hello\nexit" | ./build/shell.out
       - name: Test install script (from-source path)
         run: |
-          INSTALL_DIR=${{ runner.temp }}/amish-install
+          INSTALL_DIR=${{ runner.temp }}/tash-install
           mkdir -p "$INSTALL_DIR"
           cmake -B install-build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build install-build
-          install -m 755 install-build/shell.out "$INSTALL_DIR/amish"
-          echo -e "echo install_test\nexit" | "$INSTALL_DIR/amish"
+          install -m 755 install-build/shell.out "$INSTALL_DIR/tash"
+          echo -e "echo install_test\nexit" | "$INSTALL_DIR/tash"
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: amish-${{ matrix.os }}
+          name: tash-${{ matrix.os }}
           path: build/shell.out
 
   build-fedora:
@@ -57,8 +57,8 @@ jobs:
         run: |
           cmake -B install-build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build install-build
-          install -m 755 install-build/shell.out /usr/local/bin/amish
-          echo -e "echo install_test\nexit" | /usr/local/bin/amish
+          install -m 755 install-build/shell.out /usr/local/bin/tash
+          echo -e "echo install_test\nexit" | /usr/local/bin/tash
 
   build-alpine:
     runs-on: ubuntu-latest
@@ -78,5 +78,5 @@ jobs:
         run: |
           cmake -B install-build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build install-build
-          install -m 755 install-build/shell.out /usr/local/bin/amish
-          echo -e "echo install_test\nexit" | /usr/local/bin/amish
+          install -m 755 install-build/shell.out /usr/local/bin/tash
+          echo -e "echo install_test\nexit" | /usr/local/bin/tash

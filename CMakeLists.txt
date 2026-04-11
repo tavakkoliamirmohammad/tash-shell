@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.17)
-project(amish VERSION 1.0.0 LANGUAGES CXX)
+project(tash VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -74,6 +74,6 @@ if(BUILD_TESTS)
     target_link_libraries(test_integration GTest::gtest)
     add_test(NAME IntegrationTests COMMAND test_integration)
     set_tests_properties(IntegrationTests PROPERTIES
-        ENVIRONMENT "AMISH_SHELL_BIN=$<TARGET_FILE:shell.out>"
+        ENVIRONMENT "TASH_SHELL_BIN=$<TARGET_FILE:shell.out>"
     )
 endif()

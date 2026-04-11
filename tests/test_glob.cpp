@@ -1,7 +1,7 @@
 #include "test_helpers.h"
 
 TEST(Glob, ExpandStar) {
-    std::string dir = "/tmp/amish_glob_test_" + std::to_string(getpid());
+    std::string dir = "/tmp/tash_glob_test_" + std::to_string(getpid());
     system(("mkdir -p " + dir).c_str());
     system(("touch " + dir + "/aaa.txt " + dir + "/bbb.txt " + dir + "/ccc.log").c_str());
 

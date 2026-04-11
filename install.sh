@@ -3,9 +3,9 @@ set -euo pipefail
 
 REPO="tavakkoliamirmohammad/UNIX-Command-Line-Interface"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
-BINARY_NAME="amish"
+BINARY_NAME="tash"
 
-echo "Installing Amish shell..."
+echo "Installing Tash shell..."
 
 # Detect platform
 OS="$(uname -s)"
@@ -13,13 +13,13 @@ ARCH="$(uname -m)"
 
 case "${OS}" in
     Linux)
-        ARTIFACT="amish-linux-amd64"
+        ARTIFACT="tash-linux-amd64"
         ;;
     Darwin)
         if [ "${ARCH}" = "arm64" ]; then
-            ARTIFACT="amish-macos-arm64"
+            ARTIFACT="tash-macos-arm64"
         else
-            ARTIFACT="amish-macos-arm64"
+            ARTIFACT="tash-macos-arm64"
         fi
         ;;
     *)
@@ -77,5 +77,5 @@ else
     fi
 fi
 
-echo "Amish shell installed successfully!"
-echo "Run 'amish' to start the shell."
+echo "Tash shell installed successfully!"
+echo "Run 'tash' to start the shell."

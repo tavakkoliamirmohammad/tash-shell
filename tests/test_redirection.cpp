@@ -1,7 +1,7 @@
 #include "test_helpers.h"
 
 TEST(Redirect, FileCreatedWithCorrectPermissions) {
-    std::string testfile = "/tmp/amish_gtest_perms_" + std::to_string(getpid()) + ".txt";
+    std::string testfile = "/tmp/tash_gtest_perms_" + std::to_string(getpid()) + ".txt";
     run_shell("echo perm_test > " + testfile + "\nexit\n");
     EXPECT_EQ(read_file(testfile), "perm_test\n");
     EXPECT_EQ(get_file_perms(testfile), 0644);
@@ -9,7 +9,7 @@ TEST(Redirect, FileCreatedWithCorrectPermissions) {
 }
 
 TEST(Redirect, OverwriteExistingFile) {
-    std::string testfile = "/tmp/amish_gtest_overwrite_" + std::to_string(getpid()) + ".txt";
+    std::string testfile = "/tmp/tash_gtest_overwrite_" + std::to_string(getpid()) + ".txt";
     run_shell("echo first > " + testfile + "\nexit\n");
     run_shell("echo second > " + testfile + "\nexit\n");
     std::string content = read_file(testfile);
@@ -19,7 +19,7 @@ TEST(Redirect, OverwriteExistingFile) {
 }
 
 TEST(Redirect, AppendToFile) {
-    std::string testfile = "/tmp/amish_gtest_append_" + std::to_string(getpid()) + ".txt";
+    std::string testfile = "/tmp/tash_gtest_append_" + std::to_string(getpid()) + ".txt";
     run_shell("echo line1 > " + testfile + "\nexit\n");
     run_shell("echo line2 >> " + testfile + "\nexit\n");
     std::string content = read_file(testfile);
@@ -29,7 +29,7 @@ TEST(Redirect, AppendToFile) {
 }
 
 TEST(Redirect, InputFromFile) {
-    std::string infile = "/tmp/amish_gtest_input_" + std::to_string(getpid()) + ".txt";
+    std::string infile = "/tmp/tash_gtest_input_" + std::to_string(getpid()) + ".txt";
     { std::ofstream f(infile); f << "cherry\napple\nbanana\n"; }
     auto r = run_shell("sort < " + infile + "\nexit\n");
     EXPECT_NE(r.output.find("apple"), std::string::npos);
@@ -41,7 +41,7 @@ TEST(Redirect, InputFromFile) {
 }
 
 TEST(Redirect, AppendDoesNotOverwrite) {
-    std::string testfile = "/tmp/amish_gtest_append2_" + std::to_string(getpid()) + ".txt";
+    std::string testfile = "/tmp/tash_gtest_append2_" + std::to_string(getpid()) + ".txt";
     run_shell("echo original > " + testfile + "\nexit\n");
     run_shell("echo appended >> " + testfile + "\nexit\n");
     std::string content = read_file(testfile);

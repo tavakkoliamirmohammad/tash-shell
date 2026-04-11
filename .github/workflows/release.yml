@@ -14,11 +14,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
-            artifact: amish-linux-amd64
+            artifact: tash-linux-amd64
           - os: macos-14
-            artifact: amish-macos-arm64
+            artifact: tash-macos-arm64
           - os: macos-15
-            artifact: amish-macos-arm64-15
+            artifact: tash-macos-arm64-15
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
