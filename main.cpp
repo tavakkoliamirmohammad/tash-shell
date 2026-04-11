@@ -19,6 +19,18 @@
 
 #define MAX_SIZE 1024
 
+enum OperatorType {
+    OP_NONE,       // first command (no preceding operator)
+    OP_AND,        // &&
+    OP_OR,         // ||
+    OP_SEMICOLON   // ;
+};
+
+struct CommandSegment {
+    string command;
+    OperatorType op; // the operator that precedes this command
+};
+
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
 
 void exit_with_message(const string &message, int exit_status) {
@@ -85,7 +97,69 @@ vector<string> tokenize_string(string line, const string &delimiter) {
     return commands;
 }
 
-void foreground_process(vector<char *> args, const string &filename, int flag) {
+// Parse a command line into segments separated by &&, ||, and ;
+// Respects double-quoted strings (delimiters inside quotes are ignored).
+vector<CommandSegment> parse_command_line(const string &line) {
+    vector<CommandSegment> segments;
+    string current;
+    bool in_quotes = false;
+    size_t i = 0;
+    OperatorType next_op = OP_NONE;
+
+    while (i < line.size()) {
+        char c = line[i];
+
+        if (c == '"') {
+            in_quotes = !in_quotes;
+            current += c;
+            ++i;
+        } else if (!in_quotes && c == '&' && i + 1 < line.size() && line[i + 1] == '&') {
+            // found &&
+            string cmd = current;
+            cmd = trim(cmd);
+            if (!cmd.empty()) {
+                segments.push_back({cmd, next_op});
+            }
+            next_op = OP_AND;
+            current.clear();
+            i += 2;
+        } else if (!in_quotes && c == '|' && i + 1 < line.size() && line[i + 1] == '|') {
+            // found ||
+            string cmd = current;
+            cmd = trim(cmd);
+            if (!cmd.empty()) {
+                segments.push_back({cmd, next_op});
+            }
+            next_op = OP_OR;
+            current.clear();
+            i += 2;
+        } else if (!in_quotes && c == ';') {
+            // found ;
+            string cmd = current;
+            cmd = trim(cmd);
+            if (!cmd.empty()) {
+                segments.push_back({cmd, next_op});
+            }
+            next_op = OP_SEMICOLON;
+            current.clear();
+            ++i;
+        } else {
+            current += c;
+            ++i;
+        }
+    }
+
+    // Last segment
+    string cmd = current;
+    cmd = trim(cmd);
+    if (!cmd.empty()) {
+        segments.push_back({cmd, next_op});
+    }
+
+    return segments;
+}
+
+int foreground_process(vector<char *> args, const string &filename, int flag) {
     int status;
     int pid = fork();
     if (pid < 0) {
@@ -105,14 +179,12 @@ void foreground_process(vector<char *> args, const string &filename, int flag) {
         if (flag) {
             close(out);
         }
-        exit(0);
+        exit(127);
     } else {
         waitpid(pid, &status, WUNTRACED);
-        int child_return_code = WEXITSTATUS(status);
-//        if (child_return_code != 0) {
-//            exit_with_message("Error: failed", 2);
-//        }
+        return WEXITSTATUS(status);
     }
+    return 1; // unreachable, but satisfies compiler
 }
 
 void background_process(vector<char *> args, unordered_map<pid_t, string> &background_processes_list,
@@ -221,72 +293,114 @@ void show_current_directory(vector<char *> args) {
     }
 }
 
-void execute_commands(const vector<string> &commands, unordered_map<pid_t, string> &background_processes,
-                      int maximum_background_process) {
-    for (string command:commands) {
-        vector<string> temp = tokenize_string(command, ">");
-        int flag = 0;
-        string filename;
-        if (temp.size() > 1) {
-            command = temp[0];
-            filename = temp[1];
-            flag = 1;
+// Execute a single command string. Returns the exit status (0 = success).
+int execute_single_command(const string &command_str, unordered_map<pid_t, string> &background_processes,
+                           int maximum_background_process) {
+    string command = command_str;
+    vector<string> temp = tokenize_string(command, ">");
+    int flag = 0;
+    string filename;
+    if (temp.size() > 1) {
+        command = temp[0];
+        filename = temp[1];
+        flag = 1;
+    }
+
+    vector<string> tokenize_command = tokenize_string(command, " ");
+    if (tokenize_command.empty()) {
+        return 0;
+    }
+    if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end()) {
+        tokenize_command.emplace_back("--color=auto");
+    }
+    vector<char *> arguments;
+    arguments.reserve(tokenize_command.size() + 2);
+    for (const string &token : tokenize_command) {
+        arguments.push_back(const_cast<char *>(token.c_str()));
+    }
+    arguments.push_back(nullptr);
+    string file = arguments[0];
+    if (file == "cd") {
+        change_directory(arguments);
+        return 0;
+    } else if (file == "pwd") {
+        show_current_directory(arguments);
+        return 0;
+    } else if (file == "exit") {
+        write_stdout("GoodBye! See you soon!\n");
+        exit(0);
+    } else if (file == "bglist") {
+        show_background_process(background_processes);
+        return 0;
+    } else if (file == "bgkill") {
+        pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
+        if (pid == -1) {
+            stringstream ss;
+            ss << file << ": " << "Invalid n number" << endl;
+            write_stderr(ss.str());
+            return 1;
+        }
+        background_process_signal(pid, SIGTERM);
+        return 0;
+    } else if (file == "bgstop") {
+        pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
+        if (pid == -1) {
+            stringstream ss;
+            ss << file << ": " << "Invalid n number" << endl;
+            write_stderr(ss.str());
+            return 1;
+        }
+        background_process_signal(pid, SIGSTOP);
+        return 0;
+    } else if (file == "bgstart") {
+        pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
+        if (pid == -1) {
+            stringstream ss;
+            ss << file << ": " << "Invalid n number" << endl;
+            write_stderr(ss.str());
+            return 1;
+        }
+        background_process_signal(pid, SIGCONT);
+        return 0;
+    } else if (file == "bg") {
+        background_process(arguments, background_processes, maximum_background_process, filename, flag);
+        return 0;
+    } else {
+        return foreground_process(arguments, filename, flag);
+    }
+}
+
+// Execute a list of command segments, respecting &&, ||, and ; operators.
+void execute_command_line(const vector<CommandSegment> &segments,
+                          unordered_map<pid_t, string> &background_processes,
+                          int maximum_background_process) {
+    int last_exit_status = 0;
+
+    for (size_t i = 0; i < segments.size(); ++i) {
+        const CommandSegment &seg = segments[i];
+        bool should_run = false;
+
+        switch (seg.op) {
+            case OP_NONE:
+                // First command always runs
+                should_run = true;
+                break;
+            case OP_AND:
+                // Run only if previous succeeded
+                should_run = (last_exit_status == 0);
+                break;
+            case OP_OR:
+                // Run only if previous failed
+                should_run = (last_exit_status != 0);
+                break;
+            case OP_SEMICOLON:
+                // Always run
+                should_run = true;
+                break;
         }
 
-        vector<string> tokenize_command = tokenize_string(command, " ");
-        if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end()) {
-            tokenize_command.emplace_back("--color=auto");
-        }
-        vector<char *> arguments;
-        arguments.reserve(tokenize_command.size() + 2);
-        for (const string &token : tokenize_command) {
-            arguments.push_back(const_cast<char *>(token.c_str()));
-        }
-        arguments.push_back(nullptr);
-        string file = arguments[0];
-        if (file == "cd") {
-            change_directory(arguments);
-        } else if (file == "pwd") {
-            show_current_directory(arguments);
-        } else if (file == "exit") {
-            write_stdout("GoodBye! See you soon!\n");
-            exit(0);
-        } else if (file == "bglist") {
-            show_background_process(background_processes);
-        } else if (file == "bgkill") {
-            pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
-            if (pid == -1) {
-                stringstream ss;
-                ss << file << ": " << "Invalid n number" << endl;
-                write_stderr(ss.str());
-                return;
-            }
-            background_process_signal(pid, SIGTERM);
-
-        } else if (file == "bgstop") {
-            pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
-            if (pid == -1) {
-                stringstream ss;
-                ss << file << ": " << "Invalid n number" << endl;
-                write_stderr(ss.str());
-                return;
-            }
-            background_process_signal(pid, SIGSTOP);
-
-        } else if (file == "bgstart") {
-            pid_t pid = get_nth_background_process(background_processes, stoi(arguments[1]));
-            if (pid == -1) {
-                stringstream ss;
-                ss << file << ": " << "Invalid n number" << endl;
-                write_stderr(ss.str());
-                return;
-            }
-            background_process_signal(pid, SIGCONT);
-
-        } else if (file == "bg") {
-            background_process(arguments, background_processes, maximum_background_process, filename, flag);
-        } else {
-            foreground_process(arguments, filename, flag);
+        if (should_run) {
+            last_exit_status = execute_single_command(seg.command, background_processes, maximum_background_process);
         }
     }
 }
@@ -322,8 +436,8 @@ int main(int argc, char *argv[]) {
         }
 //        getline(input_stream, line);
         check_background_process_finished(background_processes);
-        vector<string> commands = tokenize_string(line, "&&");
-        execute_commands(commands, background_processes, maximum_background_process);
+        vector<CommandSegment> segments = parse_command_line(string(line));
+        execute_command_line(segments, background_processes, maximum_background_process);
         check_background_process_finished(background_processes);
         free(line);
     }
