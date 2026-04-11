@@ -151,3 +151,26 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Distribution
+
+### Quick Install (Linux & macOS)
+
+```sh
+curl -sSL https://raw.githubusercontent.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/master/install.sh | bash
+```
+
+### Homebrew (macOS & Linux)
+
+```sh
+brew install --formula Formula/amish.rb
+```
+
+### From Source
+
+```sh
+git clone https://github.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface.git
+cd UNIX-Command-Line-Interface
+g++ main.cpp colors.cpp -lreadline -o amish -std=c++11
+sudo install -m 755 amish /usr/local/bin/amish
+```
