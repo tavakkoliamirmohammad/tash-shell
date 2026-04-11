@@ -38,7 +38,74 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
     command = expand_variables(command);
     command = expand_command_substitution(command);
     int flag = 0, append_flag = 0, input_flag = 0;
-    string filename, input_filename;
+    int stderr_flag = 0, stderr_to_stdout = 0;
+    string filename, input_filename, stderr_filename;
+
+    // Check for 2>&1 (stderr to stdout) before other redirection parsing
+    {
+        string tmp_cmd;
+        bool in_double_quotes = false;
+        bool in_single_quotes = false;
+        size_t i = 0;
+        while (i < command.size()) {
+            if (command[i] == '"' && !in_single_quotes) {
+                in_double_quotes = !in_double_quotes;
+                tmp_cmd += command[i];
+                ++i;
+            } else if (command[i] == '\'' && !in_double_quotes) {
+                in_single_quotes = !in_single_quotes;
+                tmp_cmd += command[i];
+                ++i;
+            } else if (!in_double_quotes && !in_single_quotes &&
+                       i + 4 <= command.size() && command.compare(i, 4, "2>&1") == 0) {
+                stderr_to_stdout = 1;
+                i += 4;
+            } else {
+                tmp_cmd += command[i];
+                ++i;
+            }
+        }
+        command = tmp_cmd;
+    }
+
+    // Check for 2> file (stderr to file) — only if 2>&1 was not found
+    if (!stderr_to_stdout) {
+        string tmp_cmd;
+        bool in_double_quotes = false;
+        bool in_single_quotes = false;
+        size_t i = 0;
+        while (i < command.size()) {
+            if (command[i] == '"' && !in_single_quotes) {
+                in_double_quotes = !in_double_quotes;
+                tmp_cmd += command[i];
+                ++i;
+            } else if (command[i] == '\'' && !in_double_quotes) {
+                in_single_quotes = !in_single_quotes;
+                tmp_cmd += command[i];
+                ++i;
+            } else if (!in_double_quotes && !in_single_quotes &&
+                       i + 2 <= command.size() && command.compare(i, 2, "2>") == 0) {
+                // Extract the filename after 2>
+                i += 2;
+                // Skip whitespace
+                while (i < command.size() && command[i] == ' ') ++i;
+                string fname;
+                while (i < command.size() && command[i] != ' ' && command[i] != '\t') {
+                    fname += command[i];
+                    ++i;
+                }
+                fname = trim(fname);
+                if (!fname.empty()) {
+                    stderr_filename = fname;
+                    stderr_flag = 1;
+                }
+            } else {
+                tmp_cmd += command[i];
+                ++i;
+            }
+        }
+        command = tmp_cmd;
+    }
 
     vector<string> temp = tokenize_string(command, ">>");
     if (temp.size() > 1) {
@@ -199,10 +266,12 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
         return execute_script_file(arguments[1], background_processes, maximum_background_process);
     } else if (file == "bg") {
         background_process(arguments, background_processes, maximum_background_process, filename, flag,
-                           input_filename, input_flag, append_flag);
+                           input_filename, input_flag, append_flag,
+                           stderr_filename, stderr_flag, stderr_to_stdout);
         return 0;
     } else {
-        return foreground_process(arguments, filename, flag, input_filename, input_flag, append_flag);
+        return foreground_process(arguments, filename, flag, input_filename, input_flag, append_flag,
+                                  stderr_filename, stderr_flag, stderr_to_stdout);
     }
 }
 

@@ -1,7 +1,8 @@
 #include "shell.h"
 
 int foreground_process(vector<char *> args, const string &filename, int flag,
-                       const string &input_filename, int input_flag, int append_flag) {
+                       const string &input_filename, int input_flag, int append_flag,
+                       const string &stderr_filename, int stderr_flag, int stderr_to_stdout) {
     int status;
     int pid = fork();
     if (pid < 0) {
@@ -30,6 +31,17 @@ int foreground_process(vector<char *> args, const string &filename, int flag,
             dup2(out, STDOUT_FILENO);
             close(out);
         }
+        if (stderr_to_stdout) {
+            dup2(STDOUT_FILENO, STDERR_FILENO);
+        } else if (stderr_flag) {
+            int err = open(stderr_filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (err < 0) {
+                write_stderr("An error has occurred\n");
+                exit(1);
+            }
+            dup2(err, STDERR_FILENO);
+            close(err);
+        }
         execvp(args[0], &args[0]);
         show_error_command(args);
         exit(0);
@@ -44,7 +56,8 @@ int foreground_process(vector<char *> args, const string &filename, int flag,
 
 void background_process(vector<char *> args, unordered_map<pid_t, string> &background_processes_list,
                         int maximum_background_process, const string &filename, int flag,
-                        const string &input_filename, int input_flag, int append_flag) {
+                        const string &input_filename, int input_flag, int append_flag,
+                        const string &stderr_filename, int stderr_flag, int stderr_to_stdout) {
     if (background_processes_list.size() == maximum_background_process) {
         write_stderr("Error: Maximum number of background processes\n");
         return;
@@ -75,6 +88,17 @@ void background_process(vector<char *> args, unordered_map<pid_t, string> &backg
             }
             dup2(out, STDOUT_FILENO);
             close(out);
+        }
+        if (stderr_to_stdout) {
+            dup2(STDOUT_FILENO, STDERR_FILENO);
+        } else if (stderr_flag) {
+            int err = open(stderr_filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (err < 0) {
+                write_stderr("An error has occurred\n");
+                exit(1);
+            }
+            dup2(err, STDERR_FILENO);
+            close(err);
         }
         execvp(args[1], &args[1]);
         show_error_command(vector<char *>(args.begin() + 1, args.end()));
