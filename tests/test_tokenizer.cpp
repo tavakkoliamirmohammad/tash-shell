@@ -217,15 +217,15 @@ TEST(TokenizerTildeTest, NoTildeExpansion) {
 // ═══════════════════════════════════════════════════════════════
 
 TEST(ExpandVarsTest, SimpleVar) {
-    setenv("AMISH_TEST_UNIT", "hello", 1);
-    EXPECT_EQ(expand_variables("$AMISH_TEST_UNIT"), "hello");
-    unsetenv("AMISH_TEST_UNIT");
+    setenv("TASH_TEST_UNIT", "hello", 1);
+    EXPECT_EQ(expand_variables("$TASH_TEST_UNIT"), "hello");
+    unsetenv("TASH_TEST_UNIT");
 }
 
 TEST(ExpandVarsTest, BracedVar) {
-    setenv("AMISH_TEST_UNIT", "world", 1);
-    EXPECT_EQ(expand_variables("${AMISH_TEST_UNIT}"), "world");
-    unsetenv("AMISH_TEST_UNIT");
+    setenv("TASH_TEST_UNIT", "world", 1);
+    EXPECT_EQ(expand_variables("${TASH_TEST_UNIT}"), "world");
+    unsetenv("TASH_TEST_UNIT");
 }
 
 TEST(ExpandVarsTest, UndefinedVarEmpty) {
@@ -233,10 +233,10 @@ TEST(ExpandVarsTest, UndefinedVarEmpty) {
 }
 
 TEST(ExpandVarsTest, MixedText) {
-    setenv("AMISH_TEST_UNIT", "val", 1);
-    EXPECT_EQ(expand_variables("pre_$AMISH_TEST_UNIT_post"), "pre_");
-    // Note: AMISH_TEST_UNIT_post is treated as one var name (includes _post)
-    unsetenv("AMISH_TEST_UNIT");
+    setenv("TASH_TEST_UNIT", "val", 1);
+    EXPECT_EQ(expand_variables("pre_$TASH_TEST_UNIT_post"), "pre_");
+    // Note: TASH_TEST_UNIT_post is treated as one var name (includes _post)
+    unsetenv("TASH_TEST_UNIT");
 }
 
 TEST(ExpandVarsTest, LoneDollar) {
@@ -252,11 +252,11 @@ TEST(ExpandVarsTest, EmptyInput) {
 }
 
 TEST(ExpandVarsTest, MultipleVars) {
-    setenv("AMISH_A", "foo", 1);
-    setenv("AMISH_B", "bar", 1);
-    EXPECT_EQ(expand_variables("$AMISH_A and $AMISH_B"), "foo and bar");
-    unsetenv("AMISH_A");
-    unsetenv("AMISH_B");
+    setenv("TASH_A", "foo", 1);
+    setenv("TASH_B", "bar", 1);
+    EXPECT_EQ(expand_variables("$TASH_A and $TASH_B"), "foo and bar");
+    unsetenv("TASH_A");
+    unsetenv("TASH_B");
 }
 
 // ═══════════════════════════════════════════════════════════════

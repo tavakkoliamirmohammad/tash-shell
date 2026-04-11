@@ -17,7 +17,7 @@ struct ShellResult {
 };
 
 inline ShellResult run_shell(const std::string &input) {
-    char tmpfile[] = "/tmp/amish_test_XXXXXX";
+    char tmpfile[] = "/tmp/tash_test_XXXXXX";
     int fd = mkstemp(tmpfile);
     write(fd, input.c_str(), input.size());
     close(fd);
