@@ -56,10 +56,12 @@ extern volatile sig_atomic_t sigchld_received;
 extern string previous_directory;
 extern int last_exit_status;
 extern char **environ;
+extern vector<string> dir_stack;
 
 // ── prompt.cpp ──────────────────────────────────────────────────
 
 string write_shell_prefix();
+string get_git_branch();
 
 // ── parser.cpp ──────────────────────────────────────────────────
 
@@ -94,6 +96,10 @@ void background_process(vector<char *> args, unordered_map<pid_t, string> &backg
 void check_background_process_finished(unordered_map<pid_t, string> &background_processes);
 void reap_background_processes(unordered_map<pid_t, string> &background_processes);
 void execute_pipeline(vector<vector<char *>> &pipeline_args, const string &filename, int redirect_flag);
+
+// ── completion.cpp ─────────────────────────────────────────────
+
+char **tash_completion(const char *text, int start, int end);
 
 // ── main.cpp ────────────────────────────────────────────────────
 
