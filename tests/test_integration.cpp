@@ -75,7 +75,7 @@ TEST(IntegrationBasic, ExitMessage) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// EOF handling (PR #1)
+// EOF handling
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationEOF, CtrlDDoesNotCrash) {
@@ -84,7 +84,7 @@ TEST(IntegrationEOF, CtrlDDoesNotCrash) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// File permissions (PR #3)
+// File permissions
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationRedirect, FileCreatedWithCorrectPermissions) {
@@ -110,7 +110,7 @@ TEST(IntegrationRedirect, OverwriteExistingFile) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Background command args (PR #4)
+// Background command args
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationBgArgs, BgkillNoArgs) {
@@ -134,7 +134,7 @@ TEST(IntegrationBgArgs, BgkillNonNumeric) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Background processes (PR #7)
+// Background processes
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationBackground, BgStartsProcess) {
@@ -187,7 +187,7 @@ TEST(IntegrationAnd, MultipleCommands) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Pipe support (PR #9)
+// Pipe support
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationPipe, SinglePipe) {
@@ -212,7 +212,7 @@ TEST(IntegrationPipe, PipeWithAndOperator) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Input & append redirection (PR #10)
+// Input & append redirection
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationInputRedirect, AppendToFile) {
@@ -260,7 +260,7 @@ TEST(IntegrationInputRedirect, AppendDoesNotOverwrite) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// History command (PR #11)
+// History command
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationHistory, ShowsCommandHistory) {
@@ -278,7 +278,7 @@ TEST(IntegrationHistory, NumberedEntries) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Environment variable expansion (PR #12)
+// Environment variable expansion
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationEnvVars, ExpandHOME) {
@@ -323,7 +323,7 @@ TEST(IntegrationEnvVars, ExportNoArgsListsVars) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Glob expansion (PR #13)
+// Glob expansion
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationGlob, ExpandStar) {
@@ -347,7 +347,7 @@ TEST(IntegrationGlob, UnmatchedPatternPreserved) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Semicolon and || operators (PR #21)
+// Semicolon and || operators
 // ═══════════════════════════════════════════════════════════════
 
 TEST(IntegrationOperators, SemicolonRunsBoth) {

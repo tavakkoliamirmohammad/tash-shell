@@ -213,7 +213,7 @@ TEST(TokenizerTildeTest, NoTildeExpansion) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Environment variable expansion (PR #12)
+// Environment variable expansion
 // ═══════════════════════════════════════════════════════════════
 
 TEST(ExpandVarsTest, SimpleVar) {
@@ -260,7 +260,7 @@ TEST(ExpandVarsTest, MultipleVars) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// parse_command_line (PR #21)
+// parse_command_line
 // ═══════════════════════════════════════════════════════════════
 
 TEST(ParseCommandLineTest, SingleCommand) {
