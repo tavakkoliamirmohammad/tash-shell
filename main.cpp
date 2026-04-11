@@ -313,21 +313,31 @@ int main(int argc, char *argv[]) {
             printf("\n");
             break;
         }
-        int offset = where_history();
-        if (*line) {
-            if (offset >= 1 && strcmp(line, history_get(offset)->line) != 0) {
-                add_history(line);
-            } else if (offset == 0) {
-                add_history(line);
-            }
-        } else {
+        if (!*line) {
+            free(line);
             continue;
         }
+        // Expand history references (!! and !N) before adding to history
+        string raw_line(line);
+        free(line);
+        string expanded = expand_history(raw_line);
+        if (expanded.empty()) {
+            continue;
+        }
+        if (expanded != raw_line) {
+            write_stdout(expanded + "\n");
+        }
+        // Add the expanded command to history (not the raw !! / !N)
+        int offset = where_history();
+        if (offset >= 1 && expanded != string(history_get(offset)->line)) {
+            add_history(expanded.c_str());
+        } else if (offset == 0) {
+            add_history(expanded.c_str());
+        }
         reap_background_processes(background_processes);
-        vector<CommandSegment> segments = parse_command_line(line);
+        vector<CommandSegment> segments = parse_command_line(expanded);
         execute_command_line(segments, background_processes, maximum_background_process);
         reap_background_processes(background_processes);
-        free(line);
     }
     return 0;
 }

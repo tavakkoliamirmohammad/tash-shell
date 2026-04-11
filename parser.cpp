@@ -148,6 +148,43 @@ string strip_quotes(const string &s) {
     return s;
 }
 
+string expand_history(const string &line) {
+    string trimmed = line;
+    trimmed = trim(trimmed);
+
+    if (trimmed == "!!") {
+        if (history_length == 0) {
+            write_stderr("tash: !!: event not found\n");
+            return "";
+        }
+        HIST_ENTRY *entry = history_get(history_length);
+        if (!entry) {
+            write_stderr("tash: !!: event not found\n");
+            return "";
+        }
+        return string(entry->line);
+    }
+
+    if (trimmed.size() >= 2 && trimmed[0] == '!') {
+        string num_str = trimmed.substr(1);
+        bool all_digits = true;
+        for (size_t i = 0; i < num_str.size(); i++) {
+            if (!isdigit(num_str[i])) { all_digits = false; break; }
+        }
+        if (all_digits && !num_str.empty()) {
+            int n = stoi(num_str);
+            HIST_ENTRY *entry = history_get(history_base + n - 1);
+            if (!entry) {
+                write_stderr("tash: !" + num_str + ": event not found\n");
+                return "";
+            }
+            return string(entry->line);
+        }
+    }
+
+    return line;
+}
+
 vector<CommandSegment> parse_command_line(const string &line) {
     vector<CommandSegment> segments;
     string current;

@@ -70,6 +70,7 @@ string expand_variables(const string &input);
 vector<string> expand_globs(const vector<string> &args);
 string strip_quotes(const string &s);
 vector<CommandSegment> parse_command_line(const string &line);
+string expand_history(const string &line);
 
 // ── builtins.cpp ────────────────────────────────────────────────
 
