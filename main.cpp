@@ -22,8 +22,6 @@ void sigchld_handler(int signum) {
     sigchld_received = 1;
 }
 
-// TODO fix string space bug
-//TODO add piping
 
 #define MAX_SIZE 1024
 
