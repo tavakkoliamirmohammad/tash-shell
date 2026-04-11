@@ -445,6 +445,12 @@ int execute_script_file(const string &path,
     string line;
     while (getline(file, line)) {
         if (line.empty()) continue;
+        while (!line.empty() && line.back() == '\\') {
+            line.pop_back();
+            string next;
+            if (!getline(file, next)) break;
+            line += next;
+        }
         vector<CommandSegment> segments = parse_command_line(line);
         execute_command_line(segments, background_processes, maximum_background_process);
     }
