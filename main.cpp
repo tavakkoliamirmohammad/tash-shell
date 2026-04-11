@@ -93,7 +93,7 @@ void foreground_process(vector<char *> args, const string &filename, int flag) {
     } else if (pid == 0) {
         int out;
         if (flag) {
-            out = open(filename.c_str(), O_RDWR | O_CREAT, 0666);
+            out = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (out < 0) {
                 write_stderr("An error has occurred\n");
                 exit(1);
@@ -127,7 +127,7 @@ void background_process(vector<char *> args, unordered_map<pid_t, string> &backg
     } else if (pid == 0) {
         int out;
         if (flag) {
-            out = open(filename.c_str(), O_RDWR | O_CREAT, 0666);
+            out = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (out < 0) {
                 write_stderr("An error has occurred\n");
                 exit(1);
