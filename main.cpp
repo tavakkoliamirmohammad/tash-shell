@@ -5,6 +5,7 @@
 string previous_directory;
 volatile sig_atomic_t sigchld_received = 0;
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
+unordered_map<string, string> aliases;
 volatile sig_atomic_t fg_child_pid = 0;
 char hostname[MAX_SIZE];
 
@@ -54,6 +55,13 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
         vector<vector<char *>> pipeline_args(pipe_segments.size());
         for (size_t i = 0; i < pipe_segments.size(); i++) {
             all_tokens[i] = tokenize_string(pipe_segments[i], " ");
+            // Alias expansion for each pipe segment
+            if (!all_tokens[i].empty() && aliases.count(all_tokens[i][0])) {
+                string expanded = aliases[all_tokens[i][0]];
+                for (size_t j = 1; j < all_tokens[i].size(); j++)
+                    expanded += " " + all_tokens[i][j];
+                all_tokens[i] = tokenize_string(expanded, " ");
+            }
             if (colorful_commands.find(all_tokens[i][0]) != colorful_commands.end())
                 all_tokens[i].insert(all_tokens[i].begin() + 1, COLOR_FLAG);
             for (const string &token : all_tokens[i])
@@ -65,6 +73,15 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
     }
 
     vector<string> tokenize_command = tokenize_string(command, " ");
+
+    // Alias expansion: if the first token is an alias, replace it
+    if (!tokenize_command.empty() && aliases.count(tokenize_command[0])) {
+        string expanded = aliases[tokenize_command[0]];
+        for (size_t i = 1; i < tokenize_command.size(); i++)
+            expanded += " " + tokenize_command[i];
+        tokenize_command = tokenize_string(expanded, " ");
+    }
+
     tokenize_command = expand_globs(tokenize_command);
     if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end())
         tokenize_command.insert(tokenize_command.begin() + 1, COLOR_FLAG);
@@ -94,6 +111,48 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
     } else if (file == "unset") {
         if (arguments[1] != nullptr) unsetenv(arguments[1]);
         else write_stderr("unset: missing variable name\n");
+        return 0;
+    } else if (file == "alias") {
+        if (arguments[1] == nullptr) {
+            // List all aliases
+            for (auto &pair : aliases) {
+                write_stdout("alias " + pair.first + "='" + pair.second + "'\n");
+            }
+        } else {
+            // Parse alias definition: name='value' or name=value
+            string arg = arguments[1];
+            size_t eq_pos = arg.find('=');
+            if (eq_pos != string::npos) {
+                string name = arg.substr(0, eq_pos);
+                string value = arg.substr(eq_pos + 1);
+                // Strip surrounding quotes (single or double)
+                if (value.size() >= 2 &&
+                    ((value.front() == '\'' && value.back() == '\'') ||
+                     (value.front() == '"' && value.back() == '"'))) {
+                    value = value.substr(1, value.size() - 2);
+                }
+                aliases[name] = value;
+            } else {
+                // alias name — show that single alias
+                if (aliases.count(arg)) {
+                    write_stdout("alias " + arg + "='" + aliases[arg] + "'\n");
+                } else {
+                    write_stderr("alias: " + arg + ": not found\n");
+                }
+            }
+        }
+        return 0;
+    } else if (file == "unalias") {
+        if (arguments[1] != nullptr) {
+            string name = arguments[1];
+            if (aliases.count(name)) {
+                aliases.erase(name);
+            } else {
+                write_stderr("unalias: " + name + ": not found\n");
+            }
+        } else {
+            write_stderr("unalias: missing alias name\n");
+        }
         return 0;
     } else if (file == "bglist") { show_background_process(background_processes); return 0; }
     else if (file == "bgkill") {
