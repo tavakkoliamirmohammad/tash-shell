@@ -4,6 +4,15 @@ project(amish VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Default to Release build if not specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Find readline portably
+find_library(READLINE_LIB readline REQUIRED)
+find_path(READLINE_INCLUDE readline/readline.h)
+
 # ── Source files shared by shell binary and test library ─────────
 set(SHELL_SOURCES
     main.cpp
@@ -16,7 +25,9 @@ set(SHELL_SOURCES
 
 # ── Main shell binary ─────────────────────────────────────────
 add_executable(shell.out ${SHELL_SOURCES})
-target_link_libraries(shell.out -lreadline)
+target_link_libraries(shell.out PRIVATE ${READLINE_LIB})
+target_include_directories(shell.out PRIVATE ${READLINE_INCLUDE})
+target_compile_options(shell.out PRIVATE -Wall -Wextra)
 
 # ── Testing ───────────────────────────────────────────────────
 option(BUILD_TESTS "Build test suite" ON)
@@ -36,7 +47,8 @@ if(BUILD_TESTS)
     # ── Unit tests (tokenizer, trim, etc.) ────────────────────
     # Build parser functions as a library so tests can link against them
     add_library(shell_lib STATIC ${SHELL_SOURCES})
-    target_link_libraries(shell_lib -lreadline)
+    target_link_libraries(shell_lib PRIVATE ${READLINE_LIB})
+    target_include_directories(shell_lib PRIVATE ${READLINE_INCLUDE})
     # Exclude main() from the library
     target_compile_definitions(shell_lib PRIVATE TESTING_BUILD)
 
