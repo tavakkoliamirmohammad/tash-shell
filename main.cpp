@@ -1,8 +1,10 @@
 #include <unistd.h>
 #include <string>
+#include <sstream>
 #include <vector>
 #include <iostream>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <regex>
 #include "colors.h"
