@@ -15,6 +15,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <stdexcept>
+#include <cstdlib>
+
+extern char **environ;
 
 volatile sig_atomic_t sigchld_received = 0;
 
@@ -65,6 +68,52 @@ string &ltrim(std::string &s, const char *t = " \t\n\r\f\v") {
 
 string &trim(std::string &s, const char *t = " \t\n\r\f\v") {
     return ltrim(rtrim(s, t), t);
+}
+
+string expand_variables(const string &input) {
+    string result;
+    size_t i = 0;
+    while (i < input.size()) {
+        if (input[i] == '$') {
+            i++;
+            if (i < input.size() && input[i] == '{') {
+                // ${VAR} syntax
+                i++; // skip '{'
+                string var_name;
+                while (i < input.size() && input[i] != '}') {
+                    var_name += input[i];
+                    i++;
+                }
+                if (i < input.size()) {
+                    i++; // skip '}'
+                }
+                const char *val = getenv(var_name.c_str());
+                if (val) {
+                    result += val;
+                }
+            } else {
+                // $VAR syntax: read alphanumeric + underscore
+                string var_name;
+                while (i < input.size() && (isalnum(input[i]) || input[i] == '_')) {
+                    var_name += input[i];
+                    i++;
+                }
+                if (!var_name.empty()) {
+                    const char *val = getenv(var_name.c_str());
+                    if (val) {
+                        result += val;
+                    }
+                } else {
+                    // lone '$' with no valid var name following
+                    result += '$';
+                }
+            }
+        } else {
+            result += input[i];
+            i++;
+        }
+    }
+    return result;
 }
 
 void show_error_command(const vector<char *> &args) {
@@ -368,6 +417,7 @@ void execute_pipeline(vector<vector<char *>> &pipeline_args, const string &filen
 void execute_commands(const vector<string> &commands, unordered_map<pid_t, string> &background_processes,
                       int maximum_background_process) {
     for (string command:commands) {
+        command = expand_variables(command);
         int flag = 0;
         int append_flag = 0;
         int input_flag = 0;
@@ -442,6 +492,29 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
         } else if (file == "exit") {
             write_stdout("GoodBye! See you soon!\n");
             exit(0);
+        } else if (file == "export") {
+            if (arguments[1] == nullptr) {
+                // No arguments: list all environment variables
+                for (char **env = environ; *env != nullptr; env++) {
+                    write_stdout(string(*env) + "\n");
+                }
+            } else {
+                string arg = arguments[1];
+                size_t eq_pos = arg.find('=');
+                if (eq_pos != string::npos) {
+                    string name = arg.substr(0, eq_pos);
+                    string value = arg.substr(eq_pos + 1);
+                    setenv(name.c_str(), value.c_str(), 1);
+                } else {
+                    write_stderr("export: invalid format. Usage: export VAR=value\n");
+                }
+            }
+        } else if (file == "unset") {
+            if (arguments[1] != nullptr) {
+                unsetenv(arguments[1]);
+            } else {
+                write_stderr("unset: missing variable name\n");
+            }
         } else if (file == "bglist") {
             show_background_process(background_processes);
         } else if (file == "bgkill") {
