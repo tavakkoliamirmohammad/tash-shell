@@ -1,3 +1,0 @@
-TokenizerTests 2 0.153429
-IntegrationTests 2 0.941232
----
