@@ -26,7 +26,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libreadline-dev
       - name: Build
-        run: g++ main.cpp colors.cpp -lreadline -o ${{ matrix.artifact }} -std=c++11 -O2
+        run: g++ main.cpp colors.cpp prompt.cpp parser.cpp builtins.cpp process.cpp -lreadline -o ${{ matrix.artifact }} -std=c++11 -O2
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
