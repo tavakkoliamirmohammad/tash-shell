@@ -8,6 +8,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <regex>
+#include <glob.h>
 #include "colors.h"
 
 #include <readline/readline.h>
@@ -132,6 +133,27 @@ vector<string> tokenize_string(string line, const string &delimiter) {
     }
 
     return tokens;
+}
+
+vector<string> expand_globs(const vector<string> &args) {
+    vector<string> expanded;
+    for (const string &arg : args) {
+        if (arg.find_first_of("*?[") != string::npos) {
+            glob_t glob_result;
+            int ret = glob(arg.c_str(), GLOB_NOCHECK | GLOB_TILDE, nullptr, &glob_result);
+            if (ret == 0) {
+                for (size_t i = 0; i < glob_result.gl_pathc; i++) {
+                    expanded.push_back(glob_result.gl_pathv[i]);
+                }
+            } else {
+                expanded.push_back(arg);
+            }
+            globfree(&glob_result);
+        } else {
+            expanded.push_back(arg);
+        }
+    }
+    return expanded;
 }
 
 void foreground_process(vector<char *> args, const string &filename, int flag,
@@ -425,6 +447,7 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
 
         // No pipes -- single command, execute as before
         vector<string> tokenize_command = tokenize_string(command, " ");
+        tokenize_command = expand_globs(tokenize_command);
         if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end()) {
             tokenize_command.emplace_back("--color=auto");
         }
