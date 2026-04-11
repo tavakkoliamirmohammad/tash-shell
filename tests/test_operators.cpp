@@ -19,19 +19,23 @@ TEST(Operators, OrRunsOnFailure) {
 }
 
 TEST(Operators, OrSkipsOnSuccess) {
-    // Use ; after || to verify the shell continues. If || correctly skips,
-    // "or_proof" prints but "or_skipped" does not execute as output.
-    auto r = run_shell("true || echo or_skipped ; echo or_proof\nexit\n");
-    // or_proof should appear as actual output (at least once from execution)
-    EXPECT_GE(count_occurrences(r.output, "or_proof"), 1);
-    // or_skipped should appear at most once (from readline echo only)
-    EXPECT_LE(count_occurrences(r.output, "or_skipped"), 1);
+    // Use file side-effect: if || correctly skips, the file won't be created
+    std::string marker = "/tmp/amish_or_skip_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    run_shell("true || echo proof > " + marker + "\nexit\n");
+    struct stat st;
+    EXPECT_NE(stat(marker.c_str(), &st), 0) << "File should not exist if || correctly skipped";
+    unlink(marker.c_str());
 }
 
 TEST(Operators, AndSkipsOnFailure) {
-    auto r = run_shell("false && echo and_skipped ; echo and_proof\nexit\n");
-    EXPECT_GE(count_occurrences(r.output, "and_proof"), 1);
-    EXPECT_LE(count_occurrences(r.output, "and_skipped"), 1);
+    // Use file side-effect: if && correctly skips, the file won't be created
+    std::string marker = "/tmp/amish_and_skip_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    run_shell("false && echo proof > " + marker + "\nexit\n");
+    struct stat st;
+    EXPECT_NE(stat(marker.c_str(), &st), 0) << "File should not exist if && correctly skipped";
+    unlink(marker.c_str());
 }
 
 TEST(Operators, AndRunsOnSuccess) {

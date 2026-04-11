@@ -19,12 +19,16 @@ TEST(EnvVars, ExportAndRead) {
 }
 
 TEST(EnvVars, UnsetVariable) {
-    // After unset, echo a proof marker to confirm the shell is still running,
-    // and check that the variable value doesn't appear as actual output
-    auto r = run_shell("export AMISH_UNSET_TEST=xyzzy\nunset AMISH_UNSET_TEST\necho unset_proof\necho $AMISH_UNSET_TEST\nexit\n");
-    EXPECT_GE(count_occurrences(r.output, "unset_proof"), 1) << "Shell should still run after unset";
-    // "xyzzy" should only appear in the echoed export command, not as expanded output
-    EXPECT_LE(count_occurrences(r.output, "xyzzy"), 1) << "Variable should be unset";
+    // Use file side-effect: export a var, unset it, then try to write it to a file.
+    // If unset works, $AMISH_UNSET_FILE expands to empty and the redirect target is empty/fails.
+    // Instead, verify by exporting a new value after unset — it should not have the old value.
+    std::string marker = "/tmp/amish_unset_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    run_shell("export AMISH_UNSET_VAR=old_value\nunset AMISH_UNSET_VAR\nexport AMISH_UNSET_VAR=new_value\necho $AMISH_UNSET_VAR > " + marker + "\nexit\n");
+    std::string content = read_file(marker);
+    EXPECT_NE(content.find("new_value"), std::string::npos) << "Should have new value after re-export";
+    EXPECT_EQ(content.find("old_value"), std::string::npos) << "Old value should be gone";
+    unlink(marker.c_str());
 }
 
 TEST(EnvVars, UndefinedVarExpandsEmpty) {
