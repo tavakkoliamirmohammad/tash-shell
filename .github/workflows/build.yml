@@ -110,3 +110,28 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=0
         run: echo -e "pwd\nls\necho hello\nexit" | ./build/shell.out
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libreadline-dev lcov
+      - name: Build with coverage
+        run: |
+          cmake -B build -DBUILD_TESTS=ON \
+            -DCMAKE_CXX_FLAGS="--coverage -fprofile-arcs -ftest-coverage" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+          cmake --build build
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Generate coverage report
+        run: |
+          lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
+          lcov --remove coverage.info '/usr/*' '*/build/_deps/*' '*/tests/*' --output-file coverage.info --ignore-errors unused
+          lcov --list coverage.info
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.info
