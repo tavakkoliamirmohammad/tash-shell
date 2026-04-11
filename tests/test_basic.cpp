@@ -53,3 +53,17 @@ TEST(Basic, NoBannerWhenNotTTY) {
     auto r = run_shell("exit\n");
     EXPECT_EQ(r.output.find("Welcome"), std::string::npos);
 }
+TEST(Basic, WhichBuiltin) {
+    auto r = run_shell("which cd\nexit\n");
+    EXPECT_NE(r.output.find("cd is a shell builtin"), std::string::npos);
+}
+
+TEST(Basic, WhichExternalCommand) {
+    auto r = run_shell("which ls\nexit\n");
+    EXPECT_NE(r.output.find("/ls"), std::string::npos);
+}
+
+TEST(Basic, WhichNotFound) {
+    auto r = run_shell("which nonexistent_xyz\nexit\n");
+    EXPECT_NE(r.output.find("not found"), std::string::npos);
+}

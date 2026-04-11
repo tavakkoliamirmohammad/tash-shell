@@ -270,6 +270,46 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
                            input_filename, input_flag, append_flag,
                            stderr_filename, stderr_flag, stderr_to_stdout);
         return 0;
+    } else if (file == "which" || file == "type") {
+        if (arguments[1] == nullptr) {
+            write_stderr(file + ": missing argument\n");
+            return 1;
+        }
+        string cmd_name = arguments[1];
+
+        // Check if it's a builtin
+        vector<string> builtins = {"cd", "pwd", "exit", "history", "export", "unset",
+            "bglist", "bgkill", "bgstop", "bgstart", "bg", "fg", "alias", "unalias",
+            "source", "clear", "which", "type"};
+        for (const string &b : builtins) {
+            if (cmd_name == b) {
+                write_stdout(cmd_name + " is a shell builtin\n");
+                return 0;
+            }
+        }
+
+        // Check if it's an alias
+        if (aliases.count(cmd_name)) {
+            write_stdout(cmd_name + " is aliased to '" + aliases[cmd_name] + "'\n");
+            return 0;
+        }
+
+        // Search PATH
+        const char *path_env = getenv("PATH");
+        if (path_env) {
+            string path_str = path_env;
+            stringstream ss(path_str);
+            string dir;
+            while (getline(ss, dir, ':')) {
+                string full_path = dir + "/" + cmd_name;
+                if (access(full_path.c_str(), X_OK) == 0) {
+                    write_stdout(full_path + "\n");
+                    return 0;
+                }
+            }
+        }
+        write_stderr(cmd_name + ": not found\n");
+        return 1;
     } else {
         return foreground_process(arguments, filename, flag, input_filename, input_flag, append_flag,
                                   stderr_filename, stderr_flag, stderr_to_stdout);
