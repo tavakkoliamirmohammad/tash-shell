@@ -26,6 +26,12 @@ void sigchld_handler(int signum) {
 
 #define MAX_SIZE 1024
 
+#ifdef __APPLE__
+#define COLOR_FLAG "-G"
+#else
+#define COLOR_FLAG "--color=auto"
+#endif
+
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
 
 volatile sig_atomic_t fg_child_pid = 0;
@@ -433,7 +439,7 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
             for (size_t i = 0; i < pipe_segments.size(); i++) {
                 all_tokens[i] = tokenize_string(pipe_segments[i], " ");
                 if (colorful_commands.find(all_tokens[i][0]) != colorful_commands.end()) {
-                    all_tokens[i].emplace_back("--color=auto");
+                    all_tokens[i].insert(all_tokens[i].begin() + 1, COLOR_FLAG);
                 }
                 for (const string &token : all_tokens[i]) {
                     pipeline_args[i].push_back(const_cast<char *>(token.c_str()));
@@ -449,7 +455,7 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
         vector<string> tokenize_command = tokenize_string(command, " ");
         tokenize_command = expand_globs(tokenize_command);
         if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end()) {
-            tokenize_command.emplace_back("--color=auto");
+            tokenize_command.insert(tokenize_command.begin() + 1, COLOR_FLAG);
         }
         vector<char *> arguments;
         arguments.reserve(tokenize_command.size() + 2);
