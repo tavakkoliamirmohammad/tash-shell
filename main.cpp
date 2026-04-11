@@ -3,6 +3,7 @@
 // ── Global variable definitions ─────────────────────────────────
 
 string previous_directory;
+int last_exit_status = 0;
 volatile sig_atomic_t sigchld_received = 0;
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
 unordered_map<string, string> aliases;
@@ -290,6 +291,7 @@ void execute_command_line(const vector<CommandSegment> &segments,
         if (should_run)
             last_exit = execute_single_command(segments[i].command, background_processes, maximum_background_process);
     }
+    last_exit_status = last_exit;
 }
 
 // ── Script file execution ──────────────────────────────────────

@@ -1,4 +1,5 @@
 #include "test_helpers.h"
+#include <regex>
 
 TEST(EnvVars, ExpandHOME) {
     auto r = run_shell("echo $HOME\nexit\n");
@@ -40,4 +41,26 @@ TEST(EnvVars, UndefinedVarExpandsEmpty) {
 TEST(EnvVars, ExportNoArgsListsVars) {
     auto r = run_shell("export\nexit\n");
     EXPECT_NE(r.output.find("HOME="), std::string::npos);
+}
+
+TEST(EnvVars, DollarDollarIsPID) {
+    auto r = run_shell("echo $$ | grep [0-9]\nexit\n");
+    // The output should contain at least one digit (a PID number)
+    EXPECT_TRUE(std::regex_search(r.output, std::regex("[0-9]+")))
+        << "Expected $$ to expand to a numeric PID, got: " << r.output;
+}
+
+TEST(EnvVars, DollarQuestionTrueIsZero) {
+    auto r = run_shell("true\necho $?\nexit\n");
+    // After 'true', $? should be 0
+    EXPECT_NE(r.output.find("0"), std::string::npos)
+        << "Expected $? to be 0 after 'true', got: " << r.output;
+}
+
+TEST(EnvVars, DollarQuestionFalseIsNonZero) {
+    auto r = run_shell("false\necho $?\nexit\n");
+    // After 'false', $? should be non-zero (typically 1)
+    // Verify a non-zero digit appears: look for '1' which is the standard exit code for false
+    EXPECT_NE(r.output.find("1"), std::string::npos)
+        << "Expected $? to be non-zero after 'false', got: " << r.output;
 }
