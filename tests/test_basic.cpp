@@ -48,3 +48,8 @@ TEST(Basic, CommandSubstitutionInQuotes) {
     auto r = run_shell("echo \"count: $(echo 42)\"\nexit\n");
     EXPECT_NE(r.output.find("count: 42"), std::string::npos);
 }
+
+TEST(Basic, NoBannerWhenNotTTY) {
+    auto r = run_shell("exit\n");
+    EXPECT_EQ(r.output.find("Welcome"), std::string::npos);
+}

@@ -369,6 +369,13 @@ int main(int argc, char *argv[]) {
     }
 
     // Interactive mode
+    if (isatty(STDIN_FILENO)) {
+        write_stdout("\n");
+        write_stdout("  Welcome to Tash (Tavakkoli's Shell) v1.0.0\n");
+        write_stdout("  Type 'exit' to quit, 'history' to see command history.\n");
+        write_stdout("\n");
+    }
+
     char *line;
     rl_initialize();
     using_history();
