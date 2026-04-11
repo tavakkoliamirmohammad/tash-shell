@@ -314,3 +314,43 @@ TEST(ParseCommandLineTest, EmptyInput) {
     auto segs = parse_command_line("");
     EXPECT_TRUE(segs.empty());
 }
+
+// ═══════════════════════════════════════════════════════════════
+// strip_quotes
+// ═══════════════════════════════════════════════════════════════
+
+TEST(StripQuotesTest, DoubleQuotes) {
+    EXPECT_EQ(strip_quotes("\"hello world\""), "hello world");
+}
+
+TEST(StripQuotesTest, SingleQuotes) {
+    EXPECT_EQ(strip_quotes("'hello world'"), "hello world");
+}
+
+TEST(StripQuotesTest, NoQuotes) {
+    EXPECT_EQ(strip_quotes("hello"), "hello");
+}
+
+TEST(StripQuotesTest, EmptyString) {
+    EXPECT_EQ(strip_quotes(""), "");
+}
+
+TEST(StripQuotesTest, MismatchedQuotes) {
+    EXPECT_EQ(strip_quotes("\"hello'"), "\"hello'");
+}
+
+TEST(StripQuotesTest, SingleChar) {
+    EXPECT_EQ(strip_quotes("\""), "\"");
+}
+
+TEST(StripQuotesTest, EmptyQuoted) {
+    EXPECT_EQ(strip_quotes("\"\""), "");
+}
+
+TEST(StripQuotesTest, EmptySingleQuoted) {
+    EXPECT_EQ(strip_quotes("''"), "");
+}
+
+TEST(StripQuotesTest, NestedQuotes) {
+    EXPECT_EQ(strip_quotes("\"it's\""), "it's");
+}

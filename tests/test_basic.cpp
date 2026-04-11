@@ -22,6 +22,18 @@ TEST(Basic, CtrlDDoesNotCrash) {
     EXPECT_NE(r.exit_code, 139);
 }
 
+TEST(Basic, EchoQuotedStripsQuotes) {
+    // Use file side-effect to avoid readline echo issues on Linux
+    std::string testfile = "/tmp/tash_quote_test_" + std::to_string(getpid()) + ".txt";
+    run_shell("echo \"hello world\" > " + testfile + "\nexit\n");
+    std::string content = read_file(testfile);
+    // File should contain unquoted string
+    EXPECT_NE(content.find("hello world"), std::string::npos);
+    // File should NOT contain quotes
+    EXPECT_EQ(content.find("\"hello world\""), std::string::npos);
+    unlink(testfile.c_str());
+}
+
 TEST(Basic, BadCommand) {
     auto r = run_shell("nonexistent_command_xyz_12345\nexit\n");
     EXPECT_NE(r.output.find("No such file or directory"), std::string::npos);

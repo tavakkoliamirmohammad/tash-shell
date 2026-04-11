@@ -139,6 +139,15 @@ vector<string> expand_globs(const vector<string> &args) {
     return expanded;
 }
 
+string strip_quotes(const string &s) {
+    if (s.size() >= 2) {
+        if ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\'')) {
+            return s.substr(1, s.size() - 2);
+        }
+    }
+    return s;
+}
+
 vector<CommandSegment> parse_command_line(const string &line) {
     vector<CommandSegment> segments;
     string current;

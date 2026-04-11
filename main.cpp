@@ -55,6 +55,8 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
         vector<vector<char *>> pipeline_args(pipe_segments.size());
         for (size_t i = 0; i < pipe_segments.size(); i++) {
             all_tokens[i] = tokenize_string(pipe_segments[i], " ");
+            for (string &t : all_tokens[i])
+                t = strip_quotes(t);
             // Alias expansion for each pipe segment
             if (!all_tokens[i].empty() && aliases.count(all_tokens[i][0])) {
                 string expanded = aliases[all_tokens[i][0]];
@@ -73,6 +75,8 @@ int execute_single_command(string command, unordered_map<pid_t, string> &backgro
     }
 
     vector<string> tokenize_command = tokenize_string(command, " ");
+    for (string &t : tokenize_command)
+        t = strip_quotes(t);
 
     // Alias expansion: if the first token is an alias, replace it
     if (!tokenize_command.empty() && aliases.count(tokenize_command[0])) {
