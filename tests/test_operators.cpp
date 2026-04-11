@@ -19,15 +19,19 @@ TEST(Operators, OrRunsOnFailure) {
 }
 
 TEST(Operators, OrSkipsOnSuccess) {
-    auto r = run_shell("true || echo or_skip_marker\nexit\n");
-    // GNU readline echoes the command (1 occurrence). If || correctly skips, no extra occurrence.
-    EXPECT_LE(count_occurrences(r.output, "or_skip_marker"), 1);
+    // Use ; after || to verify the shell continues. If || correctly skips,
+    // "or_proof" prints but "or_skipped" does not execute as output.
+    auto r = run_shell("true || echo or_skipped ; echo or_proof\nexit\n");
+    // or_proof should appear as actual output (at least once from execution)
+    EXPECT_GE(count_occurrences(r.output, "or_proof"), 1);
+    // or_skipped should appear at most once (from readline echo only)
+    EXPECT_LE(count_occurrences(r.output, "or_skipped"), 1);
 }
 
 TEST(Operators, AndSkipsOnFailure) {
-    auto r = run_shell("false && echo and_skip_marker\nexit\n");
-    // GNU readline echoes the command (1 occurrence). If && correctly skips, no extra occurrence.
-    EXPECT_LE(count_occurrences(r.output, "and_skip_marker"), 1);
+    auto r = run_shell("false && echo and_skipped ; echo and_proof\nexit\n");
+    EXPECT_GE(count_occurrences(r.output, "and_proof"), 1);
+    EXPECT_LE(count_occurrences(r.output, "and_skipped"), 1);
 }
 
 TEST(Operators, AndRunsOnSuccess) {

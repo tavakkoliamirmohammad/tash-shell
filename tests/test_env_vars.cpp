@@ -19,10 +19,12 @@ TEST(EnvVars, ExportAndRead) {
 }
 
 TEST(EnvVars, UnsetVariable) {
-    auto r = run_shell("export AMISH_UNSET_TEST=before\nunset AMISH_UNSET_TEST\necho $AMISH_UNSET_TEST\nexit\n");
-    // GNU readline echoes commands to stdout, so "before" appears in the echoed export.
-    // If unset works, it appears at most once (from echo). If not, it appears again in output.
-    EXPECT_LE(count_occurrences(r.output, "before"), 1) << "Variable should be unset";
+    // After unset, echo a proof marker to confirm the shell is still running,
+    // and check that the variable value doesn't appear as actual output
+    auto r = run_shell("export AMISH_UNSET_TEST=xyzzy\nunset AMISH_UNSET_TEST\necho unset_proof\necho $AMISH_UNSET_TEST\nexit\n");
+    EXPECT_GE(count_occurrences(r.output, "unset_proof"), 1) << "Shell should still run after unset";
+    // "xyzzy" should only appear in the echoed export command, not as expanded output
+    EXPECT_LE(count_occurrences(r.output, "xyzzy"), 1) << "Variable should be unset";
 }
 
 TEST(EnvVars, UndefinedVarExpandsEmpty) {
