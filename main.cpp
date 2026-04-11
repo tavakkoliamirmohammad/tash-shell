@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <regex>
 #include "colors.h"
 
@@ -21,6 +22,8 @@
 #define MAX_SIZE 1024
 
 unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
+
+volatile sig_atomic_t fg_child_pid = 0;
 
 void exit_with_message(const string &message, int exit_status) {
     write(STDERR_FILENO, message.c_str(), message.length());
@@ -108,7 +111,9 @@ void foreground_process(vector<char *> args, const string &filename, int flag) {
         }
         exit(0);
     } else {
+        fg_child_pid = pid;
         waitpid(pid, &status, WUNTRACED);
+        fg_child_pid = 0;
         int child_return_code = WEXITSTATUS(status);
 //        if (child_return_code != 0) {
 //            exit_with_message("Error: failed", 2);
@@ -334,8 +339,12 @@ void execute_commands(const vector<string> &commands, unordered_map<pid_t, strin
     }
 }
 
-void f(int signum) {
-
+void sigint_handler(int signum) {
+    if (fg_child_pid > 0) {
+        kill(fg_child_pid, SIGINT);
+    } else {
+        write(STDOUT_FILENO, "\n", 1);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -350,7 +359,7 @@ int main(int argc, char *argv[]) {
     using_history();
     stifle_history(10);
 //    execute_commands({"source", "/etc"}, background_processes, maximum_background_process);
-    signal(SIGINT, f);
+    signal(SIGINT, sigint_handler);
     while (true) {
         line = readline(write_shell_prefix().c_str());
         if (line == NULL) {
