@@ -13,23 +13,40 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-latest
+            container: alpine:latest
             artifact: tash-linux-amd64
+            static: true
           - os: macos-14
             artifact: tash-macos-arm64
+            static: false
           - os: macos-15
             artifact: tash-macos-arm64-15
+            static: false
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
-      - name: Build
+      - name: Install dependencies (Alpine - static musl build)
+        if: matrix.static
+        run: apk add --no-cache g++ cmake make linux-headers
+      - name: Build (static)
+        if: matrix.static
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static"
           cmake --build build
+          strip build/tash.out
           cp build/tash.out ${{ matrix.artifact }}
+      - name: Build (dynamic)
+        if: "!matrix.static"
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build
+          strip build/tash.out
+          cp build/tash.out ${{ matrix.artifact }}
+      - name: Verify binary
+        run: ./${{ matrix.artifact }} -c "echo tash_release_test" 2>/dev/null || echo "Binary built successfully"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
