@@ -1,4 +1,5 @@
 #include "shell.h"
+#include <cstring>
 #include <sys/stat.h>
 #include <sys/time.h>
 
@@ -13,16 +14,16 @@ volatile sig_atomic_t fg_child_pid = 0;
 // ── Utility functions ──────────────────────────────────────────
 
 void exit_with_message(const string &message, int exit_status) {
-    write(STDERR_FILENO, message.c_str(), message.length());
+    (void)write(STDERR_FILENO, message.c_str(), message.length());
     exit(exit_status);
 }
 
 void write_stderr(const string &message) {
-    write(STDERR_FILENO, message.c_str(), message.length());
+    (void)write(STDERR_FILENO, message.c_str(), message.length());
 }
 
 void write_stdout(const string &message) {
-    write(STDOUT_FILENO, message.c_str(), message.length());
+    (void)write(STDOUT_FILENO, message.c_str(), message.length());
 }
 
 // ── Time measurement ───────────────────────────────────────────
@@ -198,7 +199,7 @@ void sigint_handler(int) {
     if (fg_child_pid > 0) {
         kill(fg_child_pid, SIGINT);
     } else {
-        write(STDOUT_FILENO, "\n", 1);
+        (void)write(STDOUT_FILENO, "\n", 1);
     }
 }
 

@@ -17,6 +17,10 @@ FetchContent_Declare(
 )
 set(REPLXX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(replxx)
+# Suppress C++20 compat warnings from replxx internals
+if(TARGET replxx)
+    target_compile_options(replxx PRIVATE -Wno-c++20-compat)
+endif()
 
 # ── Source files shared by shell binary and test library ─────────
 set(SHELL_SOURCES

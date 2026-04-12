@@ -10,7 +10,7 @@ static ShellResult run_shell_with_home(const std::string &home_dir,
                                        const std::string &input) {
     char tmpfile[] = "/tmp/tash_test_XXXXXX";
     int fd = mkstemp(tmpfile);
-    write(fd, input.c_str(), input.size());
+    (void)write(fd, input.c_str(), input.size());
     close(fd);
 
     std::string cmd = "HOME=" + home_dir + " " + shell_binary + " < " + tmpfile + " 2>&1";

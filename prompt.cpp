@@ -41,7 +41,7 @@ string get_git_status_indicators() {
 void set_terminal_title(const string &title) {
     if (isatty(STDOUT_FILENO)) {
         string seq = "\033]0;" + title + "\007";
-        write(STDOUT_FILENO, seq.c_str(), seq.size());
+        (void)write(STDOUT_FILENO, seq.c_str(), seq.size());
     }
 }
 
