@@ -287,18 +287,23 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Interactive mode banner — Catppuccin Mocha palette
+    // Interactive mode banner — Option A with Catppuccin Mocha palette
     if (isatty(STDIN_FILENO)) {
         write_stdout("\n");
-        write_stdout(BANNER_LOGO "   ████████╗ █████╗ ███████╗██╗  ██╗" CAT_RESET "\n");
-        write_stdout(BANNER_LOGO "   ╚══██╔══╝██╔══██╗██╔════╝██║  ██║" CAT_RESET "\n");
-        write_stdout(BANNER_LOGO "      ██║   ███████║███████╗███████║" CAT_RESET "\n");
-        write_stdout(BANNER_LOGO "      ██║   ██╔══██║╚════██║██╔══██║" CAT_RESET "\n");
-        write_stdout(BANNER_LOGO "      ██║   ██║  ██║███████║██║  ██║" CAT_RESET "\n");
-        write_stdout(BANNER_LOGO "      ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "\n");
-        write_stdout("\n");
-        write_stdout("   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " BANNER_VERSION "v1.0.0" CAT_RESET "\n");
-        write_stdout("   " BANNER_TEXT "Type " BANNER_HINT "exit" CAT_RESET BANNER_TEXT " to quit, " BANNER_HINT "history" CAT_RESET BANNER_TEXT " for command history." CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ╔══════════════════════════════════════════════╗" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "████████╗ █████╗ ███████╗██╗  ██╗" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "╚══██╔══╝██╔══██╗██╔════╝██║  ██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ███████║███████╗███████║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ██╔══██║╚════██║██╔══██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ██║  ██║███████║██║  ██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " BANNER_VERSION "v1.0.0" CAT_RESET "               " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ syntax highlighting  ▸ autosuggestions" CAT_RESET "   " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ smart completions    ▸ catppuccin theme" CAT_RESET "  " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
         write_stdout("\n");
     }
 

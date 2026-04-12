@@ -73,11 +73,13 @@
 #define SYN_COMMENT       CAT_OVERLAY0              // # comments
 
 // Banner
-#define BANNER_LOGO       CAT_BOLD CAT_LAVENDER     // TASH ascii art
-#define BANNER_TITLE      CAT_BOLD CAT_TEXT          // "Tavakkoli's Shell"
-#define BANNER_VERSION    CAT_PEACH                  // "v1.0.0"
-#define BANNER_HINT       CAT_GREEN                  // "exit", "history"
-#define BANNER_TEXT       CAT_SUBTEXT0               // hint text
+#define BANNER_FRAME      CAT_BOLD CAT_SAPPHIRE      // ╔══╗ frame
+#define BANNER_LOGO       CAT_BOLD CAT_LAVENDER      // TASH ascii art
+#define BANNER_TITLE      CAT_BOLD CAT_TEXT           // "Tavakkoli's Shell"
+#define BANNER_VERSION    CAT_PEACH                   // "v1.0.0"
+#define BANNER_HINT       CAT_GREEN                   // "exit", "history"
+#define BANNER_TEXT       CAT_SUBTEXT0                // hint text
+#define BANNER_FEATURE    CAT_GREEN                   // feature bullets
 
 // Suggestions
 #define SUGGEST_TEXT      CAT_DIM CAT_YELLOW         // "did you mean"
