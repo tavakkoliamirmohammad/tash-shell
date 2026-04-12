@@ -87,9 +87,20 @@ TEST(EnvVars, DollarQuestionCommandNotFound127) {
 }
 
 TEST(EnvVars, SingleQuotesPreventExpansion) {
-    auto r = run_shell("export TASH_SQ_TEST=secret\necho '$TASH_SQ_TEST'\nexit\n");
-    EXPECT_NE(r.output.find("$TASH_SQ_TEST"), std::string::npos)
-        << "Single quotes should prevent variable expansion, got: " << r.output;
-    EXPECT_EQ(r.output.find("secret"), std::string::npos)
-        << "Variable value should NOT appear inside single quotes, got: " << r.output;
+    // Use script mode to avoid GNU readline echoing the export command
+    std::string script = "/tmp/tash_sq_test_" + std::to_string(getpid()) + ".sh";
+    std::string marker = "/tmp/tash_sq_out_" + std::to_string(getpid());
+    {
+        std::ofstream f(script);
+        f << "export TASH_SQ_TEST=secret\n";
+        f << "echo '$TASH_SQ_TEST' > " << marker << "\n";
+    }
+    run_shell_script(script);
+    std::string content = read_file(marker);
+    EXPECT_NE(content.find("$TASH_SQ_TEST"), std::string::npos)
+        << "Single quotes should prevent variable expansion, got: " << content;
+    EXPECT_EQ(content.find("secret"), std::string::npos)
+        << "Variable value should NOT appear inside single quotes, got: " << content;
+    unlink(script.c_str());
+    unlink(marker.c_str());
 }

@@ -57,3 +57,24 @@ TEST(Basic, ClearBuiltinDoesNotCrash) {
     auto r = run_shell("clear\nexit\n");
     EXPECT_NE(r.exit_code, 139);
 }
+
+TEST(Basic, SigintDoesNotCrashShell) {
+    // Start the shell, send SIGINT via kill command, then verify it
+    // continues running by checking that a subsequent echo works.
+    std::string marker = "/tmp/tash_sigint_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    // The script sends SIGINT to its own process group, then runs echo
+    // to prove the shell survived.
+    std::string script = "/tmp/tash_sigint_test_" + std::to_string(getpid()) + ".sh";
+    {
+        std::ofstream f(script);
+        f << "kill -INT $$\n";
+        f << "echo survived > " << marker << "\n";
+    }
+    auto r = run_shell_script(script);
+    std::string content = read_file(marker);
+    EXPECT_NE(content.find("survived"), std::string::npos)
+        << "Shell should continue after SIGINT, got: " << content;
+    unlink(script.c_str());
+    unlink(marker.c_str());
+}

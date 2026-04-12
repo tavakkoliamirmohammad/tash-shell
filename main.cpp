@@ -162,6 +162,8 @@ void sigint_handler(int) {
         kill(fg_child_pid, SIGINT);
     } else {
         write(STDOUT_FILENO, "\n", 1);
+        rl_on_new_line();
+        rl_redisplay();
     }
 }
 
@@ -188,7 +190,11 @@ int main(int argc, char *argv[]) {
 
     ShellState state;
 
-    signal(SIGINT, sigint_handler);
+    struct sigaction sa_int;
+    sa_int.sa_handler = sigint_handler;
+    sigemptyset(&sa_int.sa_mask);
+    sa_int.sa_flags = 0;  // No SA_RESTART: let SIGINT interrupt readline
+    sigaction(SIGINT, &sa_int, nullptr);
 
     struct sigaction sa;
     sa.sa_handler = sigchld_handler;
