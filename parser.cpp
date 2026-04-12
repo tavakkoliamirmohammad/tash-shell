@@ -426,3 +426,35 @@ vector<CommandSegment> parse_command_line(const string &line) {
     if (!cmd.empty()) segments.push_back({cmd, next_op});
     return segments;
 }
+
+bool is_input_complete(const string &input) {
+    bool in_single = false;
+    bool in_double = false;
+
+    for (size_t i = 0; i < input.size(); i++) {
+        char c = input[i];
+        if (c == '\\' && i + 1 < input.size()) {
+            i++; // skip escaped char
+            continue;
+        }
+        if (c == '\'' && !in_double) in_single = !in_single;
+        else if (c == '"' && !in_single) in_double = !in_double;
+    }
+
+    // Unclosed quotes
+    if (in_single || in_double) return false;
+
+    // Trailing pipe or operator
+    string trimmed = input;
+    trimmed = trim(trimmed);
+    if (!trimmed.empty()) {
+        char last = trimmed.back();
+        if (last == '|' || last == '\\') return false;
+        if (trimmed.size() >= 2) {
+            string last2 = trimmed.substr(trimmed.size() - 2);
+            if (last2 == "&&" || last2 == "||") return false;
+        }
+    }
+
+    return true;
+}

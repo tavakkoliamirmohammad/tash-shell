@@ -22,6 +22,9 @@ set(SHELL_SOURCES
     builtins.cpp
     process.cpp
     completion.cpp
+    suggest.cpp
+    history.cpp
+    frecency.cpp
 )
 
 # ── Main shell binary ─────────────────────────────────────────
@@ -74,6 +77,7 @@ if(BUILD_TESTS)
         tests/test_alias.cpp
         tests/test_script.cpp
         tests/test_comments.cpp
+        tests/test_modern_ux.cpp
     )
     target_include_directories(test_integration PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(test_integration GTest::gtest)
