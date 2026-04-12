@@ -2,9 +2,11 @@
 
 A feature-rich Unix shell written in C++ with syntax highlighting, autosuggestions, smart completions, and a Catppuccin color palette. Built as a deep exploration of systems programming — from `fork`/`exec` to signal handling to interactive line editing.
 
+[![GitHub stars](https://img.shields.io/github/stars/tavakkoliamirmohammad/tash-shell?style=social)](https://github.com/tavakkoliamirmohammad/tash-shell/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build](https://github.com/tavakkoliamirmohammad/tash-shell/actions/workflows/build.yml/badge.svg)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
 [![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/tavakkoliamirmohammad/tash-shell/pulls)
 
 <!-- TODO: Replace with actual screenshot/GIF of tash in action -->
 ![tash demo](docs/screenshot.png)
@@ -197,6 +199,12 @@ ctest --test-dir build --output-on-failure -V
 200 tests across 16 test files using Google Test:
 - **96 unit tests** — tokenizer, parser, variable expansion, redirections, command suggestions, is_input_complete, frecency, command existence
 - **104 integration tests** — pipes, redirection, operators, aliases, scripts, history, auto-cd, z command, "did you mean?", multiline, Ctrl-C/D, git prompt, theme
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get started.
+
+If you find Tash useful, please consider giving it a star — it helps others discover the project.
 
 ## License
 
