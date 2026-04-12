@@ -79,6 +79,16 @@ else
     fi
 fi
 
+# Install man page
+MAN_DIR="${HOME}/.local/share/man/man1"
+mkdir -p "${MAN_DIR}"
+MANPAGE_URL="https://raw.githubusercontent.com/${REPO}/master/tash.1"
+if curl -sL -o "${MAN_DIR}/tash.1" "${MANPAGE_URL}"; then
+    echo "Installed man page (man tash)."
+else
+    echo "Warning: Could not download man page."
+fi
+
 # Install Nerd Font for prompt glyphs (Powerline icons)
 install_nerd_font() {
     local FONT_NAME="MesloLGS Nerd Font"
@@ -143,6 +153,11 @@ case ":${PATH}:" in
             echo "# Added by Tash shell installer" >> "${PROFILE}"
             echo "${PATH_LINE}" >> "${PROFILE}"
             echo "Added ${INSTALL_DIR} to PATH in ${PROFILE}"
+        fi
+
+        MANPATH_LINE="export MANPATH=\"${HOME}/.local/share/man:\$MANPATH\""
+        if ! grep -qF ".local/share/man" "${PROFILE}" 2>/dev/null; then
+            echo "${MANPATH_LINE}" >> "${PROFILE}"
         fi
 
         export PATH="${INSTALL_DIR}:${PATH}"
