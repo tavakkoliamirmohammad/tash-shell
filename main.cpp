@@ -336,6 +336,11 @@ int main(int argc, char *argv[]) {
         }
     );
 
+    // Configure hint behavior
+    rx.set_max_hint_rows(1);              // show only 1 hint (fish-style)
+    rx.set_immediate_completion(true);    // Tab accepts immediately without second press
+    rx.set_beep_on_ambiguous_completion(false);
+
     // ── Main loop ──────────────────────────────────────────────
     while (true) {
         reap_background_processes(state.background_processes);
