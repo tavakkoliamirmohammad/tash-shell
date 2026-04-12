@@ -208,8 +208,13 @@ void sigchld_handler(int) {
 
 // ── Hint callback with history access ──────────────────────────
 
+// Shared between hint callback and right-arrow handler
+static string current_hint;
+
 static Replxx::hints_t history_hint_callback(const string &input, int &context_len, Replxx::Color &color, Replxx &rx) {
     Replxx::hints_t hints;
+    current_hint.clear();
+
     if (input.size() < 2) return hints;
 
     color = Replxx::Color::GRAY;
@@ -222,11 +227,12 @@ static Replxx::hints_t history_hint_callback(const string &input, int &context_l
         Replxx::HistoryEntry he(hs.get());
         string entry(he.text());
         if (entry.size() > input.size() && entry.compare(0, input.size(), input) == 0) {
-            best = entry;  // keep overwriting — last match is most recent
+            best = entry;
         }
     }
     if (!best.empty()) {
         hints.push_back(best);
+        current_hint = best;
     }
 
     return hints;
@@ -304,28 +310,10 @@ int main(int argc, char *argv[]) {
         rx.history_load(hist_path);
     }
 
-    // Set up callbacks — completion includes history prefix matches as fallback
+    // Tab = command/file completion only (no history suggestions)
     rx.set_completion_callback(
-        [&rx](const string &input, int &ctx) {
-            auto results = completion_callback(input, ctx);
-            // If no builtins/subcommands matched, try history prefix match
-            if (results.empty() && input.size() >= 2) {
-                ctx = (int)input.size();
-                string best;
-                Replxx::HistoryScan hs(rx.history_scan());
-                while (hs.next()) {
-                    Replxx::HistoryEntry he(hs.get());
-                    string entry(he.text());
-                    if (entry.size() > input.size() &&
-                        entry.compare(0, input.size(), input) == 0) {
-                        best = entry;  // last match = most recent
-                    }
-                }
-                if (!best.empty()) {
-                    results.emplace_back(best);
-                }
-            }
-            return results;
+        [](const string &input, int &ctx) {
+            return completion_callback(input, ctx);
         }
     );
 
@@ -358,9 +346,23 @@ int main(int argc, char *argv[]) {
     );
 
     // Configure hint behavior
-    rx.set_max_hint_rows(1);              // show only 1 hint (fish-style)
-    rx.set_immediate_completion(true);    // Tab accepts immediately without second press
+    rx.set_max_hint_rows(1);
+    rx.set_immediate_completion(true);
     rx.set_beep_on_ambiguous_completion(false);
+
+    // Right arrow at end of line accepts the hint (fish-style)
+    rx.bind_key(Replxx::KEY::RIGHT,
+        [&rx](char32_t code) {
+            Replxx::State state(rx.get_state());
+            int len = (int)strlen(state.text());
+            if (state.cursor_position() >= len && !current_hint.empty()) {
+                rx.set_state(Replxx::State(current_hint.c_str(), (int)current_hint.size()));
+                current_hint.clear();
+                return Replxx::ACTION_RESULT::CONTINUE;
+            }
+            return rx.invoke(Replxx::ACTION::MOVE_CURSOR_RIGHT, code);
+        }
+    );
 
     // ── Main loop ──────────────────────────────────────────────
     while (true) {
