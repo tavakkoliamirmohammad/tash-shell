@@ -109,8 +109,8 @@ string write_shell_prefix(const ShellState &state) {
             }
         }
 
-        // Show command duration if > 2 seconds
-        if (state.last_cmd_duration >= 2.0) {
+        // Show command duration if > 0.5 seconds
+        if (state.last_cmd_duration >= 0.5) {
             line1 += "\033[2;33m took " + format_duration(state.last_cmd_duration) + "\033[0m";
         }
 
