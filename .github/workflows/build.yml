@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
+        run: sudo apt-get update && sudo apt-get install -y
       - name: Build and test
         run: |
           cmake -B build -DBUILD_TESTS=ON
@@ -45,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: dnf install -y gcc-c++ readline-devel cmake make
+        run: dnf install -y gcc-c++ cmake make
       - name: Build and test
         run: |
           cmake -B build -DBUILD_TESTS=ON
@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: apk add --no-cache g++ readline-dev cmake make linux-headers
+        run: apk add --no-cache g++ cmake make linux-headers
       - name: Build and test
         run: |
           cmake -B build -DBUILD_TESTS=ON
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
+        run: sudo apt-get update && sudo apt-get install -y
       - name: Build with AddressSanitizer
         run: |
           cmake -B build -DBUILD_TESTS=ON \
@@ -116,7 +116,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libreadline-dev lcov
+        run: sudo apt-get update && sudo apt-get install -y lcov
       - name: Build with coverage
         run: |
           cmake -B build -DBUILD_TESTS=ON \

@@ -1,8 +1,10 @@
 #include "shell.h"
+#include <cstring>
 #include <sys/stat.h>
 #include <sys/time.h>
 
 using namespace std;
+using namespace replxx;
 
 // ── Signal-related globals (must be global for signal handlers) ─
 
@@ -12,27 +14,27 @@ volatile sig_atomic_t fg_child_pid = 0;
 // ── Utility functions ──────────────────────────────────────────
 
 void exit_with_message(const string &message, int exit_status) {
-    write(STDERR_FILENO, message.c_str(), message.length());
+    if (write(STDERR_FILENO, message.c_str(), message.length())) {}
     exit(exit_status);
 }
 
 void write_stderr(const string &message) {
-    write(STDERR_FILENO, message.c_str(), message.length());
+    if (write(STDERR_FILENO, message.c_str(), message.length())) {}
 }
 
 void write_stdout(const string &message) {
-    write(STDOUT_FILENO, message.c_str(), message.length());
+    if (write(STDOUT_FILENO, message.c_str(), message.length())) {}
 }
 
 // ── Time measurement ───────────────────────────────────────────
 
-static double get_time_ms() {
+static double get_time_s() {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
     return tv.tv_sec + tv.tv_usec / 1e6;
 }
 
-// ── Auto-cd: check if token is a directory ─────────────────────
+// ── Auto-cd ────────────────────────────────────────────────────
 
 static bool try_auto_cd(const string &token, ShellState &state) {
     struct stat st;
@@ -64,7 +66,6 @@ int execute_single_command(string command, ShellState &state) {
     Command cmd = parse_redirections(command);
     if (cmd.argv.empty()) return 0;
 
-    // Alias expansion
     if (state.aliases.count(cmd.argv[0])) {
         string expanded = state.aliases[cmd.argv[0]];
         for (size_t i = 1; i < cmd.argv.size(); i++)
@@ -83,7 +84,6 @@ int execute_single_command(string command, ShellState &state) {
         cmd.argv.insert(cmd.argv.begin() + 1, COLOR_FLAG);
     }
 
-    // Check for pipes
     vector<string> pipe_segments = tokenize_string(command, "|");
     if (pipe_segments.size() > 1) {
         vector<vector<string>> pipeline_cmds;
@@ -116,13 +116,11 @@ int execute_single_command(string command, ShellState &state) {
                     }
                 }
             }
-
             pipeline_cmds.push_back(seg_cmd.argv);
         }
         return execute_pipeline(pipeline_cmds, redirect_file, redirect_flag);
     }
 
-    // Dispatch builtins
     const auto &builtins = get_builtins();
     auto it = builtins.find(cmd.argv[0]);
     if (it != builtins.end()) {
@@ -134,20 +132,16 @@ int execute_single_command(string command, ShellState &state) {
         return 0;
     }
 
-    // Auto-cd: if not a builtin or command, check if it's a directory
+    // Auto-cd
     if (cmd.argv.size() == 1 && cmd.redirections.empty()) {
-        string token = cmd.argv[0];
-        // Expand tilde for auto-cd check
-        string expanded_token = expand_tilde(token);
+        string expanded_token = expand_tilde(cmd.argv[0]);
         if (try_auto_cd(expanded_token, state)) {
             return 0;
         }
     }
 
-    // External command
     int result = foreground_process(cmd.argv, cmd.redirections);
 
-    // "Did you mean?" suggestion on command-not-found
     if (result == 127) {
         string suggestion = suggest_command(cmd.argv[0]);
         if (!suggestion.empty()) {
@@ -205,9 +199,7 @@ void sigint_handler(int) {
     if (fg_child_pid > 0) {
         kill(fg_child_pid, SIGINT);
     } else {
-        write(STDOUT_FILENO, "\n", 1);
-        rl_on_new_line();
-        rl_redisplay();
+        if (write(STDOUT_FILENO, "\n", 1)) {}
     }
 }
 
@@ -215,27 +207,36 @@ void sigchld_handler(int) {
     sigchld_received = 1;
 }
 
-// ── Readline helpers ───────────────────────────────────────────
+// ── Hint callback with history access ──────────────────────────
 
-static int clear_screen_handler(int, int) {
-    write(STDOUT_FILENO, "\033[2J\033[H", 7);
-    rl_on_new_line();
-    rl_redisplay();
-    return 0;
-}
+// Shared between hint callback and right-arrow handler
+static string current_hint;
 
-// ── Bracketed paste ────────────────────────────────────────────
+static Replxx::hints_t history_hint_callback(const string &input, int &context_len, Replxx::Color &color, Replxx &rx) {
+    Replxx::hints_t hints;
+    current_hint.clear();
 
-static void enable_bracketed_paste() {
-    if (isatty(STDOUT_FILENO)) {
-        write(STDOUT_FILENO, "\033[?2004h", 8);
+    if (input.size() < 2) return hints;
+
+    color = Replxx::Color::GRAY;
+    context_len = (int)input.size();
+
+    // Scan all history, keep the most recent (last) prefix match
+    string best;
+    Replxx::HistoryScan hs(rx.history_scan());
+    while (hs.next()) {
+        Replxx::HistoryEntry he(hs.get());
+        string entry(he.text());
+        if (entry.size() > input.size() && entry.compare(0, input.size(), input) == 0) {
+            best = entry;
+        }
     }
-}
-
-static void disable_bracketed_paste() {
-    if (isatty(STDOUT_FILENO)) {
-        write(STDOUT_FILENO, "\033[?2004l", 8);
+    if (!best.empty()) {
+        hints.push_back(best);
+        current_hint = best;
     }
+
+    return hints;
 }
 
 // ── Main ───────────────────────────────────────────────────────
@@ -265,10 +266,10 @@ int main(int argc, char *argv[]) {
         return execute_script_file(argv[1], state);
     }
 
-    // Build command cache for "did you mean?" suggestions
+    // Build command cache for suggestions and highlighting
     build_command_cache();
 
-    // Load ~/.tashrc if it exists
+    // Load ~/.tashrc
     const char *home_env = getenv("HOME");
     if (home_env) {
         string tashrc_path = string(home_env) + "/.tashrc";
@@ -285,7 +286,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Interactive mode
+    // Interactive mode banner
     if (isatty(STDIN_FILENO)) {
         write_stdout("\n");
         write_stdout(bold(cyan("   ████████╗ █████╗ ███████╗██╗  ██╗\n")));
@@ -300,30 +301,82 @@ int main(int argc, char *argv[]) {
         write_stdout("\n");
     }
 
-    char *line;
-    rl_initialize();
-    rl_bind_key(12, clear_screen_handler);
-    rl_attempted_completion_function = tash_completion;
-    using_history();
-    stifle_history(1000);
+    // ── Setup replxx ───────────────────────────────────────────
+    Replxx rx;
+    rx.set_max_history_size(1000);
 
-    // Only load persistent history and advanced features in interactive mode
-    if (isatty(STDIN_FILENO)) {
-        load_persistent_history();
-        setup_prefix_history_search();
-        enable_bracketed_paste();
+    // Load persistent history only in interactive mode
+    string hist_path = history_file_path();
+    if (!hist_path.empty() && isatty(STDIN_FILENO)) {
+        rx.history_load(hist_path);
     }
 
+    // Tab = command/file completion only (no history suggestions)
+    rx.set_completion_callback(
+        [](const string &input, int &ctx) {
+            return completion_callback(input, ctx);
+        }
+    );
+
+    // Only enable highlighting and hints in interactive mode
+    if (isatty(STDIN_FILENO)) {
+        rx.set_highlighter_callback(
+            [](const string &input, Replxx::colors_t &colors) {
+                syntax_highlighter(input, colors);
+            }
+        );
+
+        rx.set_hint_callback(
+            [&rx](const string &input, int &ctx, Replxx::Color &color) {
+                return history_hint_callback(input, ctx, color, rx);
+            }
+        );
+    }
+
+    // Enable bracketed paste only in interactive mode
+    if (isatty(STDIN_FILENO)) {
+        rx.enable_bracketed_paste();
+    }
+
+    // Ctrl-L clears screen
+    rx.bind_key(Replxx::KEY::control('L'),
+        [&rx](char32_t) {
+            rx.clear_screen();
+            return Replxx::ACTION_RESULT::CONTINUE;
+        }
+    );
+
+    // Configure hint behavior
+    rx.set_max_hint_rows(1);
+    rx.set_immediate_completion(true);
+    rx.set_beep_on_ambiguous_completion(false);
+
+    // Right arrow at end of line accepts the hint (fish-style)
+    rx.bind_key(Replxx::KEY::RIGHT,
+        [&rx](char32_t code) {
+            Replxx::State state(rx.get_state());
+            int len = (int)strlen(state.text());
+            if (state.cursor_position() >= len && !current_hint.empty()) {
+                rx.set_state(Replxx::State(current_hint.c_str(), (int)current_hint.size()));
+                current_hint.clear();
+                return Replxx::ACTION_RESULT::CONTINUE;
+            }
+            return rx.invoke(Replxx::ACTION::MOVE_CURSOR_RIGHT, code);
+        }
+    );
+
+    // ── Main loop ──────────────────────────────────────────────
     while (true) {
         reap_background_processes(state.background_processes);
 
-        line = readline(write_shell_prefix(state).c_str());
-        if (line == NULL) {
-            // Ctrl-D protection: require double Ctrl-D
+        string prompt = write_shell_prefix(state);
+        char const *line = rx.input(prompt);
+
+        if (line == nullptr) {
+            // Ctrl-D / EOF
             state.ctrl_d_count++;
             if (state.ctrl_d_count >= 2) {
                 write_stdout("\n");
-                disable_bracketed_paste();
                 break;
             }
             write_stdout("\n");
@@ -332,28 +385,14 @@ int main(int argc, char *argv[]) {
         }
         state.ctrl_d_count = 0;
 
-        if (!*line) {
-            free(line);
-            continue;
-        }
-
-        // Backslash line continuation
         string raw_line(line);
-        free(line);
-        while (!raw_line.empty() && raw_line.back() == '\\') {
-            raw_line.pop_back();
-            char *cont = readline("> ");
-            if (cont == NULL) break;
-            raw_line += string(cont);
-            free(cont);
-        }
+        if (raw_line.empty()) continue;
 
-        // Multiline editing: auto-continue on unclosed quotes or trailing operators
+        // Multiline: auto-continue on incomplete input
         while (!is_input_complete(raw_line)) {
-            char *cont = readline("> ");
-            if (cont == NULL) break;
+            char const *cont = rx.input("> ");
+            if (cont == nullptr) break;
             raw_line += "\n" + string(cont);
-            free(cont);
         }
 
         // Replace newlines with semicolons for execution
@@ -361,38 +400,37 @@ int main(int argc, char *argv[]) {
             if (raw_line[i] == '\n') raw_line[i] = ';';
         }
 
-        string expanded = expand_history(raw_line);
-        if (expanded.empty()) {
-            continue;
-        }
+        string expanded = expand_history_bang(raw_line, rx);
+        if (expanded.empty()) continue;
         if (expanded != raw_line) {
             write_stdout(expanded + "\n");
         }
 
-        // Record in history (with dedup and ignore-space)
-        if (should_record_history(expanded)) {
-            add_history(expanded.c_str());
-            save_history_line(expanded);
+        // Record in history
+        if (should_record_history(expanded, rx)) {
+            rx.history_add(expanded);
+            if (!hist_path.empty()) {
+                rx.history_save(hist_path);
+            }
         }
-
-        // Reset prefix search state for next command
-        reset_prefix_search();
 
         reap_background_processes(state.background_processes);
 
-        // Measure command duration
-        double start_time = get_time_ms();
+        double start_time = get_time_s();
 
         vector<CommandSegment> segments = parse_command_line(expanded);
         execute_command_line(segments, state);
 
-        double end_time = get_time_ms();
-        state.last_cmd_duration = end_time - start_time;
+        state.last_cmd_duration = get_time_s() - start_time;
 
         reap_background_processes(state.background_processes);
     }
 
-    disable_bracketed_paste();
+    // Save history on exit
+    if (!hist_path.empty()) {
+        rx.history_save(hist_path);
+    }
+
     return 0;
 }
 #endif // TESTING_BUILD
