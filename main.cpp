@@ -222,7 +222,7 @@ static Replxx::hints_t history_hint_callback(const string &input, int &context_l
         string entry(he.text());
         if (entry.size() > input.size() && entry.compare(0, input.size(), input) == 0) {
             hints.push_back(entry);
-            if (hints.size() >= 3) break;
+            break;  // show only 1 hint (fish-style)
         }
     }
 
@@ -377,10 +377,10 @@ int main(int argc, char *argv[]) {
             write_stdout(expanded + "\n");
         }
 
-        // Record in history
+        // Record in history (only persist to file in interactive mode)
         if (should_record_history(expanded, rx)) {
             rx.history_add(expanded);
-            if (!hist_path.empty()) {
+            if (!hist_path.empty() && isatty(STDIN_FILENO)) {
                 rx.history_save(hist_path);
             }
         }
