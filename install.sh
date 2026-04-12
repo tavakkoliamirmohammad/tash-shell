@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="tavakkoliamirmohammad/UNIX-Command-Line-Interface"
+REPO="tavakkoliamirmohammad/tash-shell"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="tash"
 
@@ -43,7 +43,7 @@ if [ -z "${LATEST}" ]; then
     TMPDIR=$(mktemp -d)
     cd "${TMPDIR}"
     curl -sL "https://github.com/${REPO}/archive/refs/heads/master.tar.gz" | tar xz
-    cd UNIX-Command-Line-Interface-master
+    cd tash-shell-master
     cmake -B build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
     cmake --build build
 
@@ -67,7 +67,7 @@ else
         TMPDIR=$(mktemp -d)
         cd "${TMPDIR}"
         curl -sL "https://github.com/${REPO}/archive/refs/tags/${LATEST}.tar.gz" | tar xz
-        cd UNIX-Command-Line-Interface-*
+        cd tash-shell-*
         cmake -B build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
         cmake --build build
 
