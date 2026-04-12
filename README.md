@@ -3,8 +3,8 @@
 A feature-rich Unix shell written in C++ with syntax highlighting, autosuggestions, smart completions, and a Catppuccin color palette. Built as a deep exploration of systems programming — from `fork`/`exec` to signal handling to interactive line editing.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build](https://github.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/actions/workflows/build.yml/badge.svg)](https://github.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/actions)
-[![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen)](https://github.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/actions)
+[![Build](https://github.com/tavakkoliamirmohammad/tash-shell/actions/workflows/build.yml/badge.svg)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
+[![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
 
 <!-- TODO: Replace with actual screenshot/GIF of tash in action -->
 <!-- ![tash demo](docs/demo.gif) -->
@@ -55,7 +55,7 @@ No external dependencies needed. The build system fetches [replxx](https://githu
 ### Install System-Wide
 
 ```sh
-curl -sSL https://raw.githubusercontent.com/tavakkoliamirmohammad/UNIX-Command-Line-Interface/master/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/tavakkoliamirmohammad/tash-shell/master/install.sh | bash
 ```
 
 Or with Homebrew:
