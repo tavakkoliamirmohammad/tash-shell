@@ -18,6 +18,18 @@ TEST(Suggest, CommandNotFoundSuggestsCorrectCommand) {
         << "Should suggest 'echo', got: " << r.output;
 }
 
+TEST(Suggest, TranspositionSuggestsGit) {
+    auto r = run_shell("gti\nexit\n");
+    EXPECT_NE(r.output.find("git"), std::string::npos)
+        << "gti should suggest 'git', got: " << r.output;
+}
+
+TEST(Suggest, MissingCharSuggestsEcho) {
+    auto r = run_shell("ech\nexit\n");
+    EXPECT_NE(r.output.find("echo"), std::string::npos)
+        << "ech should suggest 'echo', got: " << r.output;
+}
+
 TEST(Suggest, VeryDifferentCommandNoSuggestion) {
     auto r = run_shell("xyzzy_not_a_command_at_all_99\nexit\n");
     // Too different from any real command, should not suggest
@@ -50,6 +62,21 @@ TEST(AutoCd, DirectoryNameChangesDir) {
     // auto-cd prints the new directory; on macOS /tmp -> /private/tmp
     EXPECT_NE(r.output.find("tmp"), std::string::npos)
         << "Auto-cd to /tmp should print new directory, got: " << r.output;
+    unlink(script.c_str());
+}
+
+TEST(AutoCd, TildeExpandsAndChangesDir) {
+    std::string script = "/tmp/tash_autocd_tilde_" + std::to_string(getpid()) + ".sh";
+    {
+        std::ofstream f(script);
+        f << "~\n";
+    }
+    auto r = run_shell_script(script);
+    const char *home = getenv("HOME");
+    ASSERT_NE(home, nullptr);
+    // auto-cd to ~ should print the home directory
+    EXPECT_NE(r.output.find(home), std::string::npos)
+        << "Auto-cd to ~ should resolve to HOME, got: " << r.output;
     unlink(script.c_str());
 }
 
