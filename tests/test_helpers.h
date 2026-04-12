@@ -19,7 +19,7 @@ struct ShellResult {
 inline ShellResult run_shell(const std::string &input) {
     char tmpfile[] = "/tmp/tash_test_XXXXXX";
     int fd = mkstemp(tmpfile);
-    (void)write(fd, input.c_str(), input.size());
+    if (write(fd, input.c_str(), input.size())) {}
     close(fd);
 
     std::string cmd = shell_binary + " < " + tmpfile + " 2>&1";

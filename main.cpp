@@ -14,16 +14,16 @@ volatile sig_atomic_t fg_child_pid = 0;
 // ── Utility functions ──────────────────────────────────────────
 
 void exit_with_message(const string &message, int exit_status) {
-    (void)write(STDERR_FILENO, message.c_str(), message.length());
+    if (write(STDERR_FILENO, message.c_str(), message.length())) {}
     exit(exit_status);
 }
 
 void write_stderr(const string &message) {
-    (void)write(STDERR_FILENO, message.c_str(), message.length());
+    if (write(STDERR_FILENO, message.c_str(), message.length())) {}
 }
 
 void write_stdout(const string &message) {
-    (void)write(STDOUT_FILENO, message.c_str(), message.length());
+    if (write(STDOUT_FILENO, message.c_str(), message.length())) {}
 }
 
 // ── Time measurement ───────────────────────────────────────────
@@ -199,7 +199,7 @@ void sigint_handler(int) {
     if (fg_child_pid > 0) {
         kill(fg_child_pid, SIGINT);
     } else {
-        (void)write(STDOUT_FILENO, "\n", 1);
+        if (write(STDOUT_FILENO, "\n", 1)) {}
     }
 }
 

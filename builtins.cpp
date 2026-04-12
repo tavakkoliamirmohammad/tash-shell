@@ -1,4 +1,5 @@
 #include "shell.h"
+#include <cstring>
 
 using namespace std;
 

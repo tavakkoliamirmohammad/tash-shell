@@ -41,7 +41,7 @@ string get_git_status_indicators() {
 void set_terminal_title(const string &title) {
     if (isatty(STDOUT_FILENO)) {
         string seq = "\033]0;" + title + "\007";
-        (void)write(STDOUT_FILENO, seq.c_str(), seq.size());
+        if (write(STDOUT_FILENO, seq.c_str(), seq.size())) {}
     }
 }
 
@@ -75,7 +75,7 @@ static string format_duration(double seconds) {
 
 string write_shell_prefix(const ShellState &state) {
     char cwd[MAX_SIZE];
-    getcwd(cwd, MAX_SIZE);
+    if (!getcwd(cwd, MAX_SIZE)) cwd[0] = '\0';
     const char *login = getlogin();
     const char *home = getenv("HOME");
     string user = login ? short_name(string(login)) : "user";

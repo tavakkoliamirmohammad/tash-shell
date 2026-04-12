@@ -1,4 +1,5 @@
 #include "shell.h"
+#include <cstring>
 
 using namespace std;
 
@@ -158,7 +159,7 @@ int execute_pipeline(vector<vector<string>> &pipeline_cmds,
             }
             execvp(c_args[0], const_cast<char *const *>(c_args.data()));
             string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
-            (void)write(STDERR_FILENO, err_msg.c_str(), err_msg.size());
+            if (write(STDERR_FILENO, err_msg.c_str(), err_msg.size())) {}
             exit(127);
         }
     }
