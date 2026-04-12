@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="tavakkoliamirmohammad/tash-shell"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 BINARY_NAME="tash"
 
 echo "Installing Tash shell..."
@@ -19,7 +19,7 @@ case "${OS}" in
         if [ "${ARCH}" = "arm64" ]; then
             ARTIFACT="tash-macos-arm64"
         else
-            ARTIFACT="tash-macos-arm64"
+            ARTIFACT="tash-macos-amd64"
         fi
         ;;
     *)
@@ -28,6 +28,8 @@ case "${OS}" in
         exit 1
         ;;
 esac
+
+mkdir -p "${INSTALL_DIR}"
 
 # Get latest release
 LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -48,7 +50,7 @@ if [ -z "${LATEST}" ]; then
     cmake --build build
 
     echo "Installing to ${INSTALL_DIR}..."
-    sudo install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
+    install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
     rm -rf "${TMPDIR}"
 else
     echo "Downloading ${LATEST}..."
@@ -58,7 +60,7 @@ else
     if curl -sL -o "${TMPFILE}" -w "%{http_code}" "${DOWNLOAD_URL}" | grep -q "^2"; then
         chmod +x "${TMPFILE}"
         echo "Installing to ${INSTALL_DIR}..."
-        sudo install -m 755 "${TMPFILE}" "${INSTALL_DIR}/${BINARY_NAME}"
+        install -m 755 "${TMPFILE}" "${INSTALL_DIR}/${BINARY_NAME}"
         rm -f "${TMPFILE}"
     else
         echo "Pre-built binary not available for your platform. Building from source..."
@@ -72,12 +74,34 @@ else
         cmake --build build
 
         echo "Installing to ${INSTALL_DIR}..."
-        sudo install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
+        install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
         rm -rf "${TMPDIR}"
     fi
 fi
 
-sudo install -m 644 tash.1 /usr/local/share/man/man1/tash.1 2>/dev/null || true
+# Add install dir to PATH in shell profile if not already there
+case ":${PATH}:" in
+    *":${INSTALL_DIR}:"*) ;;
+    *)
+        SHELL_NAME="$(basename "${SHELL:-/bin/bash}")"
+        case "${SHELL_NAME}" in
+            zsh)  PROFILE="${HOME}/.zshrc" ;;
+            bash) PROFILE="${HOME}/.bashrc" ;;
+            *)    PROFILE="${HOME}/.profile" ;;
+        esac
 
+        PATH_LINE="export PATH=\"${INSTALL_DIR}:\$PATH\""
+        if ! grep -qF "${INSTALL_DIR}" "${PROFILE}" 2>/dev/null; then
+            echo "" >> "${PROFILE}"
+            echo "# Added by Tash shell installer" >> "${PROFILE}"
+            echo "${PATH_LINE}" >> "${PROFILE}"
+            echo "Added ${INSTALL_DIR} to PATH in ${PROFILE}"
+        fi
+
+        export PATH="${INSTALL_DIR}:${PATH}"
+        ;;
+esac
+
+echo ""
 echo "Tash shell installed successfully!"
-echo "Run 'tash' to start the shell."
+echo "Run 'tash' to start the shell, or restart your shell to pick up PATH changes."
