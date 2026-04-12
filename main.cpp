@@ -220,8 +220,15 @@ int main(int argc, char *argv[]) {
     // Interactive mode
     if (isatty(STDIN_FILENO)) {
         write_stdout("\n");
-        write_stdout("  Welcome to Tash (Tavakkoli's Shell) v1.0.0\n");
-        write_stdout("  Type 'exit' to quit, 'history' to see command history.\n");
+        write_stdout(bold(cyan("   ████████╗ █████╗ ███████╗██╗  ██╗\n")));
+        write_stdout(bold(cyan("   ╚══██╔══╝██╔══██╗██╔════╝██║  ██║\n")));
+        write_stdout(bold(cyan("      ██║   ███████║███████╗███████║\n")));
+        write_stdout(bold(cyan("      ██║   ██╔══██║╚════██║██╔══██║\n")));
+        write_stdout(bold(cyan("      ██║   ██║  ██║███████║██║  ██║\n")));
+        write_stdout(bold(cyan("      ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝\n")));
+        write_stdout("\n");
+        write_stdout("   " + bold(white("Tavakkoli's Shell")) + " " + yellow("v1.0.0") + "\n");
+        write_stdout("   " + string("Type ") + green("exit") + " to quit, " + green("history") + " for command history.\n");
         write_stdout("\n");
     }
 
