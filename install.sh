@@ -79,6 +79,53 @@ else
     fi
 fi
 
+# Install Nerd Font for prompt glyphs (Powerline icons)
+install_nerd_font() {
+    local FONT_NAME="MesloLGS Nerd Font"
+    local FONT_VERSION="v3.3.0"
+    local FONT_ZIP="Meslo.zip"
+    local FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/download/${FONT_VERSION}/${FONT_ZIP}"
+
+    case "${OS}" in
+        Darwin)
+            FONT_DIR="${HOME}/Library/Fonts"
+            ;;
+        Linux)
+            FONT_DIR="${HOME}/.local/share/fonts"
+            ;;
+    esac
+
+    # Skip if already installed
+    if ls "${FONT_DIR}"/MesloLGS*NerdFont* &>/dev/null; then
+        echo "Nerd Font already installed."
+        return 0
+    fi
+
+    echo "Installing ${FONT_NAME} for prompt icons..."
+    mkdir -p "${FONT_DIR}"
+
+    FONT_TMP=$(mktemp -d)
+    if curl -sL -o "${FONT_TMP}/${FONT_ZIP}" "${FONT_URL}"; then
+        unzip -qo "${FONT_TMP}/${FONT_ZIP}" -d "${FONT_TMP}/fonts"
+        # Install only the MesloLGS variants
+        find "${FONT_TMP}/fonts" -name "MesloLGS*NerdFont*.ttf" -exec cp {} "${FONT_DIR}/" \;
+
+        if [ "${OS}" = "Linux" ]; then
+            fc-cache -f "${FONT_DIR}" 2>/dev/null || true
+        fi
+
+        echo "Installed ${FONT_NAME} to ${FONT_DIR}"
+        echo "NOTE: Set your terminal font to \"MesloLGS Nerd Font\" for best results."
+    else
+        echo "Warning: Could not download Nerd Font. Prompt icons may not display correctly."
+        echo "Install manually: https://www.nerdfonts.com/"
+    fi
+
+    rm -rf "${FONT_TMP}"
+}
+
+install_nerd_font
+
 # Add install dir to PATH in shell profile if not already there
 case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
