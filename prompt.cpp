@@ -46,17 +46,35 @@ string write_shell_prefix() {
     string branch = get_git_branch();
 
     if (isatty(STDOUT_FILENO)) {
-        ss << "\001\e[0m\002";  // reset
-        ss << bold(cyan("\u256d\u2500 "));
-        ss << bold(green(user));
-        ss << bold(white(" in "));
-        ss << bold(cyan(cwd_display));
+        // Use combined ANSI codes in single \001...\002 blocks
+        // so readline/libedit can correctly calculate prompt width.
+        // Nesting bold(cyan(...)) produces adjacent \002\001 pairs
+        // that confuse macOS libedit.
+        #define P_RST   "\001\e[0m\002"
+        #define P_BCYAN "\001\e[1;36m\002"
+        #define P_BGRN  "\001\e[1;32m\002"
+        #define P_BWHT  "\001\e[1;37m\002"
+        #define P_BMAG  "\001\e[1;35m\002"
+        #define P_BYEL  "\001\e[1;33m\002"
+
+        ss << P_RST;
+        ss << P_BCYAN "\u256d\u2500 " P_RST;
+        ss << P_BGRN << user << P_RST;
+        ss << P_BWHT " in " P_RST;
+        ss << P_BCYAN << cwd_display << P_RST;
         if (!branch.empty()) {
-            ss << bold(white(" on "));
-            ss << bold(magenta("\ue0a0 " + branch));
+            ss << P_BWHT " on " P_RST;
+            ss << P_BMAG "\ue0a0 " << branch << P_RST;
         }
         ss << "\n";
-        ss << bold(cyan("\u2570\u2500")) << bold(yellow("\u276f "));
+        ss << P_BCYAN "\u2570\u2500" P_RST P_BYEL "\u276f " P_RST;
+
+        #undef P_RST
+        #undef P_BCYAN
+        #undef P_BGRN
+        #undef P_BWHT
+        #undef P_BMAG
+        #undef P_BYEL
     } else {
         ss << user << " " << cwd_display;
         if (!branch.empty()) {
