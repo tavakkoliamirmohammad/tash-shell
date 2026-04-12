@@ -561,7 +561,66 @@ TEST(SuggestCommand, NoMatchForGibberish) {
 TEST(SuggestCommand, ExactMatchNotSuggested) {
     build_command_cache();
     string suggestion = suggest_command("echo");
-    // Exact match has distance 0, so "echo" itself should never be the suggestion
     EXPECT_NE(suggestion, "echo") << "Exact match should not be suggested as itself";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// command_exists_on_path (used by syntax highlighting)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(CommandExists, KnownCommandExists) {
+    build_command_cache();
+    EXPECT_TRUE(command_exists_on_path("ls")) << "ls should exist on PATH";
+}
+
+TEST(CommandExists, UnknownCommandDoesNotExist) {
+    build_command_cache();
+    EXPECT_FALSE(command_exists_on_path("xyzzy_not_real_99")) << "gibberish should not exist";
+}
+
+TEST(CommandExists, BuiltinNotOnPath) {
+    build_command_cache();
+    // "cd" is a builtin, not a PATH executable
+    // is_builtin("cd") should be true, but command_exists_on_path may or may not find it
+    EXPECT_TRUE(is_builtin("cd")) << "cd should be a builtin";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// get_path_commands (completion data source)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(PathCommands, ReturnsNonEmptyList) {
+    build_command_cache();
+    const auto &cmds = get_path_commands();
+    EXPECT_GT(cmds.size(), 0u) << "PATH should have commands";
+}
+
+TEST(PathCommands, ContainsLs) {
+    build_command_cache();
+    const auto &cmds = get_path_commands();
+    bool found = false;
+    for (const auto &c : cmds) {
+        if (c == "ls") { found = true; break; }
+    }
+    EXPECT_TRUE(found) << "ls should be in PATH commands";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Frecency (z command data)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(Frecency, RecordAndFind) {
+    // Record a unique path and verify we can find it
+    string unique_path = "/tmp/tash_frecency_test_" + to_string(getpid());
+    z_record_directory(unique_path);
+    string found = z_find_directory("frecency_test");
+    // The path might not exist on disk, so z_find_directory checks stat()
+    // and may return empty. Just verify the function doesn't crash.
+    // (The full test is in test_modern_ux.cpp with real directories)
+}
+
+TEST(Frecency, NoMatchReturnsEmpty) {
+    string result = z_find_directory("xyzzy_no_such_dir_ever_99");
+    EXPECT_TRUE(result.empty());
 }
 

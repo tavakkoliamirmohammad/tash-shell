@@ -1,4 +1,5 @@
 #include "shell.h"
+#include "theme.h"
 #include <cstring>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -145,8 +146,8 @@ int execute_single_command(string command, ShellState &state) {
     if (result == 127) {
         string suggestion = suggest_command(cmd.argv[0]);
         if (!suggestion.empty()) {
-            write_stderr("\033[2mtash: did you mean '\033[0m\033[1;33m" +
-                        suggestion + "\033[0m\033[2m'?\033[0m\n");
+            write_stderr(SUGGEST_TEXT "tash: did you mean '" CAT_RESET SUGGEST_CMD +
+                        suggestion + CAT_RESET SUGGEST_TEXT "'?" CAT_RESET "\n");
         }
     }
 
@@ -286,18 +287,18 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Interactive mode banner
+    // Interactive mode banner — Catppuccin Mocha palette
     if (isatty(STDIN_FILENO)) {
         write_stdout("\n");
-        write_stdout(bold(cyan("   ████████╗ █████╗ ███████╗██╗  ██╗\n")));
-        write_stdout(bold(cyan("   ╚══██╔══╝██╔══██╗██╔════╝██║  ██║\n")));
-        write_stdout(bold(cyan("      ██║   ███████║███████╗███████║\n")));
-        write_stdout(bold(cyan("      ██║   ██╔══██║╚════██║██╔══██║\n")));
-        write_stdout(bold(cyan("      ██║   ██║  ██║███████║██║  ██║\n")));
-        write_stdout(bold(cyan("      ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝\n")));
+        write_stdout(BANNER_LOGO "   ████████╗ █████╗ ███████╗██╗  ██╗" CAT_RESET "\n");
+        write_stdout(BANNER_LOGO "   ╚══██╔══╝██╔══██╗██╔════╝██║  ██║" CAT_RESET "\n");
+        write_stdout(BANNER_LOGO "      ██║   ███████║███████╗███████║" CAT_RESET "\n");
+        write_stdout(BANNER_LOGO "      ██║   ██╔══██║╚════██║██╔══██║" CAT_RESET "\n");
+        write_stdout(BANNER_LOGO "      ██║   ██║  ██║███████║██║  ██║" CAT_RESET "\n");
+        write_stdout(BANNER_LOGO "      ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "\n");
         write_stdout("\n");
-        write_stdout("   " + bold(white("Tavakkoli's Shell")) + " " + yellow("v1.0.0") + "\n");
-        write_stdout("   " + string("Type ") + green("exit") + " to quit, " + green("history") + " for command history.\n");
+        write_stdout("   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " BANNER_VERSION "v1.0.0" CAT_RESET "\n");
+        write_stdout("   " BANNER_TEXT "Type " BANNER_HINT "exit" CAT_RESET BANNER_TEXT " to quit, " BANNER_HINT "history" CAT_RESET BANNER_TEXT " for command history." CAT_RESET "\n");
         write_stdout("\n");
     }
 
@@ -351,17 +352,68 @@ int main(int argc, char *argv[]) {
     rx.set_immediate_completion(true);
     rx.set_beep_on_ambiguous_completion(false);
 
-    // Right arrow at end of line accepts the hint (fish-style)
+    // Right arrow at end of line accepts the full hint (fish-style)
     rx.bind_key(Replxx::KEY::RIGHT,
         [&rx](char32_t code) {
-            Replxx::State state(rx.get_state());
-            int len = (int)strlen(state.text());
-            if (state.cursor_position() >= len && !current_hint.empty()) {
+            Replxx::State st(rx.get_state());
+            int len = (int)strlen(st.text());
+            if (st.cursor_position() >= len && !current_hint.empty()) {
                 rx.set_state(Replxx::State(current_hint.c_str(), (int)current_hint.size()));
                 current_hint.clear();
                 return Replxx::ACTION_RESULT::CONTINUE;
             }
             return rx.invoke(Replxx::ACTION::MOVE_CURSOR_RIGHT, code);
+        }
+    );
+
+    // Alt+Right: accept one word from the hint
+    rx.bind_key(Replxx::KEY::meta(Replxx::KEY::RIGHT),
+        [&rx](char32_t code) {
+            Replxx::State st(rx.get_state());
+            string current(st.text());
+            int len = (int)current.size();
+            if (st.cursor_position() >= len && !current_hint.empty() &&
+                current_hint.size() > current.size()) {
+                // Find the next word boundary in the hint after current text
+                size_t pos = current.size();
+                // Skip spaces
+                while (pos < current_hint.size() && current_hint[pos] == ' ') pos++;
+                // Skip word
+                while (pos < current_hint.size() && current_hint[pos] != ' ') pos++;
+                string partial = current_hint.substr(0, pos);
+                rx.set_state(Replxx::State(partial.c_str(), (int)partial.size()));
+                return Replxx::ACTION_RESULT::CONTINUE;
+            }
+            return rx.invoke(Replxx::ACTION::MOVE_CURSOR_ONE_WORD_RIGHT, code);
+        }
+    );
+
+    // Alt+. : insert last argument of previous command
+    rx.bind_key(Replxx::KEY::meta('.'),
+        [&rx](char32_t) {
+            Replxx::HistoryScan hs(rx.history_scan());
+            string last_arg;
+            // Find the most recent history entry
+            while (hs.next()) {
+                Replxx::HistoryEntry he(hs.get());
+                string entry(he.text());
+                // Extract last argument (last space-delimited token)
+                size_t last_space = entry.find_last_of(" \t");
+                if (last_space != string::npos && last_space + 1 < entry.size()) {
+                    last_arg = entry.substr(last_space + 1);
+                } else {
+                    last_arg = entry;
+                }
+            }
+            if (!last_arg.empty()) {
+                // Insert the last argument at cursor position
+                Replxx::State st(rx.get_state());
+                string current(st.text());
+                int cursor = st.cursor_position();
+                string new_text = current.substr(0, cursor) + last_arg + current.substr(cursor);
+                rx.set_state(Replxx::State(new_text.c_str(), cursor + (int)last_arg.size()));
+            }
+            return Replxx::ACTION_RESULT::CONTINUE;
         }
     );
 

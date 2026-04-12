@@ -1,4 +1,5 @@
 #include "shell.h"
+#include "theme.h"
 
 using namespace std;
 using namespace replxx;
@@ -16,41 +17,48 @@ static const vector<string> docker_subcommands = {
     "run", "start", "stop", "volume"
 };
 
+// Catppuccin colors for different completion types
+static Replxx::Color comp_builtin() { return replxx::color::rgb666(2, 5, 4); }  // teal
+static Replxx::Color comp_command() { return replxx::color::rgb666(3, 5, 3); }  // green
+static Replxx::Color comp_subcmd()  { return replxx::color::rgb666(4, 3, 5); }  // mauve
+static Replxx::Color comp_envvar()  { return replxx::color::rgb666(2, 4, 5); }  // sky
+
 Replxx::completions_t completion_callback(const string &input, int &context_len) {
     Replxx::completions_t completions;
 
-    // Find the last word (the one being completed)
     size_t last_space = input.find_last_of(" \t");
     string prefix;
     string cmd;
 
     if (last_space == string::npos) {
-        // Completing the command name — search builtins + PATH executables
+        // Command position — complete builtins + PATH executables
         prefix = input;
         context_len = (int)prefix.size();
 
-        // Builtins
+        // Builtins (colored teal)
         const auto &builtins = get_builtins();
         for (const auto &pair : builtins) {
             if (pair.first.compare(0, prefix.size(), prefix) == 0) {
-                completions.emplace_back(pair.first);
+                completions.emplace_back(pair.first, comp_builtin());
             }
         }
-        if (string("bg").compare(0, prefix.size(), prefix) == 0) completions.emplace_back("bg");
-        if (string("z").compare(0, prefix.size(), prefix) == 0) completions.emplace_back("z");
+        if (string("bg").compare(0, prefix.size(), prefix) == 0)
+            completions.emplace_back("bg", comp_builtin());
+        if (string("z").compare(0, prefix.size(), prefix) == 0)
+            completions.emplace_back("z", comp_builtin());
 
-        // PATH executables (uses command cache from suggest.cpp)
+        // PATH executables (colored green)
         build_command_cache();
         for (const string &cmd_name : get_path_commands()) {
             if (cmd_name.compare(0, prefix.size(), prefix) == 0) {
-                completions.emplace_back(cmd_name);
+                completions.emplace_back(cmd_name, comp_command());
             }
         }
 
         return completions;
     }
 
-    // Completing an argument
+    // Argument position
     prefix = input.substr(last_space + 1);
     context_len = (int)prefix.size();
 
@@ -61,7 +69,7 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
     while (cmd_end < input.size() && input[cmd_end] != ' ' && input[cmd_end] != '\t') cmd_end++;
     cmd = input.substr(cmd_start, cmd_end - cmd_start);
 
-    // Variable completion
+    // Variable completion (colored sky)
     if (!prefix.empty() && prefix[0] == '$') {
         string var_prefix = prefix.substr(1);
         extern char **environ;
@@ -71,13 +79,13 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
             if (eq == string::npos) continue;
             string name = entry.substr(0, eq);
             if (name.compare(0, var_prefix.size(), var_prefix) == 0) {
-                completions.emplace_back("$" + name);
+                completions.emplace_back("$" + name, comp_envvar());
             }
         }
         return completions;
     }
 
-    // Subcommand completion
+    // Subcommand completion (colored mauve)
     const vector<string> *subcmds = nullptr;
     if (cmd == "git") subcmds = &git_subcommands;
     else if (cmd == "docker") subcmds = &docker_subcommands;
@@ -85,11 +93,10 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
     if (subcmds) {
         for (const string &sub : *subcmds) {
             if (sub.compare(0, prefix.size(), prefix) == 0) {
-                completions.emplace_back(sub);
+                completions.emplace_back(sub, comp_subcmd());
             }
         }
     }
 
-    // Fall through: replxx does filename completion automatically when we return empty
     return completions;
 }
