@@ -56,7 +56,7 @@ string write_shell_prefix() {
             ss << bold(magenta("\ue0a0 " + branch));
         }
         ss << "\n";
-        ss << bold(cyan("\u256e\u2500")) << bold(yellow("\u276f "));
+        ss << bold(cyan("\u2570\u2500")) << bold(yellow("\u276f "));
     } else {
         ss << user << " " << cwd_display;
         if (!branch.empty()) {
