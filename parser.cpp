@@ -222,21 +222,27 @@ string strip_quotes(const string &s) {
     return s;
 }
 
-string expand_history(const string &line) {
+string expand_history_bang(const string &line, replxx::Replxx &rx) {
     string trimmed = line;
     trimmed = trim(trimmed);
 
+    // Collect history entries into a vector for indexed access
+    vector<string> hist_entries;
+    {
+        replxx::Replxx::HistoryScan hs(rx.history_scan());
+        while (hs.next()) {
+            replxx::Replxx::HistoryEntry he(hs.get());
+            hist_entries.push_back(he.text());
+        }
+    }
+
+    // hist_entries is oldest-first (history_scan iterates chronologically)
     if (trimmed == "!!") {
-        if (history_length == 0) {
+        if (hist_entries.empty()) {
             write_stderr("tash: !!: event not found\n");
             return "";
         }
-        HIST_ENTRY *entry = history_get(history_length);
-        if (!entry) {
-            write_stderr("tash: !!: event not found\n");
-            return "";
-        }
-        return string(entry->line);
+        return hist_entries.back();  // most recent = last element
     }
 
     if (trimmed.size() >= 2 && trimmed[0] == '!') {
@@ -247,12 +253,13 @@ string expand_history(const string &line) {
         }
         if (all_digits && !num_str.empty()) {
             int n = stoi(num_str);
-            HIST_ENTRY *entry = history_get(history_base + n - 1);
-            if (!entry) {
+            // !1 = first command = hist_entries[0] (1-based)
+            int idx = n - 1;
+            if (idx < 0 || idx >= (int)hist_entries.size()) {
                 write_stderr("tash: !" + num_str + ": event not found\n");
                 return "";
             }
-            return string(entry->line);
+            return hist_entries[idx];
         }
     }
 

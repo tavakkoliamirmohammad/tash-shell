@@ -329,13 +329,24 @@ static int builtin_fg(const vector<string> &argv, ShellState &state) {
 }
 
 static int builtin_history(const vector<string> &, ShellState &) {
-    int len = history_length;
-    for (int i = 0; i < len; i++) {
-        HIST_ENTRY *entry = history_get(history_base + i);
-        if (entry) {
+    string path = history_file_path();
+    if (path.empty()) {
+        write_stderr("history: no history file\n");
+        return 1;
+    }
+    ifstream file(path);
+    if (!file.is_open()) {
+        write_stderr("history: cannot read history\n");
+        return 1;
+    }
+    string line;
+    int n = 1;
+    while (getline(file, line)) {
+        if (!line.empty()) {
             stringstream ss;
-            ss << "  " << (i + 1) << "  " << entry->line << endl;
+            ss << "  " << n << "  " << line << endl;
             write_stdout(ss.str());
+            n++;
         }
     }
     return 0;
