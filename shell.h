@@ -12,8 +12,6 @@
 #include <sys/time.h>
 #include <regex>
 #include <glob.h>
-#include <readline/readline.h>
-#include <readline/history.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
@@ -21,6 +19,7 @@
 #include <cstdlib>
 #include <fstream>
 
+#include "replxx.hxx"
 #include "colors.h"
 
 // ── Constants ───────────────────────────────────────────────────
@@ -71,7 +70,7 @@ struct ShellState {
     std::unordered_map<pid_t, std::string> background_processes;
     int max_background_processes;
     int ctrl_d_count;
-    double last_cmd_duration;  // in seconds, -1 means not measured
+    double last_cmd_duration;
 
     ShellState()
         : last_exit_status(0)
@@ -109,7 +108,7 @@ std::vector<std::string> expand_globs(const std::vector<std::string> &args);
 std::string expand_tilde(const std::string &token);
 std::string strip_quotes(const std::string &s);
 std::vector<CommandSegment> parse_command_line(const std::string &line);
-std::string expand_history(const std::string &line);
+std::string expand_history_bang(const std::string &line, replxx::Replxx &rx);
 Command parse_redirections(const std::string &command_str);
 bool is_input_complete(const std::string &input);
 
@@ -133,25 +132,28 @@ int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
 
 // ── completion.cpp ────────────────────────────────────────────
 
-char **tash_completion(const char *text, int start, int end);
+replxx::Replxx::completions_t completion_callback(const std::string &input, int &context_len);
 
 // ── suggest.cpp ───────────────────────────────────────────────
 
 void build_command_cache();
 std::string suggest_command(const std::string &cmd);
+bool command_exists_on_path(const std::string &cmd);
 
 // ── history.cpp ───────────────────────────────────────────────
 
-void load_persistent_history();
-void save_history_line(const std::string &line);
-bool should_record_history(const std::string &line);
-void setup_prefix_history_search();
-void reset_prefix_search();
+std::string history_file_path();
+bool should_record_history(const std::string &line, replxx::Replxx &rx);
 
 // ── frecency.cpp ──────────────────────────────────────────────
 
 void z_record_directory(const std::string &dir);
 std::string z_find_directory(const std::string &query);
+
+// ── highlight.cpp ─────────────────────────────────────────────
+
+void syntax_highlighter(const std::string &input, replxx::Replxx::colors_t &colors);
+replxx::Replxx::hints_t hint_callback(const std::string &input, int &context_len, replxx::Replxx::Color &color);
 
 // ── main.cpp ───────────────────────────────────────────────────
 

@@ -65,6 +65,14 @@ void build_command_cache() {
     }
 }
 
+bool command_exists_on_path(const string &cmd) {
+    if (path_commands.empty()) build_command_cache();
+    for (const string &c : path_commands) {
+        if (c == cmd) return true;
+    }
+    return false;
+}
+
 string suggest_command(const string &cmd) {
     if (path_commands.empty()) build_command_cache();
 
