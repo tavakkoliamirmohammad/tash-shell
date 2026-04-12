@@ -120,8 +120,8 @@ string write_shell_prefix(const ShellState &state) {
         // Prompt character: green on success, red on failure
         string prompt_color = (state.last_exit_status == 0) ? "\033[1;32m" : "\033[1;31m";
 
-        return "\001\033[1;36m\002\u2570\u2500\001\033[0m\002"
-               "\001" + prompt_color + "\002\u276f \001\033[0m\002";
+        return "\033[1;36m\u2570\u2500\033[0m"
+               + prompt_color + "\u276f \033[0m";
     } else {
         stringstream ss;
         ss << user << " " << cwd_display;

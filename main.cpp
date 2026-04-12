@@ -377,10 +377,10 @@ int main(int argc, char *argv[]) {
             write_stdout(expanded + "\n");
         }
 
-        // Record in history (only persist to file in interactive mode)
+        // Record in history
         if (should_record_history(expanded, rx)) {
             rx.history_add(expanded);
-            if (!hist_path.empty() && isatty(STDIN_FILENO)) {
+            if (!hist_path.empty()) {
                 rx.history_save(hist_path);
             }
         }
