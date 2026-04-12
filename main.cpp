@@ -1,17 +1,13 @@
 #include "shell.h"
 
-// ── Global variable definitions ─────────────────────────────────
+using namespace std;
 
-string previous_directory;
-int last_exit_status = 0;
+// ── Signal-related globals (must be global for signal handlers) ─
+
 volatile sig_atomic_t sigchld_received = 0;
-unordered_set<string> colorful_commands = {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
-unordered_map<string, string> aliases;
-vector<string> dir_stack;
 volatile sig_atomic_t fg_child_pid = 0;
-char hostname[MAX_SIZE];
 
-// ── Utility functions ───────────────────────────────────────────
+// ── Utility functions ──────────────────────────────────────────
 
 void exit_with_message(const string &message, int exit_status) {
     write(STDERR_FILENO, message.c_str(), message.length());
@@ -26,397 +22,100 @@ void write_stdout(const string &message) {
     write(STDOUT_FILENO, message.c_str(), message.length());
 }
 
-void show_error_command(const vector<char *> &args) {
-    write_stderr(args[0]);
-    write_stderr(": ");
-    write_stderr(strerror(errno));
-    write_stderr("\n");
-}
+// ── Command execution ──────────────────────────────────────────
 
-// ── Command execution ───────────────────────────────────────────
-
-int execute_single_command(string command, unordered_map<pid_t, string> &background_processes,
-                           int maximum_background_process) {
-    // Strip comments: everything after '#' outside quotes is ignored
-    size_t hash_pos = command.find('#');
-    if (hash_pos != string::npos) {
-        // Don't strip if # is inside quotes
-        bool in_quotes = false;
-        for (size_t i = 0; i < hash_pos; i++) {
-            if (command[i] == '"' || command[i] == '\'') in_quotes = !in_quotes;
-        }
-        if (!in_quotes) command = command.substr(0, hash_pos);
-    }
+int execute_single_command(string command, ShellState &state) {
     if (command.empty() || command.find_first_not_of(" \t") == string::npos) return 0;
 
-    command = expand_variables(command);
+    command = expand_variables(command, state.last_exit_status);
     command = expand_command_substitution(command);
-    int flag = 0, append_flag = 0, input_flag = 0;
-    int stderr_flag = 0, stderr_to_stdout = 0;
-    string filename, input_filename, stderr_filename;
 
-    // Check for 2>&1 (stderr to stdout) before other redirection parsing
-    {
-        string tmp_cmd;
-        bool in_double_quotes = false;
-        bool in_single_quotes = false;
-        size_t i = 0;
-        while (i < command.size()) {
-            if (command[i] == '"' && !in_single_quotes) {
-                in_double_quotes = !in_double_quotes;
-                tmp_cmd += command[i];
-                ++i;
-            } else if (command[i] == '\'' && !in_double_quotes) {
-                in_single_quotes = !in_single_quotes;
-                tmp_cmd += command[i];
-                ++i;
-            } else if (!in_double_quotes && !in_single_quotes &&
-                       i + 4 <= command.size() && command.compare(i, 4, "2>&1") == 0) {
-                stderr_to_stdout = 1;
-                i += 4;
-            } else {
-                tmp_cmd += command[i];
-                ++i;
-            }
+    // Parse redirections and tokenize into Command struct
+    Command cmd = parse_redirections(command);
+    if (cmd.argv.empty()) return 0;
+
+    // Alias expansion: if the first token is an alias, re-parse
+    if (state.aliases.count(cmd.argv[0])) {
+        string expanded = state.aliases[cmd.argv[0]];
+        for (size_t i = 1; i < cmd.argv.size(); i++)
+            expanded += " " + cmd.argv[i];
+        vector<string> new_tokens = tokenize_string(expanded, " ");
+        for (string &t : new_tokens) {
+            t = expand_tilde(t);
+            t = strip_quotes(t);
         }
-        command = tmp_cmd;
+        cmd.argv = new_tokens;
     }
 
-    // Check for 2> file (stderr to file) — only if 2>&1 was not found
-    if (!stderr_to_stdout) {
-        string tmp_cmd;
-        bool in_double_quotes = false;
-        bool in_single_quotes = false;
-        size_t i = 0;
-        while (i < command.size()) {
-            if (command[i] == '"' && !in_single_quotes) {
-                in_double_quotes = !in_double_quotes;
-                tmp_cmd += command[i];
-                ++i;
-            } else if (command[i] == '\'' && !in_double_quotes) {
-                in_single_quotes = !in_single_quotes;
-                tmp_cmd += command[i];
-                ++i;
-            } else if (!in_double_quotes && !in_single_quotes &&
-                       i + 2 <= command.size() && command.compare(i, 2, "2>") == 0) {
-                // Extract the filename after 2>
-                i += 2;
-                // Skip whitespace
-                while (i < command.size() && command[i] == ' ') ++i;
-                string fname;
-                while (i < command.size() && command[i] != ' ' && command[i] != '\t') {
-                    fname += command[i];
-                    ++i;
-                }
-                fname = trim(fname);
-                if (!fname.empty()) {
-                    stderr_filename = fname;
-                    stderr_flag = 1;
-                }
-            } else {
-                tmp_cmd += command[i];
-                ++i;
-            }
-        }
-        command = tmp_cmd;
+    // Glob expansion
+    cmd.argv = expand_globs(cmd.argv);
+
+    // Color flag injection for known commands
+    if (!cmd.argv.empty() && state.colorful_commands.count(cmd.argv[0])) {
+        cmd.argv.insert(cmd.argv.begin() + 1, COLOR_FLAG);
     }
 
-    vector<string> temp = tokenize_string(command, ">>");
-    if (temp.size() > 1) {
-        command = temp[0]; filename = temp[1]; flag = 1; append_flag = 1;
-    } else {
-        temp = tokenize_string(command, ">");
-        if (temp.size() > 1) { command = temp[0]; filename = temp[1]; flag = 1; }
-    }
-    temp = tokenize_string(command, "<");
-    if (temp.size() > 1) { command = temp[0]; input_filename = temp[1]; input_flag = 1; }
-
+    // Check for pipe segments (pipes are handled before builtins)
+    // We need to re-check the original command for pipes since
+    // parse_redirections consumed the command text
     vector<string> pipe_segments = tokenize_string(command, "|");
     if (pipe_segments.size() > 1) {
-        vector<vector<string>> all_tokens(pipe_segments.size());
-        vector<vector<char *>> pipeline_args(pipe_segments.size());
+        vector<vector<string>> pipeline_cmds;
+        string redirect_file;
+        bool redirect_flag = false;
+
         for (size_t i = 0; i < pipe_segments.size(); i++) {
-            all_tokens[i] = tokenize_string(pipe_segments[i], " ");
-            for (string &t : all_tokens[i])
-                t = strip_quotes(t);
+            Command seg_cmd = parse_redirections(pipe_segments[i]);
+
             // Alias expansion for each pipe segment
-            if (!all_tokens[i].empty() && aliases.count(all_tokens[i][0])) {
-                string expanded = aliases[all_tokens[i][0]];
-                for (size_t j = 1; j < all_tokens[i].size(); j++)
-                    expanded += " " + all_tokens[i][j];
-                all_tokens[i] = tokenize_string(expanded, " ");
+            if (!seg_cmd.argv.empty() && state.aliases.count(seg_cmd.argv[0])) {
+                string expanded = state.aliases[seg_cmd.argv[0]];
+                for (size_t j = 1; j < seg_cmd.argv.size(); j++)
+                    expanded += " " + seg_cmd.argv[j];
+                vector<string> new_tokens = tokenize_string(expanded, " ");
+                for (string &t : new_tokens) {
+                    t = expand_tilde(t);
+                    t = strip_quotes(t);
+                }
+                seg_cmd.argv = new_tokens;
             }
-            if (colorful_commands.find(all_tokens[i][0]) != colorful_commands.end())
-                all_tokens[i].insert(all_tokens[i].begin() + 1, COLOR_FLAG);
-            for (const string &token : all_tokens[i])
-                pipeline_args[i].push_back(const_cast<char *>(token.c_str()));
-            pipeline_args[i].push_back(nullptr);
+
+            if (!seg_cmd.argv.empty() && state.colorful_commands.count(seg_cmd.argv[0]))
+                seg_cmd.argv.insert(seg_cmd.argv.begin() + 1, COLOR_FLAG);
+
+            // Check if last segment has stdout redirection
+            if (i == pipe_segments.size() - 1) {
+                for (const Redirection &r : seg_cmd.redirections) {
+                    if (r.fd == 1) {
+                        redirect_file = r.filename;
+                        redirect_flag = true;
+                    }
+                }
+            }
+
+            pipeline_cmds.push_back(seg_cmd.argv);
         }
-        execute_pipeline(pipeline_args, filename, flag);
+        return execute_pipeline(pipeline_cmds, redirect_file, redirect_flag);
+    }
+
+    // Dispatch builtins
+    const auto &builtins = get_builtins();
+    auto it = builtins.find(cmd.argv[0]);
+    if (it != builtins.end()) {
+        return it->second(cmd.argv, state);
+    }
+
+    // bg is special: it uses process.cpp's background_process
+    if (cmd.argv[0] == "bg") {
+        background_process(cmd.argv, state, cmd.redirections);
         return 0;
     }
 
-    vector<string> tokenize_command = tokenize_string(command, " ");
-    for (string &t : tokenize_command)
-        t = strip_quotes(t);
-
-    // Alias expansion: if the first token is an alias, replace it
-    if (!tokenize_command.empty() && aliases.count(tokenize_command[0])) {
-        string expanded = aliases[tokenize_command[0]];
-        for (size_t i = 1; i < tokenize_command.size(); i++)
-            expanded += " " + tokenize_command[i];
-        tokenize_command = tokenize_string(expanded, " ");
-    }
-
-    tokenize_command = expand_globs(tokenize_command);
-    if (colorful_commands.find(tokenize_command[0]) != colorful_commands.end())
-        tokenize_command.insert(tokenize_command.begin() + 1, COLOR_FLAG);
-    vector<char *> arguments;
-    arguments.reserve(tokenize_command.size() + 2);
-    for (const string &token : tokenize_command)
-        arguments.push_back(const_cast<char *>(token.c_str()));
-    arguments.push_back(nullptr);
-
-    string file = arguments[0];
-    if (file == "cd") { change_directory(arguments); return 0; }
-    else if (file == "pwd") { show_current_directory(arguments); return 0; }
-    else if (file == "exit") { write_stdout("GoodBye! See you soon!\n"); exit(0); }
-    else if (file == "export") {
-        if (arguments[1] == nullptr) {
-            for (char **env = environ; *env != nullptr; env++) write_stdout(string(*env) + "\n");
-        } else {
-            string arg = arguments[1];
-            size_t eq_pos = arg.find('=');
-            if (eq_pos != string::npos) {
-                setenv(arg.substr(0, eq_pos).c_str(), arg.substr(eq_pos + 1).c_str(), 1);
-            } else {
-                write_stderr("export: invalid format. Usage: export VAR=value\n");
-            }
-        }
-        return 0;
-    } else if (file == "unset") {
-        if (arguments[1] != nullptr) unsetenv(arguments[1]);
-        else write_stderr("unset: missing variable name\n");
-        return 0;
-    } else if (file == "alias") {
-        if (arguments[1] == nullptr) {
-            // List all aliases
-            for (auto &pair : aliases) {
-                write_stdout("alias " + pair.first + "='" + pair.second + "'\n");
-            }
-        } else {
-            // Parse alias definition: name='value' or name=value
-            string arg = arguments[1];
-            size_t eq_pos = arg.find('=');
-            if (eq_pos != string::npos) {
-                string name = arg.substr(0, eq_pos);
-                string value = arg.substr(eq_pos + 1);
-                // Strip surrounding quotes (single or double)
-                if (value.size() >= 2 &&
-                    ((value.front() == '\'' && value.back() == '\'') ||
-                     (value.front() == '"' && value.back() == '"'))) {
-                    value = value.substr(1, value.size() - 2);
-                }
-                aliases[name] = value;
-            } else {
-                // alias name — show that single alias
-                if (aliases.count(arg)) {
-                    write_stdout("alias " + arg + "='" + aliases[arg] + "'\n");
-                } else {
-                    write_stderr("alias: " + arg + ": not found\n");
-                }
-            }
-        }
-        return 0;
-    } else if (file == "unalias") {
-        if (arguments[1] != nullptr) {
-            string name = arguments[1];
-            if (aliases.count(name)) {
-                aliases.erase(name);
-            } else {
-                write_stderr("unalias: " + name + ": not found\n");
-            }
-        } else {
-            write_stderr("unalias: missing alias name\n");
-        }
-        return 0;
-    } else if (file == "clear") {
-        write_stdout("\033[2J\033[H");
-        return 0;
-    } else if (file == "which" || file == "type") {
-        if (arguments[1] == nullptr) {
-            write_stderr(file + ": missing argument\n");
-            return 1;
-        }
-        string name = arguments[1];
-        // Check builtins first
-        static const unordered_set<string> builtins_set = {
-            "cd", "pwd", "exit", "export", "unset", "alias", "unalias",
-            "clear", "bglist", "bgkill", "bgstop", "bgstart", "fg",
-            "history", "source", ".", "bg", "which", "type",
-            "pushd", "popd", "dirs"
-        };
-        if (builtins_set.count(name)) {
-            write_stdout(name + ": shell builtin\n");
-            return 0;
-        }
-        // Check aliases
-        if (aliases.count(name)) {
-            write_stdout(name + " is aliased to '" + aliases[name] + "'\n");
-            return 0;
-        }
-        // Search PATH
-        const char *path_env = getenv("PATH");
-        if (path_env) {
-            string path_str = path_env;
-            size_t start = 0;
-            while (start < path_str.size()) {
-                size_t end = path_str.find(':', start);
-                if (end == string::npos) end = path_str.size();
-                string dir = path_str.substr(start, end - start);
-                string full_path = dir + "/" + name;
-                if (access(full_path.c_str(), X_OK) == 0) {
-                    write_stdout(full_path + "\n");
-                    return 0;
-                }
-                start = end + 1;
-            }
-        }
-        write_stderr(name + " not found\n");
-        return 1;
-    } else if (file == "pushd") {
-        if (arguments[1] == nullptr) {
-            write_stderr("pushd: no directory specified\n");
-            return 1;
-        }
-        char cwd[MAX_SIZE];
-        if (getcwd(cwd, MAX_SIZE) == nullptr) {
-            write_stderr("pushd: cannot get current directory\n");
-            return 1;
-        }
-        if (chdir(arguments[1]) == -1) {
-            show_error_command(arguments);
-            return 1;
-        }
-        dir_stack.push_back(string(cwd));
-        char new_cwd[MAX_SIZE];
-        if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
-            string stack_str = string(new_cwd);
-            for (int si = (int)dir_stack.size() - 1; si >= 0; si--)
-                stack_str += " " + dir_stack[si];
-            write_stdout(stack_str + "\n");
-        }
-        return 0;
-    } else if (file == "popd") {
-        if (dir_stack.empty()) {
-            write_stderr("popd: directory stack empty\n");
-            return 1;
-        }
-        string target = dir_stack.back();
-        dir_stack.pop_back();
-        if (chdir(target.c_str()) == -1) {
-            write_stderr("popd: " + target + ": " + string(strerror(errno)) + "\n");
-            return 1;
-        }
-        char new_cwd[MAX_SIZE];
-        if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
-            string stack_str = string(new_cwd);
-            for (int si = (int)dir_stack.size() - 1; si >= 0; si--)
-                stack_str += " " + dir_stack[si];
-            write_stdout(stack_str + "\n");
-        }
-        return 0;
-    } else if (file == "dirs") {
-        char cwd[MAX_SIZE];
-        if (getcwd(cwd, MAX_SIZE) != nullptr) {
-            string stack_str = string(cwd);
-            for (int si = (int)dir_stack.size() - 1; si >= 0; si--)
-                stack_str += " " + dir_stack[si];
-            write_stdout(stack_str + "\n");
-        }
-        return 0;
-    } else if (file == "bglist") { show_background_process(background_processes); return 0; }
-    else if (file == "bgkill") {
-        if (arguments.size() < 3) { write_stderr("bgkill: missing process number\n"); return 1; }
-        int n; try { n = stoi(arguments[1]); }
-        catch (const std::invalid_argument&) { write_stderr("bgkill: invalid process number\n"); return 1; }
-        catch (const std::out_of_range&) { write_stderr("bgkill: process number out of range\n"); return 1; }
-        pid_t pid = get_nth_background_process(background_processes, n);
-        if (pid == -1) { write_stderr(file + ": Invalid n number\n"); return 1; }
-        background_process_signal(pid, SIGTERM); return 0;
-    } else if (file == "bgstop") {
-        if (arguments.size() < 3) { write_stderr("bgstop: missing process number\n"); return 1; }
-        int n; try { n = stoi(arguments[1]); }
-        catch (const std::invalid_argument&) { write_stderr("bgstop: invalid process number\n"); return 1; }
-        catch (const std::out_of_range&) { write_stderr("bgstop: process number out of range\n"); return 1; }
-        pid_t pid = get_nth_background_process(background_processes, n);
-        if (pid == -1) { write_stderr(file + ": Invalid n number\n"); return 1; }
-        background_process_signal(pid, SIGSTOP); return 0;
-    } else if (file == "bgstart") {
-        if (arguments.size() < 3) { write_stderr("bgstart: missing process number\n"); return 1; }
-        int n; try { n = stoi(arguments[1]); }
-        catch (const std::invalid_argument&) { write_stderr("bgstart: invalid process number\n"); return 1; }
-        catch (const std::out_of_range&) { write_stderr("bgstart: process number out of range\n"); return 1; }
-        pid_t pid = get_nth_background_process(background_processes, n);
-        if (pid == -1) { write_stderr(file + ": Invalid n number\n"); return 1; }
-        background_process_signal(pid, SIGCONT); return 0;
-    } else if (file == "fg") {
-        if (background_processes.empty()) {
-            write_stderr("fg: no background jobs\n");
-            return 1;
-        }
-        pid_t pid;
-        if (arguments[1] == nullptr) {
-            // No argument: bring the most recent (last) background job
-            // unordered_map has no order; pick the highest PID as "most recent"
-            pid = -1;
-            for (auto &p : background_processes) {
-                if (p.first > pid) pid = p.first;
-            }
-        } else {
-            int n;
-            try { n = stoi(arguments[1]); }
-            catch (const std::invalid_argument&) { write_stderr("fg: invalid job number\n"); return 1; }
-            catch (const std::out_of_range&) { write_stderr("fg: job number out of range\n"); return 1; }
-            pid = get_nth_background_process(background_processes, n);
-            if (pid == -1) { write_stderr("fg: invalid job number\n"); return 1; }
-        }
-        // Resume the process in case it is stopped
-        kill(pid, SIGCONT);
-        // Wait for it in the foreground
-        fg_child_pid = pid;
-        int status;
-        waitpid(pid, &status, WUNTRACED);
-        fg_child_pid = 0;
-        background_processes.erase(pid);
-        return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
-    } else if (file == "history") {
-        int len = history_length;
-        for (int i = 0; i < len; i++) {
-            HIST_ENTRY *entry = history_get(history_base + i);
-            if (entry) { stringstream ss; ss << "  " << (i + 1) << "  " << entry->line << endl; write_stdout(ss.str()); }
-        }
-        return 0;
-    } else if (file == "source" || file == ".") {
-        if (arguments[1] == nullptr) {
-            write_stderr("source: missing file argument\n");
-            return 1;
-        }
-        return execute_script_file(arguments[1], background_processes, maximum_background_process);
-    } else if (file == "bg") {
-        background_process(arguments, background_processes, maximum_background_process, filename, flag,
-                           input_filename, input_flag, append_flag,
-                           stderr_filename, stderr_flag, stderr_to_stdout);
-        return 0;
-    } else {
-        return foreground_process(arguments, filename, flag, input_filename, input_flag, append_flag,
-                                  stderr_filename, stderr_flag, stderr_to_stdout);
-    }
+    // External command
+    return foreground_process(cmd.argv, cmd.redirections);
 }
 
-void execute_command_line(const vector<CommandSegment> &segments,
-                          unordered_map<pid_t, string> &background_processes,
-                          int maximum_background_process) {
+void execute_command_line(const vector<CommandSegment> &segments, ShellState &state) {
     int last_exit = 0;
     for (size_t i = 0; i < segments.size(); ++i) {
         bool should_run = false;
@@ -426,17 +125,16 @@ void execute_command_line(const vector<CommandSegment> &segments,
             case OP_OR:        should_run = (last_exit != 0); break;
             case OP_SEMICOLON: should_run = true; break;
         }
-        if (should_run)
-            last_exit = execute_single_command(segments[i].command, background_processes, maximum_background_process);
+        if (should_run) {
+            last_exit = execute_single_command(segments[i].command, state);
+            state.last_exit_status = last_exit;
+        }
     }
-    last_exit_status = last_exit;
 }
 
-// ── Script file execution ──────────────────────────────────────
+// ── Script file execution ─────────────────────────────────────
 
-int execute_script_file(const string &path,
-                        unordered_map<pid_t, string> &background_processes,
-                        int maximum_background_process) {
+int execute_script_file(const string &path, ShellState &state) {
     ifstream file(path);
     if (!file.is_open()) {
         write_stderr("tash: cannot open script: " + path + "\n");
@@ -452,58 +150,61 @@ int execute_script_file(const string &path,
             line += next;
         }
         vector<CommandSegment> segments = parse_command_line(line);
-        execute_command_line(segments, background_processes, maximum_background_process);
+        execute_command_line(segments, state);
     }
     return 0;
 }
 
-// ── Signal handlers ─────────────────────────────────────────────
+// ── Signal handlers ────────────────────────────────────────────
 
-void sigint_handler(int signum) {
+void sigint_handler(int) {
     if (fg_child_pid > 0) {
         kill(fg_child_pid, SIGINT);
     } else {
         write(STDOUT_FILENO, "\n", 1);
+        rl_on_new_line();
+        rl_redisplay();
     }
 }
 
-void sigchld_handler(int signum) {
+void sigchld_handler(int) {
     sigchld_received = 1;
 }
 
-// ── Readline helpers ────────────────────────────────────────────
+// ── Readline helpers ───────────────────────────────────────────
 
-int clear_screen(int count, int key) {
+static int clear_screen(int, int) {
     write(STDOUT_FILENO, "\033[2J\033[H", 7);
     rl_on_new_line();
     rl_redisplay();
     return 0;
 }
 
-// ── Main ────────────────────────────────────────────────────────
+// ── Main ───────────────────────────────────────────────────────
 
 #ifndef TESTING_BUILD
 int main(int argc, char *argv[]) {
     if (argc > 2) {
-        string error_message = "An error has occurred\n";
-        exit_with_message(error_message, 1);
+        exit_with_message("An error has occurred\n", 1);
     }
-    unordered_map<pid_t, string> background_processes;
-    int maximum_background_process = 5;
 
-    signal(SIGINT, sigint_handler);
+    ShellState state;
 
-    // Install SIGCHLD handler with SA_RESTART so readline is not interrupted
+    struct sigaction sa_int;
+    sa_int.sa_handler = sigint_handler;
+    sigemptyset(&sa_int.sa_mask);
+    sa_int.sa_flags = 0;  // No SA_RESTART: let SIGINT interrupt readline
+    sigaction(SIGINT, &sa_int, nullptr);
+
     struct sigaction sa;
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGCHLD, &sa, nullptr);
 
-    // Script mode: execute the given script file and exit
+    // Script mode
     if (argc == 2) {
-        int rc = execute_script_file(argv[1], background_processes, maximum_background_process);
-        return rc;
+        return execute_script_file(argv[1], state);
     }
 
     // Load ~/.tashrc if it exists
@@ -516,7 +217,7 @@ int main(int argc, char *argv[]) {
             while (getline(tashrc, rc_line)) {
                 if (!rc_line.empty()) {
                     vector<CommandSegment> rc_segments = parse_command_line(rc_line);
-                    execute_command_line(rc_segments, background_processes, maximum_background_process);
+                    execute_command_line(rc_segments, state);
                 }
             }
             tashrc.close();
@@ -526,8 +227,15 @@ int main(int argc, char *argv[]) {
     // Interactive mode
     if (isatty(STDIN_FILENO)) {
         write_stdout("\n");
-        write_stdout("  Welcome to Tash (Tavakkoli's Shell) v1.0.0\n");
-        write_stdout("  Type 'exit' to quit, 'history' to see command history.\n");
+        write_stdout(bold(cyan("   ████████╗ █████╗ ███████╗██╗  ██╗\n")));
+        write_stdout(bold(cyan("   ╚══██╔══╝██╔══██╗██╔════╝██║  ██║\n")));
+        write_stdout(bold(cyan("      ██║   ███████║███████╗███████║\n")));
+        write_stdout(bold(cyan("      ██║   ██╔══██║╚════██║██╔══██║\n")));
+        write_stdout(bold(cyan("      ██║   ██║  ██║███████║██║  ██║\n")));
+        write_stdout(bold(cyan("      ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝\n")));
+        write_stdout("\n");
+        write_stdout("   " + bold(white("Tavakkoli's Shell")) + " " + yellow("v1.0.0") + "\n");
+        write_stdout("   " + string("Type ") + green("exit") + " to quit, " + green("history") + " for command history.\n");
         write_stdout("\n");
     }
 
@@ -536,11 +244,10 @@ int main(int argc, char *argv[]) {
     rl_bind_key(12, clear_screen);
     rl_attempted_completion_function = tash_completion;
     using_history();
-    stifle_history(10);
+    stifle_history(500);
 
     while (true) {
-        // Reap any background processes that finished while user was typing
-        reap_background_processes(background_processes);
+        reap_background_processes(state.background_processes);
 
         line = readline(write_shell_prefix().c_str());
         if (line == NULL) {
@@ -551,11 +258,10 @@ int main(int argc, char *argv[]) {
             free(line);
             continue;
         }
-        // Backslash line continuation: if line ends with '\', read more
         string raw_line(line);
         free(line);
         while (!raw_line.empty() && raw_line.back() == '\\') {
-            raw_line.pop_back(); // remove trailing backslash
+            raw_line.pop_back();
             char *cont = readline("> ");
             if (cont == NULL) break;
             raw_line += string(cont);
@@ -568,17 +274,16 @@ int main(int argc, char *argv[]) {
         if (expanded != raw_line) {
             write_stdout(expanded + "\n");
         }
-        // Add the expanded command to history (not the raw !! / !N)
         int offset = where_history();
         if (offset >= 1 && expanded != string(history_get(offset)->line)) {
             add_history(expanded.c_str());
         } else if (offset == 0) {
             add_history(expanded.c_str());
         }
-        reap_background_processes(background_processes);
+        reap_background_processes(state.background_processes);
         vector<CommandSegment> segments = parse_command_line(expanded);
-        execute_command_line(segments, background_processes, maximum_background_process);
-        reap_background_processes(background_processes);
+        execute_command_line(segments, state);
+        reap_background_processes(state.background_processes);
     }
     return 0;
 }

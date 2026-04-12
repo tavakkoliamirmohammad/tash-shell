@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "shell.h"
 
+using namespace std;
+
 // ═══════════════════════════════════════════════════════════════
 // Trim tests
 // ═══════════════════════════════════════════════════════════════
@@ -189,27 +191,21 @@ TEST(TokenizerPipeTest, QuotedPipe) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tokenizer: tilde expansion
+// Tilde expansion
 // ═══════════════════════════════════════════════════════════════
 
-TEST(TokenizerTildeTest, TildeExpandsToHome) {
-    auto tokens = tokenize_string("~/documents", " ");
-    ASSERT_EQ(tokens.size(), 1u);
+TEST(TildeTest, TildeExpandsToHome) {
     const char *home = getenv("HOME");
     ASSERT_NE(home, nullptr);
-    EXPECT_EQ(tokens[0], string(home) + "/documents");
+    EXPECT_EQ(expand_tilde("~/documents"), string(home) + "/documents");
 }
 
-TEST(TokenizerTildeTest, TildeAlone) {
-    auto tokens = tokenize_string("~", " ");
-    ASSERT_EQ(tokens.size(), 1u);
-    EXPECT_EQ(tokens[0], string(getenv("HOME")));
+TEST(TildeTest, TildeAlone) {
+    EXPECT_EQ(expand_tilde("~"), string(getenv("HOME")));
 }
 
-TEST(TokenizerTildeTest, NoTildeExpansion) {
-    auto tokens = tokenize_string("echo hello~world", " ");
-    ASSERT_EQ(tokens.size(), 2u);
-    EXPECT_EQ(tokens[1], "hello~world");
+TEST(TildeTest, NoTildeExpansion) {
+    EXPECT_EQ(expand_tilde("hello~world"), "hello~world");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -218,43 +214,42 @@ TEST(TokenizerTildeTest, NoTildeExpansion) {
 
 TEST(ExpandVarsTest, SimpleVar) {
     setenv("TASH_TEST_UNIT", "hello", 1);
-    EXPECT_EQ(expand_variables("$TASH_TEST_UNIT"), "hello");
+    EXPECT_EQ(expand_variables("$TASH_TEST_UNIT", 0), "hello");
     unsetenv("TASH_TEST_UNIT");
 }
 
 TEST(ExpandVarsTest, BracedVar) {
     setenv("TASH_TEST_UNIT", "world", 1);
-    EXPECT_EQ(expand_variables("${TASH_TEST_UNIT}"), "world");
+    EXPECT_EQ(expand_variables("${TASH_TEST_UNIT}", 0), "world");
     unsetenv("TASH_TEST_UNIT");
 }
 
 TEST(ExpandVarsTest, UndefinedVarEmpty) {
-    EXPECT_EQ(expand_variables("$SURELY_UNDEFINED_VAR_XYZ"), "");
+    EXPECT_EQ(expand_variables("$SURELY_UNDEFINED_VAR_XYZ", 0), "");
 }
 
 TEST(ExpandVarsTest, MixedText) {
     setenv("TASH_TEST_UNIT", "val", 1);
-    EXPECT_EQ(expand_variables("pre_$TASH_TEST_UNIT_post"), "pre_");
-    // Note: TASH_TEST_UNIT_post is treated as one var name (includes _post)
+    EXPECT_EQ(expand_variables("pre_$TASH_TEST_UNIT_post", 0), "pre_");
     unsetenv("TASH_TEST_UNIT");
 }
 
 TEST(ExpandVarsTest, LoneDollar) {
-    EXPECT_EQ(expand_variables("cost is $"), "cost is $");
+    EXPECT_EQ(expand_variables("cost is $", 0), "cost is $");
 }
 
 TEST(ExpandVarsTest, NoVars) {
-    EXPECT_EQ(expand_variables("hello world"), "hello world");
+    EXPECT_EQ(expand_variables("hello world", 0), "hello world");
 }
 
 TEST(ExpandVarsTest, EmptyInput) {
-    EXPECT_EQ(expand_variables(""), "");
+    EXPECT_EQ(expand_variables("", 0), "");
 }
 
 TEST(ExpandVarsTest, MultipleVars) {
     setenv("TASH_A", "foo", 1);
     setenv("TASH_B", "bar", 1);
-    EXPECT_EQ(expand_variables("$TASH_A and $TASH_B"), "foo and bar");
+    EXPECT_EQ(expand_variables("$TASH_A and $TASH_B", 0), "foo and bar");
     unsetenv("TASH_A");
     unsetenv("TASH_B");
 }
@@ -380,7 +375,6 @@ TEST(CommandSubstitutionTest, EmptyInput) {
 }
 
 TEST(CommandSubstitutionTest, NestedParens) {
-    // The inner command has parentheses in a subshell context
     string result = expand_command_substitution("$(echo $(echo nested))");
     EXPECT_EQ(result, "nested");
 }
@@ -391,7 +385,6 @@ TEST(CommandSubstitutionTest, MultipleSubstitutions) {
 }
 
 TEST(CommandSubstitutionTest, TrailingNewlineStripped) {
-    // printf adds no trailing newline, echo does — test that trailing newlines are stripped
     string result = expand_command_substitution("$(echo hello)");
     EXPECT_EQ(result, "hello");
 }
@@ -402,7 +395,6 @@ TEST(CommandSubstitutionTest, LoneDollarSign) {
 }
 
 TEST(CommandSubstitutionTest, UnmatchedParen) {
-    // No matching ')' — should keep literal text
     string result = expand_command_substitution("$(echo hello");
     EXPECT_EQ(result, "$(echo hello");
 }
@@ -412,23 +404,96 @@ TEST(CommandSubstitutionTest, UnmatchedParen) {
 // ═══════════════════════════════════════════════════════════════
 
 TEST(ExpandVarsTest, DollarQuestionExitStatus) {
-    last_exit_status = 42;
-    EXPECT_EQ(expand_variables("$?"), "42");
-    last_exit_status = 0;
+    EXPECT_EQ(expand_variables("$?", 42), "42");
 }
 
 TEST(ExpandVarsTest, DollarDollarPID) {
-    string result = expand_variables("$$");
+    string result = expand_variables("$$", 0);
     EXPECT_EQ(result, to_string(getpid()));
 }
 
 TEST(ExpandVarsTest, DollarQuestionInContext) {
-    last_exit_status = 7;
-    EXPECT_EQ(expand_variables("exit: $?"), "exit: 7");
-    last_exit_status = 0;
+    EXPECT_EQ(expand_variables("exit: $?", 7), "exit: 7");
 }
 
 TEST(ExpandVarsTest, DollarDollarInContext) {
-    string result = expand_variables("pid=$$");
+    string result = expand_variables("pid=$$", 0);
     EXPECT_EQ(result, "pid=" + to_string(getpid()));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Quote-aware variable expansion (single quotes prevent expansion)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ExpandVarsTest, SingleQuotesPreventExpansion) {
+    setenv("TASH_TEST_UNIT", "hello", 1);
+    EXPECT_EQ(expand_variables("'$TASH_TEST_UNIT'", 0), "'$TASH_TEST_UNIT'");
+    unsetenv("TASH_TEST_UNIT");
+}
+
+TEST(ExpandVarsTest, DoubleQuotesAllowExpansion) {
+    setenv("TASH_TEST_UNIT", "hello", 1);
+    EXPECT_EQ(expand_variables("\"$TASH_TEST_UNIT\"", 0), "\"hello\"");
+    unsetenv("TASH_TEST_UNIT");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// parse_redirections
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ParseRedirectionsTest, StdoutRedirect) {
+    Command cmd = parse_redirections("echo hello > file.txt");
+    ASSERT_EQ(cmd.argv.size(), 2u);
+    EXPECT_EQ(cmd.argv[0], "echo");
+    EXPECT_EQ(cmd.argv[1], "hello");
+    ASSERT_EQ(cmd.redirections.size(), 1u);
+    EXPECT_EQ(cmd.redirections[0].fd, 1);
+    EXPECT_EQ(cmd.redirections[0].filename, "file.txt");
+    EXPECT_FALSE(cmd.redirections[0].append);
+}
+
+TEST(ParseRedirectionsTest, StdoutAppend) {
+    Command cmd = parse_redirections("echo hello >> file.txt");
+    ASSERT_EQ(cmd.redirections.size(), 1u);
+    EXPECT_EQ(cmd.redirections[0].fd, 1);
+    EXPECT_TRUE(cmd.redirections[0].append);
+}
+
+TEST(ParseRedirectionsTest, StdinRedirect) {
+    Command cmd = parse_redirections("sort < input.txt");
+    ASSERT_EQ(cmd.argv.size(), 1u);
+    EXPECT_EQ(cmd.argv[0], "sort");
+    ASSERT_EQ(cmd.redirections.size(), 1u);
+    EXPECT_EQ(cmd.redirections[0].fd, 0);
+    EXPECT_EQ(cmd.redirections[0].filename, "input.txt");
+}
+
+TEST(ParseRedirectionsTest, StderrRedirect) {
+    Command cmd = parse_redirections("cmd 2> errors.txt");
+    ASSERT_EQ(cmd.redirections.size(), 1u);
+    EXPECT_EQ(cmd.redirections[0].fd, 2);
+    EXPECT_EQ(cmd.redirections[0].filename, "errors.txt");
+}
+
+TEST(ParseRedirectionsTest, StderrToStdout) {
+    Command cmd = parse_redirections("cmd 2>&1");
+    ASSERT_EQ(cmd.redirections.size(), 1u);
+    EXPECT_EQ(cmd.redirections[0].fd, 2);
+    EXPECT_TRUE(cmd.redirections[0].dup_to_stdout);
+}
+
+TEST(ParseRedirectionsTest, MultipleRedirections) {
+    Command cmd = parse_redirections("sort < input.txt > output.txt 2> errors.txt");
+    ASSERT_EQ(cmd.argv.size(), 1u);
+    EXPECT_EQ(cmd.argv[0], "sort");
+    ASSERT_EQ(cmd.redirections.size(), 3u);
+}
+
+TEST(ParseRedirectionsTest, NoRedirections) {
+    Command cmd = parse_redirections("echo hello world");
+    ASSERT_EQ(cmd.argv.size(), 3u);
+    EXPECT_EQ(cmd.argv[0], "echo");
+    EXPECT_EQ(cmd.argv[1], "hello");
+    EXPECT_EQ(cmd.argv[2], "world");
+    EXPECT_TRUE(cmd.redirections.empty());
 }
