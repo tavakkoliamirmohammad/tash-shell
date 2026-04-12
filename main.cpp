@@ -125,10 +125,11 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
             case OP_OR:        should_run = (last_exit != 0); break;
             case OP_SEMICOLON: should_run = true; break;
         }
-        if (should_run)
+        if (should_run) {
             last_exit = execute_single_command(segments[i].command, state);
+            state.last_exit_status = last_exit;
+        }
     }
-    state.last_exit_status = last_exit;
 }
 
 // ── Script file execution ─────────────────────────────────────
