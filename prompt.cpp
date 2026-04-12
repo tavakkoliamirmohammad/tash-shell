@@ -29,7 +29,6 @@ static string short_name(const string &full) {
 }
 
 string write_shell_prefix() {
-    stringstream ss;
     char cwd[MAX_SIZE];
     getcwd(cwd, MAX_SIZE);
     const char *login = getlogin();
@@ -46,41 +45,32 @@ string write_shell_prefix() {
     string branch = get_git_branch();
 
     if (isatty(STDOUT_FILENO)) {
-        // Use combined ANSI codes in single \001...\002 blocks
-        // so readline/libedit can correctly calculate prompt width.
-        // Nesting bold(cyan(...)) produces adjacent \002\001 pairs
-        // that confuse macOS libedit.
-        #define P_RST   "\001\e[0m\002"
-        #define P_BCYAN "\001\e[1;36m\002"
-        #define P_BGRN  "\001\e[1;32m\002"
-        #define P_BWHT  "\001\e[1;37m\002"
-        #define P_BMAG  "\001\e[1;35m\002"
-        #define P_BYEL  "\001\e[1;33m\002"
-
-        ss << P_RST;
-        ss << P_BCYAN "\u256d\u2500 " P_RST;
-        ss << P_BGRN << user << P_RST;
-        ss << P_BWHT " in " P_RST;
-        ss << P_BCYAN << cwd_display << P_RST;
+        // Write the info line directly to stdout so colors work reliably
+        // on both GNU readline and macOS libedit (which may not honor
+        // \001/\002 non-printing markers in the prompt string).
+        string line1;
+        line1 += "\033[1;36m\u256d\u2500 \033[0m";
+        line1 += "\033[1;32m" + user + "\033[0m";
+        line1 += "\033[1;37m in \033[0m";
+        line1 += "\033[1;36m" + cwd_display + "\033[0m";
         if (!branch.empty()) {
-            ss << P_BWHT " on " P_RST;
-            ss << P_BMAG "\ue0a0 " << branch << P_RST;
+            line1 += "\033[1;37m on \033[0m";
+            line1 += "\033[1;35m\ue0a0 " + branch + "\033[0m";
         }
-        ss << "\n";
-        ss << P_BCYAN "\u2570\u2500" P_RST P_BYEL "\u276f " P_RST;
+        line1 += "\n";
+        write_stdout(line1);
 
-        #undef P_RST
-        #undef P_BCYAN
-        #undef P_BGRN
-        #undef P_BWHT
-        #undef P_BMAG
-        #undef P_BYEL
+        // Only the second line goes to readline as the actual prompt.
+        // Use \001/\002 markers here for readline's width calculation.
+        return "\001\033[1;36m\002\u2570\u2500\001\033[0m\002"
+               "\001\033[1;33m\002\u276f \001\033[0m\002";
     } else {
+        stringstream ss;
         ss << user << " " << cwd_display;
         if (!branch.empty()) {
             ss << " (" << branch << ")";
         }
         ss << " > ";
+        return ss.str();
     }
-    return ss.str();
 }
