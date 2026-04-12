@@ -64,3 +64,32 @@ TEST(EnvVars, DollarQuestionFalseIsNonZero) {
     EXPECT_NE(r.output.find("1"), std::string::npos)
         << "Expected $? to be non-zero after 'false', got: " << r.output;
 }
+
+TEST(EnvVars, DollarQuestionInChainedSemicolon) {
+    // $? should reflect the immediately preceding command, not the end of line
+    std::string marker = "/tmp/tash_chain_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    run_shell("false; echo $? > " + marker + "\nexit\n");
+    std::string content = read_file(marker);
+    EXPECT_NE(content.find("1"), std::string::npos)
+        << "false; echo $? should print 1, got: " << content;
+    unlink(marker.c_str());
+}
+
+TEST(EnvVars, DollarQuestionCommandNotFound127) {
+    std::string marker = "/tmp/tash_127_" + std::to_string(getpid());
+    unlink(marker.c_str());
+    run_shell("surely_nonexistent_cmd_xyz; echo $? > " + marker + "\nexit\n");
+    std::string content = read_file(marker);
+    EXPECT_NE(content.find("127"), std::string::npos)
+        << "Nonexistent command should set $? to 127, got: " << content;
+    unlink(marker.c_str());
+}
+
+TEST(EnvVars, SingleQuotesPreventExpansion) {
+    auto r = run_shell("export TASH_SQ_TEST=secret\necho '$TASH_SQ_TEST'\nexit\n");
+    EXPECT_NE(r.output.find("$TASH_SQ_TEST"), std::string::npos)
+        << "Single quotes should prevent variable expansion, got: " << r.output;
+    EXPECT_EQ(r.output.find("secret"), std::string::npos)
+        << "Variable value should NOT appear inside single quotes, got: " << r.output;
+}
