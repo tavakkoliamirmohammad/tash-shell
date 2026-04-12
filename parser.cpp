@@ -1,14 +1,16 @@
 #include "shell.h"
 
-string &rtrim(std::string &s, const char *t) {
+using namespace std;
+
+string &rtrim(string &s, const char *t) {
     return s.erase(s.find_last_not_of(t) + 1);
 }
 
-string &ltrim(std::string &s, const char *t) {
+string &ltrim(string &s, const char *t) {
     return s.erase(0, s.find_first_not_of(t));
 }
 
-string &trim(std::string &s, const char *t) {
+string &trim(string &s, const char *t) {
     return ltrim(rtrim(s, t), t);
 }
 
@@ -60,38 +62,54 @@ vector<string> tokenize_string(string line, const string &delimiter) {
         tokens.push_back(token);
     }
 
-    const char *home = getenv("HOME");
-    if (home) {
-        for (string &t : tokens) {
-            if (!t.empty() && t[0] == '~') {
-                t = string(home) + t.substr(1);
-            }
-        }
-    }
-
     return tokens;
 }
 
-string expand_variables(const string &input) {
+string expand_tilde(const string &token) {
+    if (!token.empty() && token[0] == '~') {
+        const char *home = getenv("HOME");
+        if (home) {
+            return string(home) + token.substr(1);
+        }
+    }
+    return token;
+}
+
+string expand_variables(const string &input, int last_exit_status) {
     string result;
+    bool in_single_quotes = false;
     size_t i = 0;
     while (i < input.size()) {
+        if (input[i] == '\'' && !in_single_quotes) {
+            in_single_quotes = true;
+            result += input[i];
+            i++;
+            continue;
+        }
+        if (input[i] == '\'' && in_single_quotes) {
+            in_single_quotes = false;
+            result += input[i];
+            i++;
+            continue;
+        }
+        if (in_single_quotes) {
+            result += input[i];
+            i++;
+            continue;
+        }
         if (input[i] == '$') {
             i++;
-            // Special variable: $? — last exit status
             if (i < input.size() && input[i] == '?') {
                 result += to_string(last_exit_status);
                 i++;
                 continue;
             }
-            // Special variable: $$ — shell PID
             if (i < input.size() && input[i] == '$') {
                 result += to_string(getpid());
                 i++;
                 continue;
             }
             if (i < input.size() && input[i] == '{') {
-                // ${VAR} syntax
                 i++; // skip '{'
                 string var_name;
                 while (i < input.size() && input[i] != '}') {
@@ -106,7 +124,6 @@ string expand_variables(const string &input) {
                     result += val;
                 }
             } else {
-                // $VAR syntax: read alphanumeric + underscore
                 string var_name;
                 while (i < input.size() && (isalnum(input[i]) || input[i] == '_')) {
                     var_name += input[i];
@@ -118,7 +135,6 @@ string expand_variables(const string &input) {
                         result += val;
                     }
                 } else {
-                    // lone '$' with no valid var name following
                     result += '$';
                 }
             }
@@ -134,10 +150,8 @@ string expand_command_substitution(const string &input) {
     string result;
     size_t i = 0;
     while (i < input.size()) {
-        // Look for $( pattern
         if (i + 1 < input.size() && input[i] == '$' && input[i + 1] == '(') {
-            // Find the matching closing parenthesis, handling nested parens
-            size_t start = i + 2; // position right after "$("
+            size_t start = i + 2;
             int depth = 1;
             size_t j = start;
             while (j < input.size() && depth > 0) {
@@ -151,9 +165,7 @@ string expand_command_substitution(const string &input) {
                 }
             }
             if (depth == 0) {
-                // Extract the command between $( and )
                 string cmd = input.substr(start, j - start);
-                // Run the command with popen and capture stdout
                 string output;
                 FILE *pipe = popen(cmd.c_str(), "r");
                 if (pipe) {
@@ -163,14 +175,12 @@ string expand_command_substitution(const string &input) {
                     }
                     pclose(pipe);
                 }
-                // Strip trailing newline(s)
                 while (!output.empty() && output.back() == '\n') {
                     output.pop_back();
                 }
                 result += output;
-                i = j + 1; // skip past the closing ')'
+                i = j + 1;
             } else {
-                // No matching ')' found, keep the literal text
                 result += input[i];
                 i++;
             }
@@ -249,47 +259,157 @@ string expand_history(const string &line) {
     return line;
 }
 
+Command parse_redirections(const string &command_str) {
+    Command cmd;
+    string remaining;
+    bool in_double_quotes = false;
+    bool in_single_quotes = false;
+    size_t i = 0;
+
+    while (i < command_str.size()) {
+        char c = command_str[i];
+
+        if (c == '"' && !in_single_quotes) {
+            in_double_quotes = !in_double_quotes;
+            remaining += c;
+            ++i;
+        } else if (c == '\'' && !in_double_quotes) {
+            in_single_quotes = !in_single_quotes;
+            remaining += c;
+            ++i;
+        } else if (!in_double_quotes && !in_single_quotes) {
+            // Check for 2>&1
+            if (i + 4 <= command_str.size() && command_str.compare(i, 4, "2>&1") == 0) {
+                cmd.redirections.push_back({2, "", false, true});
+                i += 4;
+            }
+            // Check for 2>
+            else if (i + 2 <= command_str.size() && command_str.compare(i, 2, "2>") == 0) {
+                i += 2;
+                while (i < command_str.size() && command_str[i] == ' ') ++i;
+                string fname;
+                while (i < command_str.size() && command_str[i] != ' ' && command_str[i] != '\t') {
+                    fname += command_str[i];
+                    ++i;
+                }
+                fname = trim(fname);
+                if (!fname.empty()) {
+                    cmd.redirections.push_back({2, fname, false, false});
+                }
+            }
+            // Check for >>
+            else if (i + 2 <= command_str.size() && command_str.compare(i, 2, ">>") == 0) {
+                i += 2;
+                while (i < command_str.size() && command_str[i] == ' ') ++i;
+                string fname;
+                while (i < command_str.size() && command_str[i] != ' ' && command_str[i] != '\t') {
+                    fname += command_str[i];
+                    ++i;
+                }
+                fname = trim(fname);
+                if (!fname.empty()) {
+                    cmd.redirections.push_back({1, fname, true, false});
+                }
+            }
+            // Check for > (must be after >>)
+            else if (c == '>') {
+                i += 1;
+                while (i < command_str.size() && command_str[i] == ' ') ++i;
+                string fname;
+                while (i < command_str.size() && command_str[i] != ' ' && command_str[i] != '\t') {
+                    fname += command_str[i];
+                    ++i;
+                }
+                fname = trim(fname);
+                if (!fname.empty()) {
+                    cmd.redirections.push_back({1, fname, false, false});
+                }
+            }
+            // Check for <
+            else if (c == '<') {
+                i += 1;
+                while (i < command_str.size() && command_str[i] == ' ') ++i;
+                string fname;
+                while (i < command_str.size() && command_str[i] != ' ' && command_str[i] != '\t') {
+                    fname += command_str[i];
+                    ++i;
+                }
+                fname = trim(fname);
+                if (!fname.empty()) {
+                    cmd.redirections.push_back({0, fname, false, false});
+                }
+            }
+            else {
+                remaining += c;
+                ++i;
+            }
+        } else {
+            remaining += c;
+            ++i;
+        }
+    }
+
+    // Now tokenize the remaining command string into argv
+    vector<string> tokens = tokenize_string(remaining, " ");
+    for (string &t : tokens) {
+        t = expand_tilde(t);
+        t = strip_quotes(t);
+    }
+    cmd.argv = tokens;
+
+    return cmd;
+}
+
 vector<CommandSegment> parse_command_line(const string &line) {
     // Strip comments: everything after '#' outside quotes is ignored
     string stripped = line;
     {
-        size_t hash_pos = stripped.find('#');
-        if (hash_pos != string::npos) {
-            bool in_q = false;
-            for (size_t j = 0; j < hash_pos; j++) {
-                if (stripped[j] == '"' || stripped[j] == '\'') in_q = !in_q;
+        bool in_single = false;
+        bool in_double = false;
+        for (size_t j = 0; j < stripped.size(); j++) {
+            if (stripped[j] == '\'' && !in_double) {
+                in_single = !in_single;
+            } else if (stripped[j] == '"' && !in_single) {
+                in_double = !in_double;
+            } else if (stripped[j] == '#' && !in_single && !in_double) {
+                stripped = stripped.substr(0, j);
+                break;
             }
-            if (!in_q) stripped = stripped.substr(0, hash_pos);
         }
     }
 
     vector<CommandSegment> segments;
     string current;
-    bool in_quotes = false;
+    bool in_double_quotes = false;
+    bool in_single_quotes = false;
     size_t i = 0;
     OperatorType next_op = OP_NONE;
 
     while (i < stripped.size()) {
         char c = stripped[i];
-        if (c == '"') {
-            in_quotes = !in_quotes;
+        if (c == '"' && !in_single_quotes) {
+            in_double_quotes = !in_double_quotes;
             current += c;
             ++i;
-        } else if (!in_quotes && c == '&' && i + 1 < stripped.size() && stripped[i + 1] == '&') {
+        } else if (c == '\'' && !in_double_quotes) {
+            in_single_quotes = !in_single_quotes;
+            current += c;
+            ++i;
+        } else if (!in_double_quotes && !in_single_quotes && c == '&' && i + 1 < stripped.size() && stripped[i + 1] == '&') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});
             next_op = OP_AND;
             current.clear();
             i += 2;
-        } else if (!in_quotes && c == '|' && i + 1 < stripped.size() && stripped[i + 1] == '|') {
+        } else if (!in_double_quotes && !in_single_quotes && c == '|' && i + 1 < stripped.size() && stripped[i + 1] == '|') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});
             next_op = OP_OR;
             current.clear();
             i += 2;
-        } else if (!in_quotes && c == ';') {
+        } else if (!in_double_quotes && !in_single_quotes && c == ';') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});

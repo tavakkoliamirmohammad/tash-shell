@@ -1,5 +1,7 @@
 #include "shell.h"
 
+using namespace std;
+
 string get_git_branch() {
     FILE *pipe = popen("git rev-parse --abbrev-ref HEAD 2>/dev/null", "r");
     if (!pipe) return "";
@@ -16,15 +18,12 @@ string get_git_branch() {
     return branch;
 }
 
-// Extract just the first name from login (before any dots/underscores)
 static string short_name(const string &full) {
-    // Try to get a short name: take first segment before common separators
     for (size_t i = 0; i < full.size(); i++) {
         if (full[i] == '.' || full[i] == '_' || full[i] == '-') {
             if (i > 0) return full.substr(0, i);
         }
     }
-    // If name is very long (>12), truncate
     if (full.size() > 12) return full.substr(0, 8);
     return full;
 }
@@ -38,14 +37,15 @@ string write_shell_prefix() {
     string user = login ? short_name(string(login)) : "user";
     string cwd_display = string(cwd);
     if (home) {
-        cwd_display = regex_replace(cwd_display, regex(string(home)), "~");
+        string home_str(home);
+        size_t pos = cwd_display.find(home_str);
+        if (pos == 0) {
+            cwd_display = "~" + cwd_display.substr(home_str.size());
+        }
     }
     string branch = get_git_branch();
 
     if (isatty(STDOUT_FILENO)) {
-        // Option A: Two-line prompt
-        // ╭─ amir in ~/project/UNIX-CLI on  master
-        // ╰─❯
         ss << "\001\e[0m\002";  // reset
         ss << bold(cyan("\u256d\u2500 "));
         ss << bold(green(user));

@@ -1,11 +1,7 @@
-
-#ifndef _COLORS_
-#define _COLORS_
+#ifndef COLORS_H
+#define COLORS_H
 
 #include <string>
-
-using namespace std;
-
 
 /* FOREGROUND */
 #define RST  "\001\e[0m\002"
@@ -17,23 +13,14 @@ using namespace std;
 #define KCYN  "\001\x1B[36m\002"
 #define KWHT  "\001\x1B[37m\002"
 
+std::string green(const std::string &x);
+std::string yellow(const std::string &x);
+std::string blue(const std::string &x);
+std::string magenta(const std::string &x);
+std::string cyan(const std::string &x);
+std::string white(const std::string &x);
+std::string red(const std::string &x);
+std::string bold(const std::string &x);
+std::string underline(const std::string &x);
 
-string green(const string &x);
-
-string yellow(const string &x);
-
-string blue(const string &x);
-
-string magenta(const string &x);
-
-string cyan(const string &x);
-
-string white(const string &x);
-
-string red(const string &x);
-
-string bold(const string &x);
-
-string underline(const string &x);
-
-#endif    /* _COLORS_ */
+#endif // COLORS_H
