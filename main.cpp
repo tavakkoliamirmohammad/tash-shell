@@ -215,15 +215,18 @@ static Replxx::hints_t history_hint_callback(const string &input, int &context_l
     color = Replxx::Color::GRAY;
     context_len = (int)input.size();
 
-    // Search history for prefix match (most recent first)
+    // Scan all history, keep the most recent (last) prefix match
+    string best;
     Replxx::HistoryScan hs(rx.history_scan());
     while (hs.next()) {
         Replxx::HistoryEntry he(hs.get());
         string entry(he.text());
         if (entry.size() > input.size() && entry.compare(0, input.size(), input) == 0) {
-            hints.push_back(entry);
-            break;  // show only 1 hint (fish-style)
+            best = entry;  // keep overwriting — last match is most recent
         }
+    }
+    if (!best.empty()) {
+        hints.push_back(best);
     }
 
     return hints;
@@ -308,15 +311,18 @@ int main(int argc, char *argv[]) {
             // If no builtins/subcommands matched, try history prefix match
             if (results.empty() && input.size() >= 2) {
                 ctx = (int)input.size();
+                string best;
                 Replxx::HistoryScan hs(rx.history_scan());
                 while (hs.next()) {
                     Replxx::HistoryEntry he(hs.get());
                     string entry(he.text());
                     if (entry.size() > input.size() &&
                         entry.compare(0, input.size(), input) == 0) {
-                        results.emplace_back(entry);
-                        break;  // just the best match
+                        best = entry;  // last match = most recent
                     }
+                }
+                if (!best.empty()) {
+                    results.emplace_back(best);
                 }
             }
             return results;
