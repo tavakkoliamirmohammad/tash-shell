@@ -301,10 +301,25 @@ int main(int argc, char *argv[]) {
         rx.history_load(hist_path);
     }
 
-    // Set up callbacks
+    // Set up callbacks — completion includes history prefix matches as fallback
     rx.set_completion_callback(
-        [](const string &input, int &ctx) {
-            return completion_callback(input, ctx);
+        [&rx](const string &input, int &ctx) {
+            auto results = completion_callback(input, ctx);
+            // If no builtins/subcommands matched, try history prefix match
+            if (results.empty() && input.size() >= 2) {
+                ctx = (int)input.size();
+                Replxx::HistoryScan hs(rx.history_scan());
+                while (hs.next()) {
+                    Replxx::HistoryEntry he(hs.get());
+                    string entry(he.text());
+                    if (entry.size() > input.size() &&
+                        entry.compare(0, input.size(), input) == 0) {
+                        results.emplace_back(entry);
+                        break;  // just the best match
+                    }
+                }
+            }
+            return results;
         }
     );
 
