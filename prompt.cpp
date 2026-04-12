@@ -1,4 +1,5 @@
 #include "shell.h"
+#include "theme.h"
 #include <sys/ioctl.h>
 
 using namespace std;
@@ -89,39 +90,36 @@ string write_shell_prefix(const ShellState &state) {
     }
     string branch = get_git_branch();
 
-    // Set terminal title
     set_terminal_title("tash: " + cwd_display);
 
     if (isatty(STDOUT_FILENO)) {
-        // Build info line and write directly to stdout
+        // Catppuccin Mocha colored prompt — first line written to stdout
         string line1;
-        line1 += "\033[1;36m\u256d\u2500 \033[0m";
-        line1 += "\033[1;32m" + user + "\033[0m";
-        line1 += "\033[1;37m in \033[0m";
-        line1 += "\033[1;36m" + cwd_display + "\033[0m";
+        line1 += PROMPT_SEPARATOR "\u256d\u2500 " CAT_RESET;
+        line1 += PROMPT_USER + user + CAT_RESET;
+        line1 += PROMPT_TEXT " in " CAT_RESET;
+        line1 += PROMPT_PATH + cwd_display + CAT_RESET;
         if (!branch.empty()) {
-            line1 += "\033[1;37m on \033[0m";
-            line1 += "\033[1;35m\ue0a0 " + branch + "\033[0m";
+            line1 += PROMPT_TEXT " on " CAT_RESET;
+            line1 += PROMPT_BRANCH "\ue0a0 " + branch + CAT_RESET;
 
             string git_indicators = get_git_status_indicators();
             if (!git_indicators.empty()) {
-                line1 += "\033[1;33m [" + git_indicators + "]\033[0m";
+                line1 += PROMPT_GIT_DIRTY " [" + git_indicators + "]" CAT_RESET;
             }
         }
 
-        // Show command duration if > 0.5 seconds
         if (state.last_cmd_duration >= 0.5) {
-            line1 += "\033[2;33m took " + format_duration(state.last_cmd_duration) + "\033[0m";
+            line1 += PROMPT_DURATION " took " + format_duration(state.last_cmd_duration) + CAT_RESET;
         }
 
         line1 += "\n";
         write_stdout(line1);
 
-        // Prompt character: green on success, red on failure
-        string prompt_color = (state.last_exit_status == 0) ? "\033[1;32m" : "\033[1;31m";
-
-        return "\033[1;36m\u2570\u2500\033[0m"
-               + prompt_color + "\u276f \033[0m";
+        // Second line — the actual prompt passed to replxx
+        string arrow_color = (state.last_exit_status == 0) ? PROMPT_ARROW_OK : PROMPT_ARROW_ERR;
+        return PROMPT_SEPARATOR "\u2570\u2500" CAT_RESET
+               + arrow_color + "\u276f " CAT_RESET;
     } else {
         stringstream ss;
         ss << user << " " << cwd_display;

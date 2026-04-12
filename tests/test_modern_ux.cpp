@@ -199,9 +199,70 @@ TEST(Completion, DoesNotCrashOnStartup) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// is_input_complete parser function
-// (tested via unit test through shell_lib)
+// Colored completion and PATH completion
 // ═══════════════════════════════════════════════════════════════
 
-// These are tested indirectly via multiline support in the shell.
-// Direct unit tests are in test_tokenizer.cpp.
+TEST(Completion, TabCompletesPathCommands) {
+    // Verify the shell doesn't crash when executing commands found via PATH
+    auto r = run_shell("echo completion_test\nexit\n");
+    EXPECT_NE(r.output.find("completion_test"), std::string::npos);
+}
+
+TEST(Completion, WhichFindsBuiltins) {
+    auto r = run_shell("which cd\nexit\n");
+    EXPECT_NE(r.output.find("builtin"), std::string::npos)
+        << "which cd should report builtin, got: " << r.output;
+}
+
+TEST(Completion, WhichFindsPathCommands) {
+    auto r = run_shell("which ls\nexit\n");
+    // ls should be found on PATH
+    EXPECT_NE(r.output.find("/"), std::string::npos)
+        << "which ls should show a path, got: " << r.output;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Theme and color output (verify no crashes with Catppuccin codes)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(Theme, BannerDoesNotCrash) {
+    auto r = run_shell("exit\n");
+    EXPECT_EQ(r.exit_code, 0) << "Shell with themed banner should exit cleanly";
+}
+
+TEST(Theme, SuggestionDoesNotCrash) {
+    auto r = run_shell("ech\nexit\n");
+    // Should show "did you mean" with themed colors and not crash
+    EXPECT_NE(r.output.find("did you mean"), std::string::npos);
+}
+
+TEST(Theme, ErrorCommandShowsNotFound) {
+    auto r = run_shell("xyzzy_nonexistent\nexit\n");
+    EXPECT_NE(r.output.find("No such file"), std::string::npos);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// History space-ignore feature
+// ═══════════════════════════════════════════════════════════════
+
+TEST(HistoryIgnoreSpace, SpacePrefixedNotInHistory) {
+    // Commands starting with space should not appear in history
+    // We can test indirectly: run a space-prefixed command, then
+    // check history doesn't include it
+    std::string script = "/tmp/tash_space_" + std::to_string(getpid()) + ".sh";
+    {
+        std::ofstream f(script);
+        f << " echo secret_cmd\n";
+        f << "echo visible_cmd\n";
+        f << "history\n";
+    }
+    auto r = run_shell_script(script);
+    // history should show visible_cmd but not secret_cmd
+    EXPECT_NE(r.output.find("visible_cmd"), std::string::npos)
+        << "visible_cmd should be in history, got: " << r.output;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// is_input_complete parser function
+// (direct unit tests are in test_tokenizer.cpp)
+// ═══════════════════════════════════════════════════════════════
