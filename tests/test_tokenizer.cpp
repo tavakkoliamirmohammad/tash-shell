@@ -497,3 +497,71 @@ TEST(ParseRedirectionsTest, NoRedirections) {
     EXPECT_EQ(cmd.argv[2], "world");
     EXPECT_TRUE(cmd.redirections.empty());
 }
+
+// ═══════════════════════════════════════════════════════════════
+// is_input_complete (multiline detection)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(InputComplete, SimpleCommandIsComplete) {
+    EXPECT_TRUE(is_input_complete("echo hello"));
+}
+
+TEST(InputComplete, EmptyIsComplete) {
+    EXPECT_TRUE(is_input_complete(""));
+}
+
+TEST(InputComplete, UnclosedDoubleQuote) {
+    EXPECT_FALSE(is_input_complete("echo \"hello"));
+}
+
+TEST(InputComplete, UnclosedSingleQuote) {
+    EXPECT_FALSE(is_input_complete("echo 'hello"));
+}
+
+TEST(InputComplete, ClosedQuotesComplete) {
+    EXPECT_TRUE(is_input_complete("echo \"hello world\""));
+}
+
+TEST(InputComplete, TrailingPipe) {
+    EXPECT_FALSE(is_input_complete("ls |"));
+}
+
+TEST(InputComplete, TrailingAnd) {
+    EXPECT_FALSE(is_input_complete("echo hello &&"));
+}
+
+TEST(InputComplete, TrailingOr) {
+    EXPECT_FALSE(is_input_complete("echo hello ||"));
+}
+
+TEST(InputComplete, TrailingBackslash) {
+    EXPECT_FALSE(is_input_complete("echo hello\\"));
+}
+
+TEST(InputComplete, PipeWithCommandIsComplete) {
+    EXPECT_TRUE(is_input_complete("ls | grep foo"));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// suggest_command (Levenshtein-based suggestions)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(SuggestCommand, FindsCloseMatch) {
+    build_command_cache();
+    string suggestion = suggest_command("ech");
+    EXPECT_EQ(suggestion, "echo") << "Should suggest 'echo' for 'ech'";
+}
+
+TEST(SuggestCommand, NoMatchForGibberish) {
+    build_command_cache();
+    string suggestion = suggest_command("xyzzy_not_a_command_99");
+    EXPECT_TRUE(suggestion.empty()) << "Should not suggest for gibberish";
+}
+
+TEST(SuggestCommand, ExactMatchNotSuggested) {
+    build_command_cache();
+    string suggestion = suggest_command("echo");
+    // Exact match has distance 0, so "echo" itself should never be the suggestion
+    EXPECT_NE(suggestion, "echo") << "Exact match should not be suggested as itself";
+}
+

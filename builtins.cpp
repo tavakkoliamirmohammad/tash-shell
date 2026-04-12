@@ -39,9 +39,12 @@ static int builtin_cd(const vector<string> &argv, ShellState &state) {
     }
 
     state.previous_directory = string(cwd);
-    if (argv.size() > 1 && argv[1] == "-") {
-        char new_cwd[MAX_SIZE];
-        if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
+
+    // Record directory for frecency tracking
+    char new_cwd[MAX_SIZE];
+    if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
+        z_record_directory(string(new_cwd));
+        if (argv.size() > 1 && argv[1] == "-") {
             write_stdout(string(new_cwd) + "\n");
         }
     }
@@ -346,6 +349,37 @@ static int builtin_source(const vector<string> &argv, ShellState &state) {
     return execute_script_file(argv[1], state);
 }
 
+static int builtin_z(const vector<string> &argv, ShellState &state) {
+    if (argv.size() < 2) {
+        write_stderr("z: missing directory pattern\n");
+        return 1;
+    }
+    string query;
+    for (size_t i = 1; i < argv.size(); i++) {
+        if (i > 1) query += " ";
+        query += argv[i];
+    }
+    string target = z_find_directory(query);
+    if (target.empty()) {
+        write_stderr("z: no match for '" + query + "'\n");
+        return 1;
+    }
+
+    char cwd[MAX_SIZE];
+    if (getcwd(cwd, MAX_SIZE) == nullptr) {
+        write_stderr("z: cannot get current directory\n");
+        return 1;
+    }
+    if (chdir(target.c_str()) == -1) {
+        write_stderr("z: " + target + ": " + strerror(errno) + "\n");
+        return 1;
+    }
+    state.previous_directory = string(cwd);
+    z_record_directory(target);
+    write_stdout(target + "\n");
+    return 0;
+}
+
 // ── Dispatch table ─────────────────────────────────────────────
 
 const unordered_map<string, BuiltinFn>& get_builtins() {
@@ -371,6 +405,7 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"history",  builtin_history},
         {"source",   builtin_source},
         {".",        builtin_source},
+        {"z",        builtin_z},
     };
     return builtins;
 }

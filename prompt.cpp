@@ -1,4 +1,5 @@
 #include "shell.h"
+#include <sys/ioctl.h>
 
 using namespace std;
 
@@ -18,6 +19,32 @@ string get_git_branch() {
     return branch;
 }
 
+string get_git_status_indicators() {
+    FILE *pipe = popen("git status --porcelain 2>/dev/null", "r");
+    if (!pipe) return "";
+    char buffer[512];
+    bool has_staged = false, has_unstaged = false, has_untracked = false;
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        if (buffer[0] == '?') has_untracked = true;
+        else if (buffer[0] != ' ' && buffer[0] != '?') has_staged = true;
+        if (buffer[1] == 'M' || buffer[1] == 'D') has_unstaged = true;
+    }
+    pclose(pipe);
+
+    string indicators;
+    if (has_staged) indicators += "+";
+    if (has_unstaged) indicators += "*";
+    if (has_untracked) indicators += "?";
+    return indicators;
+}
+
+void set_terminal_title(const string &title) {
+    if (isatty(STDOUT_FILENO)) {
+        string seq = "\033]0;" + title + "\007";
+        write(STDOUT_FILENO, seq.c_str(), seq.size());
+    }
+}
+
 static string short_name(const string &full) {
     for (size_t i = 0; i < full.size(); i++) {
         if (full[i] == '.' || full[i] == '_' || full[i] == '-') {
@@ -28,7 +55,25 @@ static string short_name(const string &full) {
     return full;
 }
 
-string write_shell_prefix() {
+static string format_duration(double seconds) {
+    if (seconds < 60) {
+        stringstream ss;
+        ss << fixed;
+        ss.precision(1);
+        ss << seconds << "s";
+        return ss.str();
+    } else if (seconds < 3600) {
+        int mins = (int)(seconds / 60);
+        int secs = (int)seconds % 60;
+        return to_string(mins) + "m" + to_string(secs) + "s";
+    } else {
+        int hrs = (int)(seconds / 3600);
+        int mins = ((int)seconds % 3600) / 60;
+        return to_string(hrs) + "h" + to_string(mins) + "m";
+    }
+}
+
+string write_shell_prefix(const ShellState &state) {
     char cwd[MAX_SIZE];
     getcwd(cwd, MAX_SIZE);
     const char *login = getlogin();
@@ -44,10 +89,11 @@ string write_shell_prefix() {
     }
     string branch = get_git_branch();
 
+    // Set terminal title
+    set_terminal_title("tash: " + cwd_display);
+
     if (isatty(STDOUT_FILENO)) {
-        // Write the info line directly to stdout so colors work reliably
-        // on both GNU readline and macOS libedit (which may not honor
-        // \001/\002 non-printing markers in the prompt string).
+        // Build info line and write directly to stdout
         string line1;
         line1 += "\033[1;36m\u256d\u2500 \033[0m";
         line1 += "\033[1;32m" + user + "\033[0m";
@@ -56,14 +102,26 @@ string write_shell_prefix() {
         if (!branch.empty()) {
             line1 += "\033[1;37m on \033[0m";
             line1 += "\033[1;35m\ue0a0 " + branch + "\033[0m";
+
+            string git_indicators = get_git_status_indicators();
+            if (!git_indicators.empty()) {
+                line1 += "\033[1;33m [" + git_indicators + "]\033[0m";
+            }
         }
+
+        // Show command duration if > 2 seconds
+        if (state.last_cmd_duration >= 2.0) {
+            line1 += "\033[2;33m took " + format_duration(state.last_cmd_duration) + "\033[0m";
+        }
+
         line1 += "\n";
         write_stdout(line1);
 
-        // Only the second line goes to readline as the actual prompt.
-        // Use \001/\002 markers here for readline's width calculation.
+        // Prompt character: green on success, red on failure
+        string prompt_color = (state.last_exit_status == 0) ? "\033[1;32m" : "\033[1;31m";
+
         return "\001\033[1;36m\002\u2570\u2500\001\033[0m\002"
-               "\001\033[1;33m\002\u276f \001\033[0m\002";
+               "\001" + prompt_color + "\002\u276f \001\033[0m\002";
     } else {
         stringstream ss;
         ss << user << " " << cwd_display;

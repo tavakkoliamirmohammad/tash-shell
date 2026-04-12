@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 project(tash VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Default to Release build if not specified
@@ -22,6 +22,9 @@ set(SHELL_SOURCES
     builtins.cpp
     process.cpp
     completion.cpp
+    suggest.cpp
+    history.cpp
+    frecency.cpp
 )
 
 # ── Main shell binary ─────────────────────────────────────────
@@ -74,6 +77,7 @@ if(BUILD_TESTS)
         tests/test_alias.cpp
         tests/test_script.cpp
         tests/test_comments.cpp
+        tests/test_modern_ux.cpp
     )
     target_include_directories(test_integration PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(test_integration GTest::gtest)
