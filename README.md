@@ -7,7 +7,7 @@ A feature-rich Unix shell written in C++ with syntax highlighting, autosuggestio
 [![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
 
 <!-- TODO: Replace with actual screenshot/GIF of tash in action -->
-<!-- ![tash demo](docs/demo.gif) -->
+![tash demo](docs/screenshot.png)
 
 ## Highlights
 
