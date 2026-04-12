@@ -13,8 +13,7 @@ endif()
 include(FetchContent)
 FetchContent_Declare(
     replxx
-    GIT_REPOSITORY https://github.com/AmokHuginnsson/replxx.git
-    GIT_TAG release-0.0.4
+    URL https://github.com/AmokHuginnsson/replxx/archive/refs/tags/release-0.0.4.tar.gz
 )
 set(REPLXX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(replxx)

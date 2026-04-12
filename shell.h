@@ -137,6 +137,7 @@ replxx::Replxx::completions_t completion_callback(const std::string &input, int 
 // ── suggest.cpp ───────────────────────────────────────────────
 
 void build_command_cache();
+const std::vector<std::string>& get_path_commands();
 std::string suggest_command(const std::string &cmd);
 bool command_exists_on_path(const std::string &cmd);
 

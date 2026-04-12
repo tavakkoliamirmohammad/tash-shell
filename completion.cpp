@@ -25,7 +25,7 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
     string cmd;
 
     if (last_space == string::npos) {
-        // Completing the command name itself
+        // Completing the command name — search builtins + PATH executables
         prefix = input;
         context_len = (int)prefix.size();
 
@@ -36,9 +36,16 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
                 completions.emplace_back(pair.first);
             }
         }
-        // Also add special commands
         if (string("bg").compare(0, prefix.size(), prefix) == 0) completions.emplace_back("bg");
         if (string("z").compare(0, prefix.size(), prefix) == 0) completions.emplace_back("z");
+
+        // PATH executables (uses command cache from suggest.cpp)
+        build_command_cache();
+        for (const string &cmd_name : get_path_commands()) {
+            if (cmd_name.compare(0, prefix.size(), prefix) == 0) {
+                completions.emplace_back(cmd_name);
+            }
+        }
 
         return completions;
     }

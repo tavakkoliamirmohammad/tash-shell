@@ -65,6 +65,11 @@ void build_command_cache() {
     }
 }
 
+const vector<string>& get_path_commands() {
+    if (path_commands.empty()) build_command_cache();
+    return path_commands;
+}
+
 bool command_exists_on_path(const string &cmd) {
     if (path_commands.empty()) build_command_cache();
     for (const string &c : path_commands) {
