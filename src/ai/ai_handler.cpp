@@ -235,7 +235,7 @@ static int handle_help(const string &query, ShellState &state) {
 static int handle_status(ShellState &state) {
     // Gemini 3.1 Flash Lite free tier limits
     static const int DAILY_LIMIT = 500;
-    static const int RPM_LIMIT = 10;
+    static const int RPM_LIMIT = 15;
 
     ai_print_label();
     write_stdout("AI Status\n\n");
