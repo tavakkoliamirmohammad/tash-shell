@@ -70,6 +70,15 @@ bool ai_run_setup_wizard() {
         return false;
     }
 
+    // Strip bracketed paste escape sequences (\e[200~ and \e[201~)
+    string bp_start = "\033[200~";
+    string bp_end = "\033[201~";
+    size_t pos;
+    while ((pos = key.find(bp_start)) != string::npos)
+        key.erase(pos, bp_start.size());
+    while ((pos = key.find(bp_end)) != string::npos)
+        key.erase(pos, bp_end.size());
+
     while (!key.empty() && (key.back() == '\n' || key.back() == '\r' || key.back() == ' '))
         key.pop_back();
     while (!key.empty() && key.front() == ' ')
