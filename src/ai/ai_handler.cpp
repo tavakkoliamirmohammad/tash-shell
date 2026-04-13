@@ -6,8 +6,26 @@
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
+#include <termios.h>
 
 using namespace std;
+
+// Read a single character without waiting for Enter
+static char read_single_char() {
+    struct termios old_term, new_term;
+    tcgetattr(STDIN_FILENO, &old_term);
+    new_term = old_term;
+    new_term.c_lflag &= ~(ICANON | ECHO);
+    new_term.c_cc[VMIN] = 1;
+    new_term.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &new_term);
+
+    char ch = 0;
+    if (read(STDIN_FILENO, &ch, 1) != 1) ch = 0;
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
+    return ch;
+}
 
 // ── System prompts ────────────────────────────────────────────
 
@@ -98,13 +116,13 @@ static int handle_nl_to_cmd(const string &query, ShellState &state) {
     write_stdout(AI_CMD + cmd + CAT_RESET "\n\n");
     write_stdout(AI_PROMPT "Run?" CAT_RESET " [y/n/e] ");
 
-    string choice;
-    if (!getline(cin, choice) || choice.empty()) choice = "n";
+    char ch = read_single_char();
+    write_stdout(string(1, ch) + "\n");
 
-    if (choice[0] == 'y' || choice[0] == 'Y') {
+    if (ch == 'y' || ch == 'Y') {
         write_stdout("\n");
         return execute_single_command(cmd, state);
-    } else if (choice[0] == 'e' || choice[0] == 'E') {
+    } else if (ch == 'e' || ch == 'E') {
         write_stdout("\n" CAT_DIM "Command: " CAT_RESET + cmd + "\n");
         return 0;
     }
@@ -186,9 +204,9 @@ static int handle_script(const string &query, ShellState &state) {
     write_stdout("\n" + resp.text + "\n\n");
     write_stdout(AI_PROMPT "Save to?" CAT_RESET " [filename/n] ");
 
+    // For save prompt, we need a full filename so use getline
     string filename;
     if (!getline(cin, filename) || filename.empty() || filename[0] == 'n' || filename[0] == 'N') {
-        write_stdout("\n");
         return 0;
     }
 
