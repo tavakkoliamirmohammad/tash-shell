@@ -14,9 +14,14 @@ include(FetchContent)
 FetchContent_Declare(
     replxx
     URL https://github.com/AmokHuginnsson/replxx/archive/refs/tags/release-0.0.4.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 set(REPLXX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+# replxx 0.0.4 uses cmake_minimum_required(<3.10); suppress the deprecation
+# warning until upstream cuts a new release
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(replxx)
+set(CMAKE_WARN_DEPRECATED ON CACHE BOOL "" FORCE)
 # Suppress C++20 compat warnings from replxx internals
 if(TARGET replxx)
     target_compile_options(replxx PRIVATE -Wno-c++20-compat)
@@ -60,6 +65,7 @@ if(BUILD_TESTS)
     FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
