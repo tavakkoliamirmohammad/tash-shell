@@ -335,7 +335,7 @@ int main(int argc, char *argv[]) {
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ syntax highlighting  ▸ autosuggestions" CAT_RESET "   " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ smart completions    ▸ catppuccin theme" CAT_RESET "  " BANNER_FRAME "║" CAT_RESET "\n");
 #ifdef TASH_AI_ENABLED
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ AI powered           ▸ @ai to get started" CAT_RESET " " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ AI powered          ▸ @ai to get started" CAT_RESET " " BANNER_FRAME "║" CAT_RESET "\n");
 #endif
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
