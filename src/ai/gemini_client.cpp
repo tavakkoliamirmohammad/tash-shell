@@ -64,6 +64,32 @@ static string extract_text_from_response(const string &json) {
     return result;
 }
 
+// Extract error message from Gemini API error response
+static string extract_text_from_error(const string &json) {
+    // Look for "message": "..." in error responses
+    string marker = "\"message\"";
+    size_t pos = json.find(marker);
+    if (pos == string::npos) return "";
+
+    pos = json.find(':', pos);
+    if (pos == string::npos) return "";
+    pos = json.find('"', pos + 1);
+    if (pos == string::npos) return "";
+    pos++;
+
+    string result;
+    while (pos < json.size() && json[pos] != '"') {
+        if (json[pos] == '\\' && pos + 1 < json.size()) {
+            pos++;
+            result += json[pos];
+        } else {
+            result += json[pos];
+        }
+        pos++;
+    }
+    return result;
+}
+
 // ── Models ────────────────────────────────────────────────────
 
 static const char *MODELS[] = {
@@ -113,6 +139,15 @@ static GeminiResponse call_gemini(const string &api_key,
         resp.error_message = "daily quota reached. Try again tomorrow.";
     } else if (result->status == 404) {
         resp.error_message = "model_not_found";
+    } else if (result->status == 400) {
+        // 400 can mean bad model name or bad request — extract error message
+        string api_msg = extract_text_from_error(result->body);
+        if (api_msg.find("not found") != string::npos ||
+            api_msg.find("is not supported") != string::npos) {
+            resp.error_message = "model_not_found";
+        } else {
+            resp.error_message = "API error: " + (api_msg.empty() ? "bad request" : api_msg);
+        }
     } else {
         resp.error_message = "API error (HTTP " + to_string(result->status) + "). Try again.";
     }
