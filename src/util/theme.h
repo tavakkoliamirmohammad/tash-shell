@@ -85,4 +85,13 @@
 #define SUGGEST_TEXT      CAT_DIM CAT_YELLOW         // "did you mean"
 #define SUGGEST_CMD       CAT_BOLD CAT_PEACH         // suggested command
 
+// AI output
+#define AI_LABEL          CAT_BOLD CAT_TEAL          // "tash ai"
+#define AI_SEPARATOR      CAT_DIM                    // "─"
+#define AI_CMD            CAT_GREEN                   // generated commands
+#define AI_ERROR          CAT_RED                     // error messages
+#define AI_PROMPT         CAT_MAUVE                   // "Run?" / "Save to?"
+#define AI_STEP_NUM       CAT_MAUVE                   // step numbers
+#define AI_FLAG           CAT_YELLOW                  // command flags
+
 #endif // THEME_H
