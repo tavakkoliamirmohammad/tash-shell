@@ -233,17 +233,27 @@ static int handle_help(const string &query, ShellState &state) {
 // ── Feature: Status ───────────────────────────────────────────
 
 static int handle_status(ShellState &state) {
+    // Gemini free tier known limits
+    static const int DAILY_LIMIT = 1500;
+    static const int RPM_LIMIT = 15;
+
     ai_print_label();
     write_stdout("AI Status\n\n");
 
     string key = ai_load_key();
-    write_stdout("  Key:     " + string(key.empty() ? AI_ERROR "not configured" : AI_CMD "configured") + CAT_RESET "\n");
-    write_stdout("  Status:  " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
+    write_stdout("  Key:      " + string(key.empty() ? AI_ERROR "not configured" : AI_CMD "configured") + CAT_RESET "\n");
+    write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
-    write_stdout("  Today:   " AI_LABEL + to_string(usage) + " requests" CAT_RESET "\n");
+    int remaining = DAILY_LIMIT - usage;
+    if (remaining < 0) remaining = 0;
 
-    write_stdout("  Model:   " CAT_DIM "gemini-3.1-flash-lite-preview" CAT_RESET "\n");
+    string usage_color = (remaining > 100) ? AI_CMD : (remaining > 0) ? CAT_YELLOW : AI_ERROR;
+    write_stdout("  Today:    " + usage_color + to_string(usage) + " / " + to_string(DAILY_LIMIT) +
+                 " requests" CAT_RESET CAT_DIM " (" + to_string(remaining) + " remaining)" CAT_RESET "\n");
+    write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min" CAT_RESET "\n");
+
+    write_stdout("  Model:    " CAT_DIM "gemini-3.1-flash-lite-preview" CAT_RESET "\n");
     write_stdout("\n");
     return 0;
 }
