@@ -1,7 +1,9 @@
-#include "shell.h"
+#include "tash/history.h"
 #include <cmath>
 #include <ctime>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 #include <sys/stat.h>
 
 using namespace std;

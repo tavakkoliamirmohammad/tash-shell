@@ -1,4 +1,5 @@
-#include "shell.h"
+#include "tash/core.h"
+#include "tash/ui.h"
 #include <dirent.h>
 #include <algorithm>
 

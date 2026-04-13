@@ -1,4 +1,5 @@
-#include "shell.h"
+#include "tash/core.h"
+#include "tash/history.h"
 #include <cstring>
 
 using namespace std;

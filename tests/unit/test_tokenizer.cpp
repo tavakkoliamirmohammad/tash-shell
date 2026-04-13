@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
-#include "shell.h"
+#include "tash/core.h"
+#include "tash/ui.h"
+#include "tash/history.h"
 
 using namespace std;
 

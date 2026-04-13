@@ -1,4 +1,4 @@
-#include "shell.h"
+#include "tash/history.h"
 
 using namespace std;
 using namespace replxx;

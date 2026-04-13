@@ -22,25 +22,32 @@ if(TARGET replxx)
     target_compile_options(replxx PRIVATE -Wno-c++20-compat)
 endif()
 
+# ── Common include directories ────────────────────────────────
+set(TASH_INCLUDE_DIRS
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src/util
+    ${replxx_SOURCE_DIR}/include
+)
+
 # ── Source files shared by shell binary and test library ─────────
 set(SHELL_SOURCES
-    main.cpp
-    colors.cpp
-    prompt.cpp
-    parser.cpp
-    builtins.cpp
-    process.cpp
-    completion.cpp
-    suggest.cpp
-    history.cpp
-    frecency.cpp
-    highlight.cpp
+    src/main.cpp
+    src/core/parser.cpp
+    src/core/process.cpp
+    src/core/builtins.cpp
+    src/ui/prompt.cpp
+    src/ui/highlight.cpp
+    src/ui/completion.cpp
+    src/ui/suggest.cpp
+    src/history/history.cpp
+    src/history/frecency.cpp
+    src/util/colors.cpp
 )
 
 # ── Main shell binary ─────────────────────────────────────────
 add_executable(tash.out ${SHELL_SOURCES})
 target_link_libraries(tash.out PRIVATE replxx)
-target_include_directories(tash.out PRIVATE ${replxx_SOURCE_DIR}/include)
+target_include_directories(tash.out PRIVATE ${TASH_INCLUDE_DIRS})
 target_compile_options(tash.out PRIVATE -Wall -Wextra)
 
 # ── Testing ───────────────────────────────────────────────────
@@ -48,6 +55,7 @@ option(BUILD_TESTS "Build test suite" ON)
 
 if(BUILD_TESTS)
     enable_testing()
+    include(GoogleTest)
 
     FetchContent_Declare(
         googletest
@@ -59,36 +67,39 @@ if(BUILD_TESTS)
     # ── Unit tests (tokenizer, trim, etc.) ────────────────────
     add_library(shell_lib STATIC ${SHELL_SOURCES})
     target_link_libraries(shell_lib PRIVATE replxx)
-    target_include_directories(shell_lib PRIVATE ${replxx_SOURCE_DIR}/include)
+    target_include_directories(shell_lib PRIVATE ${TASH_INCLUDE_DIRS})
     target_compile_definitions(shell_lib PRIVATE TESTING_BUILD)
 
-    add_executable(test_tokenizer tests/test_tokenizer.cpp)
-    target_include_directories(test_tokenizer PRIVATE ${CMAKE_SOURCE_DIR} ${replxx_SOURCE_DIR}/include)
+    add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
+    target_include_directories(test_tokenizer PRIVATE ${TASH_INCLUDE_DIRS})
     target_link_libraries(test_tokenizer GTest::gtest_main shell_lib)
-    add_test(NAME TokenizerTests COMMAND test_tokenizer)
+    gtest_discover_tests(test_tokenizer TEST_PREFIX "unit/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
-        tests/test_integration.cpp
-        tests/test_basic.cpp
-        tests/test_redirection.cpp
-        tests/test_background.cpp
-        tests/test_cd.cpp
-        tests/test_pipes.cpp
-        tests/test_history.cpp
-        tests/test_env_vars.cpp
-        tests/test_glob.cpp
-        tests/test_operators.cpp
-        tests/test_tashrc.cpp
-        tests/test_alias.cpp
-        tests/test_script.cpp
-        tests/test_comments.cpp
-        tests/test_modern_ux.cpp
+        tests/integration/test_integration.cpp
+        tests/integration/test_basic.cpp
+        tests/integration/test_redirection.cpp
+        tests/integration/test_background.cpp
+        tests/integration/test_cd.cpp
+        tests/integration/test_pipes.cpp
+        tests/integration/test_history.cpp
+        tests/integration/test_env_vars.cpp
+        tests/integration/test_glob.cpp
+        tests/integration/test_operators.cpp
+        tests/integration/test_tashrc.cpp
+        tests/integration/test_alias.cpp
+        tests/integration/test_script.cpp
+        tests/integration/test_comments.cpp
+        tests/integration/test_modern_ux.cpp
     )
-    target_include_directories(test_integration PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/tests ${replxx_SOURCE_DIR}/include)
+    target_include_directories(test_integration PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests
+        ${TASH_INCLUDE_DIRS}
+    )
     target_link_libraries(test_integration GTest::gtest)
-    add_test(NAME IntegrationTests COMMAND test_integration)
-    set_tests_properties(IntegrationTests PROPERTIES
-        ENVIRONMENT "TASH_SHELL_BIN=$<TARGET_FILE:tash.out>"
+    gtest_discover_tests(test_integration
+        TEST_PREFIX "integration/"
+        PROPERTIES ENVIRONMENT "TASH_SHELL_BIN=$<TARGET_FILE:tash.out>"
     )
 endif()
