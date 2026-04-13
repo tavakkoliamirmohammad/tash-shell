@@ -14,6 +14,10 @@ using namespace std;
 // ── Key management ────────────────────────────────────────────
 
 string ai_get_key_path() {
+    // Allow override for testing (avoids clobbering real key)
+    const char *override = getenv("TASH_AI_KEY_PATH");
+    if (override && override[0] != '\0') return string(override);
+
     const char *home = getenv("HOME");
     if (!home) return "";
     return string(home) + "/.tash_ai_key";
@@ -93,6 +97,9 @@ bool ai_validate_key(const string &key) {
 // ── Usage tracking ────────────────────────────────────────────
 
 string ai_get_usage_path() {
+    const char *override = getenv("TASH_AI_USAGE_PATH");
+    if (override && override[0] != '\0') return string(override);
+
     const char *home = getenv("HOME");
     if (!home) return "";
     return string(home) + "/.tash_ai_usage";

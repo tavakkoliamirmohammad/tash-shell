@@ -10,6 +10,31 @@
 using namespace std;
 
 // ═══════════════════════════════════════════════════════════════
+// Test fixture that redirects key/usage paths to /tmp
+// so tests never touch the real ~/.tash_ai_key
+// ═══════════════════════════════════════════════════════════════
+
+class AiTestFixture : public ::testing::Test {
+protected:
+    string test_key_path;
+    string test_usage_path;
+
+    void SetUp() override {
+        test_key_path = "/tmp/tash_test_ai_key_" + to_string(getpid());
+        test_usage_path = "/tmp/tash_test_ai_usage_" + to_string(getpid());
+        setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
+        setenv("TASH_AI_USAGE_PATH", test_usage_path.c_str(), 1);
+    }
+
+    void TearDown() override {
+        unlink(test_key_path.c_str());
+        unlink(test_usage_path.c_str());
+        unsetenv("TASH_AI_KEY_PATH");
+        unsetenv("TASH_AI_USAGE_PATH");
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
 // is_ai_command detection
 // ═══════════════════════════════════════════════════════════════
 
@@ -48,16 +73,15 @@ TEST(AiParser, RejectsPartialMatch) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AI key management
+// AI key management (uses temp paths via fixture)
 // ═══════════════════════════════════════════════════════════════
 
-TEST(AiSetup, KeyPathNotEmpty) {
-    EXPECT_FALSE(ai_get_key_path().empty());
+TEST_F(AiTestFixture, KeyPathUsesOverride) {
+    EXPECT_EQ(ai_get_key_path(), test_key_path);
 }
 
-TEST(AiSetup, SaveAndLoadKey) {
+TEST_F(AiTestFixture, SaveAndLoadKey) {
     string test_key = "test_key_" + to_string(getpid());
-    string path = ai_get_key_path();
 
     EXPECT_TRUE(ai_save_key(test_key));
 
@@ -66,36 +90,30 @@ TEST(AiSetup, SaveAndLoadKey) {
 
     // Check permissions (600)
     struct stat st;
-    ASSERT_EQ(stat(path.c_str(), &st), 0);
+    ASSERT_EQ(stat(test_key_path.c_str(), &st), 0);
     EXPECT_EQ(st.st_mode & 0777, 0600);
-
-    unlink(path.c_str());
 }
 
-TEST(AiSetup, LoadMissingKeyReturnsEmpty) {
-    string path = ai_get_key_path();
-    unlink(path.c_str());
+TEST_F(AiTestFixture, LoadMissingKeyReturnsEmpty) {
+    unlink(test_key_path.c_str());
     EXPECT_TRUE(ai_load_key().empty());
 }
 
-TEST(AiSetup, ValidateKey) {
+TEST_F(AiTestFixture, ValidateKey) {
     EXPECT_TRUE(ai_validate_key("AIzaSyAbcdefghij1234567890"));
     EXPECT_FALSE(ai_validate_key(""));
     EXPECT_FALSE(ai_validate_key("short"));
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AI usage tracking
+// AI usage tracking (uses temp paths via fixture)
 // ═══════════════════════════════════════════════════════════════
 
-TEST(AiUsage, UsagePathNotEmpty) {
-    EXPECT_FALSE(ai_get_usage_path().empty());
+TEST_F(AiTestFixture, UsagePathUsesOverride) {
+    EXPECT_EQ(ai_get_usage_path(), test_usage_path);
 }
 
-TEST(AiUsage, IncrementAndGetUsage) {
-    string path = ai_get_usage_path();
-    unlink(path.c_str());
-
+TEST_F(AiTestFixture, IncrementAndGetUsage) {
     EXPECT_EQ(ai_get_today_usage(), 0);
 
     ai_increment_usage();
@@ -103,8 +121,6 @@ TEST(AiUsage, IncrementAndGetUsage) {
 
     ai_increment_usage();
     EXPECT_EQ(ai_get_today_usage(), 2);
-
-    unlink(path.c_str());
 }
 
 // ═══════════════════════════════════════════════════════════════
