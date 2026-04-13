@@ -6,6 +6,10 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+#ifdef TASH_AI_ENABLED
+#include "tash/ai.h"
+#endif
+
 using namespace std;
 using namespace replxx;
 
@@ -215,6 +219,11 @@ void sigchld_handler(int) {
 // Shared between hint callback and right-arrow handler
 static string current_hint;
 
+#ifdef TASH_AI_ENABLED
+// Last executed command for context-aware suggestions
+static string last_executed_cmd;
+#endif
+
 static Replxx::hints_t history_hint_callback(const string &input, int &context_len, Replxx::Color &color, Replxx &rx) {
     Replxx::hints_t hints;
     current_hint.clear();
@@ -234,6 +243,17 @@ static Replxx::hints_t history_hint_callback(const string &input, int &context_l
             best = entry;
         }
     }
+#ifdef TASH_AI_ENABLED
+    // If no history prefix match, try context-aware suggestion
+    if (best.empty() && !last_executed_cmd.empty()) {
+        string ctx = context_suggest(last_executed_cmd, get_transition_map());
+        if (!ctx.empty() && ctx.size() > input.size() &&
+            ctx.compare(0, input.size(), input) == 0) {
+            best = ctx;
+        }
+    }
+#endif
+
     if (!best.empty()) {
         hints.push_back(best);
         current_hint = best;
@@ -272,6 +292,16 @@ int main(int argc, char *argv[]) {
     // Build command cache for suggestions and highlighting
     build_command_cache();
 
+#ifdef TASH_AI_ENABLED
+    // Build context-aware suggestion map from history
+    {
+        string hist = history_file_path();
+        if (!hist.empty()) {
+            build_transition_map(hist, get_transition_map());
+        }
+    }
+#endif
+
     // Load ~/.tashrc
     const char *home_env = getenv("HOME");
     if (home_env) {
@@ -301,9 +331,12 @@ int main(int argc, char *argv[]) {
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ██║  ██║███████║██║  ██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " BANNER_VERSION "v1.0.0" CAT_RESET "               " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " BANNER_VERSION "v1.1.0" CAT_RESET "               " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ syntax highlighting  ▸ autosuggestions" CAT_RESET "   " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ smart completions    ▸ catppuccin theme" CAT_RESET "  " BANNER_FRAME "║" CAT_RESET "\n");
+#ifdef TASH_AI_ENABLED
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ AI powered          ▸ @ai to get started" CAT_RESET " " BANNER_FRAME "║" CAT_RESET "\n");
+#endif
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
         write_stdout("\n");
@@ -473,12 +506,38 @@ int main(int argc, char *argv[]) {
             }
         }
 
+#ifdef TASH_AI_ENABLED
+        // Intercept @ai commands before normal execution
+        if (is_ai_command(expanded)) {
+            state.last_exit_status = handle_ai_command(expanded, state);
+            continue;
+        }
+#else
+        // AI not compiled in — show a helpful message
+        {
+            string ai_check = expanded;
+            while (!ai_check.empty() && ai_check.front() == ' ') ai_check.erase(ai_check.begin());
+            if (ai_check.size() >= 3 && ai_check.substr(0, 3) == "@ai" &&
+                (ai_check.size() == 3 || ai_check[3] == ' ')) {
+                write_stderr("tash: AI features not available (built without OpenSSL)\n");
+                state.last_exit_status = 1;
+                continue;
+            }
+        }
+#endif
+
         reap_background_processes(state.background_processes);
 
         double start_time = get_time_s();
 
         vector<CommandSegment> segments = parse_command_line(expanded);
         execute_command_line(segments, state);
+
+        // Track last command for @ai explain
+        state.last_command_text = expanded;
+#ifdef TASH_AI_ENABLED
+        last_executed_cmd = expanded;
+#endif
 
         state.last_cmd_duration = get_time_s() - start_time;
 

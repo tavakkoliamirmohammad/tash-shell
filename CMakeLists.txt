@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.17)
-project(tash VERSION 1.0.0 LANGUAGES CXX)
+project(tash VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,6 +27,22 @@ if(TARGET replxx)
     target_compile_options(replxx PRIVATE -Wno-c++20-compat)
 endif()
 
+# ── AI features (optional, requires OpenSSL) ─────────────────
+find_package(OpenSSL QUIET)
+if(OpenSSL_FOUND)
+    set(TASH_AI_ENABLED ON)
+    FetchContent_Declare(
+        httplib
+        URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.18.3.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(httplib)
+    message(STATUS "AI features enabled (OpenSSL found)")
+else()
+    set(TASH_AI_ENABLED OFF)
+    message(STATUS "AI features disabled (OpenSSL not found)")
+endif()
+
 # ── Common include directories ────────────────────────────────
 set(TASH_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/include
@@ -49,11 +65,27 @@ set(SHELL_SOURCES
     src/util/colors.cpp
 )
 
+# ── AI source files (conditional) ────────────────────────────
+if(TASH_AI_ENABLED)
+    list(APPEND SHELL_SOURCES
+        src/ai/ai_handler.cpp
+        src/ai/gemini_client.cpp
+        src/ai/ai_setup.cpp
+        src/ai/context_suggest.cpp
+    )
+endif()
+
 # ── Main shell binary ─────────────────────────────────────────
 add_executable(tash.out ${SHELL_SOURCES})
 target_link_libraries(tash.out PRIVATE replxx)
 target_include_directories(tash.out PRIVATE ${TASH_INCLUDE_DIRS})
 target_compile_options(tash.out PRIVATE -Wall -Wextra)
+
+if(TASH_AI_ENABLED)
+    target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
+    target_link_libraries(tash.out PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
+endif()
 
 # ── Testing ───────────────────────────────────────────────────
 option(BUILD_TESTS "Build test suite" ON)
@@ -76,10 +108,25 @@ if(BUILD_TESTS)
     target_include_directories(shell_lib PRIVATE ${TASH_INCLUDE_DIRS})
     target_compile_definitions(shell_lib PRIVATE TESTING_BUILD)
 
+    if(TASH_AI_ENABLED)
+        target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
+        target_link_libraries(shell_lib PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        target_include_directories(shell_lib PRIVATE ${httplib_SOURCE_DIR})
+    endif()
+
     add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
     target_include_directories(test_tokenizer PRIVATE ${TASH_INCLUDE_DIRS})
     target_link_libraries(test_tokenizer GTest::gtest_main shell_lib)
     gtest_discover_tests(test_tokenizer TEST_PREFIX "unit/")
+
+    add_executable(test_ai tests/unit/test_ai.cpp)
+    target_include_directories(test_ai PRIVATE ${TASH_INCLUDE_DIRS})
+    target_link_libraries(test_ai GTest::gtest_main shell_lib)
+    if(TASH_AI_ENABLED)
+        target_compile_definitions(test_ai PRIVATE TASH_AI_ENABLED)
+        target_include_directories(test_ai PRIVATE ${httplib_SOURCE_DIR})
+    endif()
+    gtest_discover_tests(test_ai TEST_PREFIX "unit/ai/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
@@ -98,6 +145,7 @@ if(BUILD_TESTS)
         tests/integration/test_script.cpp
         tests/integration/test_comments.cpp
         tests/integration/test_modern_ux.cpp
+        tests/integration/test_ai_integration.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests

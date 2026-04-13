@@ -60,12 +60,18 @@ struct ShellState {
     int ctrl_d_count;
     double last_cmd_duration;
 
+    // AI features
+    std::string last_command_text;
+    std::string last_stderr_output;
+    bool ai_enabled;
+
     ShellState()
         : last_exit_status(0)
         , colorful_commands({"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"})
         , max_background_processes(5)
         , ctrl_d_count(0)
-        , last_cmd_duration(-1) {}
+        , last_cmd_duration(-1)
+        , ai_enabled(true) {}
 };
 
 // ── Signal-related globals (must be global for signal handlers) ─

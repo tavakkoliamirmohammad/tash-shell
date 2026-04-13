@@ -76,7 +76,7 @@
 #define BANNER_FRAME      CAT_BOLD CAT_SAPPHIRE      // ╔══╗ frame
 #define BANNER_LOGO       CAT_BOLD CAT_LAVENDER      // TASH ascii art
 #define BANNER_TITLE      CAT_BOLD CAT_TEXT           // "Tavakkoli's Shell"
-#define BANNER_VERSION    CAT_PEACH                   // "v1.0.0"
+#define BANNER_VERSION    CAT_PEACH                   // "v1.1.0"
 #define BANNER_HINT       CAT_GREEN                   // "exit", "history"
 #define BANNER_TEXT       CAT_SUBTEXT0                // hint text
 #define BANNER_FEATURE    CAT_GREEN                   // feature bullets
@@ -84,5 +84,14 @@
 // Suggestions
 #define SUGGEST_TEXT      CAT_DIM CAT_YELLOW         // "did you mean"
 #define SUGGEST_CMD       CAT_BOLD CAT_PEACH         // suggested command
+
+// AI output
+#define AI_LABEL          CAT_BOLD CAT_TEAL          // "tash ai"
+#define AI_SEPARATOR      CAT_DIM                    // "─"
+#define AI_CMD            CAT_GREEN                   // generated commands
+#define AI_ERROR          CAT_RED                     // error messages
+#define AI_PROMPT         CAT_MAUVE                   // "Run?" / "Save to?"
+#define AI_STEP_NUM       CAT_MAUVE                   // step numbers
+#define AI_FLAG           CAT_YELLOW                  // command flags
 
 #endif // THEME_H
