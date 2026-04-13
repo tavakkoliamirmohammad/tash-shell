@@ -177,6 +177,31 @@ tash ai ─ AI Status
 | `@ai setup` | Re-run the API key setup wizard. |
 | `@ai on` / `@ai off` | Enable or disable AI features. |
 
+**More examples to try:**
+
+```sh
+# Generate commands from plain English
+@ai "show disk usage sorted by size"
+@ai "list all running docker containers"
+@ai "count lines of code in all .cpp files recursively"
+@ai "show the 10 most recently modified files"
+
+# Understand complex commands
+@ai what does find . -name "*.cpp" -exec wc -l {} +
+@ai what does awk '{print $2}' file.txt | sort -rn | head -5
+@ai what does rsync -avz --delete src/ backup/
+
+# Generate ready-to-use scripts
+@ai script "monitor CPU usage every 5 seconds and log to file"
+@ai script "rename all .jpeg files to .jpg in current directory"
+@ai script "find and delete all node_modules directories"
+
+# Get step-by-step guidance
+@ai help "configure git for a new machine"
+@ai help "set up a cron job to run a script daily"
+@ai help "debug a segfault in a C++ program"
+```
+
 ## Keyboard Shortcuts
 
 | Key | Action |
