@@ -233,9 +233,9 @@ static int handle_help(const string &query, ShellState &state) {
 // ── Feature: Status ───────────────────────────────────────────
 
 static int handle_status(ShellState &state) {
-    // Gemini free tier known limits
-    static const int DAILY_LIMIT = 1500;
-    static const int RPM_LIMIT = 15;
+    // Gemini 3.1 Flash Lite free tier limits
+    static const int DAILY_LIMIT = 500;
+    static const int RPM_LIMIT = 10;
 
     ai_print_label();
     write_stdout("AI Status\n\n");
