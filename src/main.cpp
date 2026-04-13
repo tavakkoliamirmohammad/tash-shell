@@ -512,6 +512,18 @@ int main(int argc, char *argv[]) {
             state.last_exit_status = handle_ai_command(expanded, state);
             continue;
         }
+#else
+        // AI not compiled in — show a helpful message
+        {
+            string ai_check = expanded;
+            while (!ai_check.empty() && ai_check.front() == ' ') ai_check.erase(ai_check.begin());
+            if (ai_check.size() >= 3 && ai_check.substr(0, 3) == "@ai" &&
+                (ai_check.size() == 3 || ai_check[3] == ' ')) {
+                write_stderr("tash: AI features not available (built without OpenSSL)\n");
+                state.last_exit_status = 1;
+                continue;
+            }
+        }
 #endif
 
         reap_background_processes(state.background_processes);

@@ -1,26 +1,35 @@
 #include "test_helpers.h"
 
-// Test that @ai with no args shows usage help
-TEST(AiIntegration, AiNoArgsShowsUsage) {
+// Helper: check if the tash binary was built with AI support
+static bool ai_is_available() {
     auto r = run_shell("@ai\nexit\n");
-    EXPECT_NE(r.output.find("@ai"), std::string::npos);
+    // If AI is compiled in, output contains "Usage" or "@ai"
+    // If not, output contains "not available"
+    return r.output.find("not available") == std::string::npos;
+}
+
+// Test that @ai with no args shows usage help (or "not available")
+TEST(AiIntegration, AiNoArgsShowsMessage) {
+    auto r = run_shell("@ai\nexit\n");
+    // Should show either usage help or "not available" message
+    bool has_usage = r.output.find("@ai") != std::string::npos;
+    bool has_not_available = r.output.find("not available") != std::string::npos;
+    EXPECT_TRUE(has_usage || has_not_available);
 }
 
 // Test that @ai on/off toggle works
 TEST(AiIntegration, AiToggleOnOff) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
     auto r = run_shell("@ai off\n@ai on\nexit\n");
     EXPECT_NE(r.output.find("disabled"), std::string::npos);
     EXPECT_NE(r.output.find("enabled"), std::string::npos);
 }
 
 // Test that @ai setup prompts for key
-// Note: uses TASH_AI_KEY_PATH to avoid clobbering real key,
-// since the piped "exit" would be consumed as the key value
 TEST(AiIntegration, AiSetupDoesNotCrash) {
-    std::string tmp_key = "/tmp/tash_integ_key_" + std::to_string(getpid());
-    std::string cmd = "TASH_AI_KEY_PATH=" + tmp_key + " " + shell_binary + " < ";
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
 
-    // Build input file
+    std::string tmp_key = "/tmp/tash_integ_key_" + std::to_string(getpid());
     char tmpfile[] = "/tmp/tash_setup_test_XXXXXX";
     int fd = mkstemp(tmpfile);
     std::string input = "@ai setup\nexit\n";
@@ -54,6 +63,7 @@ TEST(AiIntegration, AiUnknownSubcommandDoesNotCrash) {
 
 // Test that @ai status shows status info
 TEST(AiIntegration, AiStatusShowsInfo) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
     auto r = run_shell("@ai status\nexit\n");
     EXPECT_NE(r.output.find("Status"), std::string::npos);
 }
