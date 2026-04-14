@@ -70,6 +70,7 @@ if(TASH_AI_ENABLED)
     list(APPEND SHELL_SOURCES
         src/ai/ai_handler.cpp
         src/ai/gemini_client.cpp
+        src/ai/ollama_client.cpp
         src/ai/ai_setup.cpp
         src/ai/context_suggest.cpp
     )

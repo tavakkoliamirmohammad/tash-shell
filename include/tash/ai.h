@@ -22,7 +22,22 @@ std::string ai_get_usage_path();
 int ai_get_today_usage();
 void ai_increment_usage();
 
-// ── Gemini Client ─────────────────────────────────────────────
+// ── AI Backend Selection ──────────────────────────────────────
+
+enum AIBackend {
+    AI_BACKEND_GEMINI,
+    AI_BACKEND_OLLAMA,
+};
+
+AIBackend ai_get_backend();
+bool ai_set_backend(AIBackend backend);
+const char *ai_backend_name(AIBackend backend);
+
+std::string ai_get_ollama_url();
+std::string ai_get_ollama_model();
+bool ai_set_ollama_model(const std::string &model);
+
+// ── AI Clients ────────────────────────────────────────────────
 
 struct GeminiResponse {
     bool success;
@@ -34,6 +49,15 @@ struct GeminiResponse {
 GeminiResponse gemini_generate(const std::string &api_key,
                                 const std::string &system_prompt,
                                 const std::string &user_prompt);
+
+GeminiResponse ollama_generate(const std::string &system_prompt,
+                                const std::string &user_prompt);
+
+// Dispatches to the currently selected backend. api_key is ignored when
+// the active backend is Ollama.
+GeminiResponse ai_generate(const std::string &system_prompt,
+                            const std::string &user_prompt,
+                            const std::string &api_key);
 
 // ── AI Handler ────────────────────────────────────────────────
 

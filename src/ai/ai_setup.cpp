@@ -103,6 +103,83 @@ bool ai_validate_key(const string &key) {
     return !key.empty() && key.size() >= 10;
 }
 
+// ── Backend selection ─────────────────────────────────────────
+
+static string trim_ws(string s) {
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ' || s.back() == '\t'))
+        s.pop_back();
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
+        s.erase(s.begin());
+    return s;
+}
+
+static string backend_file_path() {
+    const char *home = getenv("HOME");
+    if (!home) return "";
+    return string(home) + "/.tash_ai_backend";
+}
+
+static string ollama_model_file_path() {
+    const char *home = getenv("HOME");
+    if (!home) return "";
+    return string(home) + "/.tash_ollama_model";
+}
+
+static string read_first_line(const string &path) {
+    if (path.empty()) return "";
+    ifstream f(path);
+    if (!f.is_open()) return "";
+    string line;
+    getline(f, line);
+    return trim_ws(line);
+}
+
+static bool write_file(const string &path, const string &contents) {
+    if (path.empty()) return false;
+    ofstream f(path, ios::trunc);
+    if (!f.is_open()) return false;
+    f << contents << "\n";
+    return true;
+}
+
+const char *ai_backend_name(AIBackend backend) {
+    return backend == AI_BACKEND_OLLAMA ? "ollama" : "gemini";
+}
+
+AIBackend ai_get_backend() {
+    const char *env = getenv("TASH_AI_BACKEND");
+    string val;
+    if (env && env[0] != '\0') {
+        val = trim_ws(string(env));
+    } else {
+        val = read_first_line(backend_file_path());
+    }
+    if (val == "ollama") return AI_BACKEND_OLLAMA;
+    return AI_BACKEND_GEMINI;
+}
+
+bool ai_set_backend(AIBackend backend) {
+    return write_file(backend_file_path(), ai_backend_name(backend));
+}
+
+string ai_get_ollama_url() {
+    const char *env = getenv("TASH_OLLAMA_URL");
+    if (env && env[0] != '\0') return string(env);
+    return "http://localhost:11434";
+}
+
+string ai_get_ollama_model() {
+    const char *env = getenv("TASH_OLLAMA_MODEL");
+    if (env && env[0] != '\0') return string(env);
+    string stored = read_first_line(ollama_model_file_path());
+    if (!stored.empty()) return stored;
+    return "llama3.2";
+}
+
+bool ai_set_ollama_model(const string &model) {
+    return write_file(ollama_model_file_path(), model);
+}
+
 // ── Usage tracking ────────────────────────────────────────────
 
 string ai_get_usage_path() {

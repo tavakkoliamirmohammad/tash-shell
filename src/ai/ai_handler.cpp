@@ -62,12 +62,21 @@ static void ai_print_error(const string &msg) {
     write_stdout(AI_ERROR + msg + CAT_RESET "\n");
 }
 
-// ── Ensure API key is available ───────────────────────────────
+// ── Ensure AI is ready ────────────────────────────────────────
+//
+// Returns true if the currently selected backend is usable. For Gemini,
+// this ensures an API key exists (runs the setup wizard if not). For
+// Ollama, no key is needed — the sentinel string "ollama" is returned so
+// callers can keep their "empty means error" check.
 
 static string ensure_api_key(ShellState &state) {
     if (!state.ai_enabled) {
         ai_print_error("AI is disabled. Run @ai on to enable.");
         return "";
+    }
+
+    if (ai_get_backend() == AI_BACKEND_OLLAMA) {
+        return "ollama"; // sentinel; ai_generate ignores the value
     }
 
     string key = ai_load_key();
@@ -99,7 +108,7 @@ static int handle_nl_to_cmd(const string &query, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_NL_TO_CMD, query);
+    GeminiResponse resp = ai_generate(PROMPT_NL_TO_CMD, query, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -148,7 +157,7 @@ static int handle_explain_error(ShellState &state) {
         user_prompt += "\nError output: " + state.last_stderr_output;
     }
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_ERROR_EXPLAIN, user_prompt);
+    GeminiResponse resp = ai_generate(PROMPT_ERROR_EXPLAIN, user_prompt, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -170,7 +179,7 @@ static int handle_explain_cmd(const string &cmd_text, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_CMD_EXPLAIN, cmd_text);
+    GeminiResponse resp = ai_generate(PROMPT_CMD_EXPLAIN, cmd_text, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -191,7 +200,7 @@ static int handle_script(const string &query, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_SCRIPT_GEN, query);
+    GeminiResponse resp = ai_generate(PROMPT_SCRIPT_GEN, query, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -234,7 +243,7 @@ static int handle_help(const string &query, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_WORKFLOW, query);
+    GeminiResponse resp = ai_generate(PROMPT_WORKFLOW, query, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -251,16 +260,26 @@ static int handle_help(const string &query, ShellState &state) {
 // ── Feature: Status ───────────────────────────────────────────
 
 static int handle_status(ShellState &state) {
+    ai_print_label();
+    write_stdout("AI Status\n\n");
+
+    AIBackend backend = ai_get_backend();
+    write_stdout("  Backend:  " AI_CMD + string(ai_backend_name(backend)) + CAT_RESET "\n");
+    write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
+
+    if (backend == AI_BACKEND_OLLAMA) {
+        write_stdout("  URL:      " CAT_DIM + ai_get_ollama_url() + CAT_RESET "\n");
+        write_stdout("  Model:    " CAT_DIM + ai_get_ollama_model() + CAT_RESET "\n");
+        write_stdout("\n");
+        return 0;
+    }
+
     // Gemini 3.1 Flash Lite free tier limits
     static const int DAILY_LIMIT = 500;
     static const int RPM_LIMIT = 15;
 
-    ai_print_label();
-    write_stdout("AI Status\n\n");
-
     string key = ai_load_key();
     write_stdout("  Key:      " + string(key.empty() ? AI_ERROR "not configured" : AI_CMD "configured") + CAT_RESET "\n");
-    write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
     int remaining = DAILY_LIMIT - usage;
@@ -273,6 +292,60 @@ static int handle_status(ShellState &state) {
 
     write_stdout("  Model:    " CAT_DIM "gemini-3.1-flash-lite-preview" CAT_RESET "\n");
     write_stdout("\n");
+    return 0;
+}
+
+// ── Feature: Backend switching ────────────────────────────────
+
+static int handle_backend(const string &arg) {
+    if (arg.empty()) {
+        ai_print_label();
+        write_stdout("Current backend: " AI_CMD + string(ai_backend_name(ai_get_backend())) + CAT_RESET "\n");
+        write_stdout(CAT_DIM "  Switch with: @ai backend gemini | @ai backend ollama" CAT_RESET "\n");
+        return 0;
+    }
+    if (arg == "gemini") {
+        if (!ai_set_backend(AI_BACKEND_GEMINI)) {
+            ai_print_error("failed to save backend preference.");
+            return 1;
+        }
+        ai_print_label();
+        write_stdout(AI_CMD "Backend set to gemini." CAT_RESET "\n");
+        return 0;
+    }
+    if (arg == "ollama") {
+        if (!ai_set_backend(AI_BACKEND_OLLAMA)) {
+            ai_print_error("failed to save backend preference.");
+            return 1;
+        }
+        ai_print_label();
+        write_stdout(AI_CMD "Backend set to ollama." CAT_RESET "\n");
+        write_stdout(CAT_DIM "  URL:   " + ai_get_ollama_url() + CAT_RESET "\n");
+        write_stdout(CAT_DIM "  Model: " + ai_get_ollama_model() + CAT_RESET "\n");
+        write_stdout(CAT_DIM "  Make sure `ollama serve` is running and the model is pulled." CAT_RESET "\n");
+        return 0;
+    }
+    ai_print_error("unknown backend '" + arg + "'. Use 'gemini' or 'ollama'.");
+    return 1;
+}
+
+static int handle_model(const string &arg) {
+    if (ai_get_backend() != AI_BACKEND_OLLAMA) {
+        ai_print_error("@ai model only applies to the ollama backend.");
+        return 1;
+    }
+    if (arg.empty()) {
+        ai_print_label();
+        write_stdout("Current ollama model: " AI_CMD + ai_get_ollama_model() + CAT_RESET "\n");
+        write_stdout(CAT_DIM "  Change with: @ai model <name>  (e.g. @ai model llama3.2)" CAT_RESET "\n");
+        return 0;
+    }
+    if (!ai_set_ollama_model(arg)) {
+        ai_print_error("failed to save ollama model preference.");
+        return 1;
+    }
+    ai_print_label();
+    write_stdout(AI_CMD "Ollama model set to " + arg + CAT_RESET "\n");
     return 0;
 }
 
@@ -304,9 +377,33 @@ int handle_ai_command(const string &input, ShellState &state) {
         write_stdout("  @ai script \"task\"         generate a bash script\n");
         write_stdout("  @ai help \"topic\"          step-by-step guidance\n");
         write_stdout("  @ai status               show AI usage status\n");
-        write_stdout("  @ai setup                configure API key\n");
+        write_stdout("  @ai setup                configure Gemini API key\n");
+        write_stdout("  @ai backend [name]       show/switch backend (gemini, ollama)\n");
+        write_stdout("  @ai model [name]         show/set ollama model\n");
         write_stdout("  @ai on / off             enable or disable AI\n");
         return 0;
+    }
+
+    // @ai backend [gemini|ollama]
+    if (rest == "backend") {
+        return handle_backend("");
+    }
+    if (rest.size() > 8 && rest.substr(0, 8) == "backend ") {
+        string arg = rest.substr(8);
+        while (!arg.empty() && arg.front() == ' ') arg.erase(arg.begin());
+        while (!arg.empty() && arg.back() == ' ') arg.pop_back();
+        return handle_backend(arg);
+    }
+
+    // @ai model [name]
+    if (rest == "model") {
+        return handle_model("");
+    }
+    if (rest.size() > 6 && rest.substr(0, 6) == "model ") {
+        string arg = rest.substr(6);
+        while (!arg.empty() && arg.front() == ' ') arg.erase(arg.begin());
+        while (!arg.empty() && arg.back() == ' ') arg.pop_back();
+        return handle_model(arg);
     }
 
     // @ai setup
