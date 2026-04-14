@@ -62,6 +62,32 @@ static void ai_print_error(const string &msg) {
     write_stdout(AI_ERROR + msg + CAT_RESET "\n");
 }
 
+// Prints a "thinking..." hint. For Ollama, cold model loads can take tens
+// of seconds; without this the shell appears to hang. Caller must pair
+// each ai_print_thinking() with ai_clear_thinking() before printing the
+// real response, so the hint is erased in place.
+static void ai_print_thinking() {
+    if (ai_get_backend() == AI_BACKEND_OLLAMA) {
+        write_stdout(CAT_DIM "  ollama (" + ai_get_ollama_model() +
+                     ") thinking..." CAT_RESET);
+    } else {
+        write_stdout(CAT_DIM "  thinking..." CAT_RESET);
+    }
+}
+
+static void ai_clear_thinking() {
+    write_stdout("\r                                                                       \r");
+}
+
+static GeminiResponse ai_generate_with_indicator(const string &system_prompt,
+                                                  const string &user_prompt,
+                                                  const string &api_key) {
+    ai_print_thinking();
+    GeminiResponse resp = ai_generate(system_prompt, user_prompt, api_key);
+    ai_clear_thinking();
+    return resp;
+}
+
 // ── Ensure AI is ready ────────────────────────────────────────
 //
 // Returns true if the currently selected backend is usable. For Gemini,
@@ -108,7 +134,7 @@ static int handle_nl_to_cmd(const string &query, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = ai_generate(PROMPT_NL_TO_CMD, query, key);
+    GeminiResponse resp = ai_generate_with_indicator(PROMPT_NL_TO_CMD, query, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -157,7 +183,7 @@ static int handle_explain_error(ShellState &state) {
         user_prompt += "\nError output: " + state.last_stderr_output;
     }
 
-    GeminiResponse resp = ai_generate(PROMPT_ERROR_EXPLAIN, user_prompt, key);
+    GeminiResponse resp = ai_generate_with_indicator(PROMPT_ERROR_EXPLAIN, user_prompt, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -179,7 +205,7 @@ static int handle_explain_cmd(const string &cmd_text, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = ai_generate(PROMPT_CMD_EXPLAIN, cmd_text, key);
+    GeminiResponse resp = ai_generate_with_indicator(PROMPT_CMD_EXPLAIN, cmd_text, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -200,7 +226,7 @@ static int handle_script(const string &query, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = ai_generate(PROMPT_SCRIPT_GEN, query, key);
+    GeminiResponse resp = ai_generate_with_indicator(PROMPT_SCRIPT_GEN, query, key);
     ai_increment_usage();
 
     if (!resp.success) {
@@ -243,7 +269,7 @@ static int handle_help(const string &query, ShellState &state) {
     string key = ensure_api_key(state);
     if (key.empty()) return 1;
 
-    GeminiResponse resp = ai_generate(PROMPT_WORKFLOW, query, key);
+    GeminiResponse resp = ai_generate_with_indicator(PROMPT_WORKFLOW, query, key);
     ai_increment_usage();
 
     if (!resp.success) {

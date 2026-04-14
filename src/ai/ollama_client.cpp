@@ -86,9 +86,10 @@ GeminiResponse ollama_generate(const string &system_prompt,
     string model = ai_get_ollama_model();
 
     httplib::Client cli(url.c_str());
-    cli.set_connection_timeout(10);
-    // Local models can be slow on first load; allow several minutes.
-    cli.set_read_timeout(300);
+    cli.set_connection_timeout(5);
+    // Cold model loads can take a while; 120s is enough for most local
+    // models while still failing in reasonable time if something is stuck.
+    cli.set_read_timeout(120);
 
     string body = build_ollama_json(model, system_prompt, user_prompt);
     auto result = cli.Post("/api/generate", body, "application/json");
