@@ -182,6 +182,128 @@ TEST(ContextSuggest, EmptyHistoryNoTransitions) {
     unlink(hist_path.c_str());
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Ollama backend selection & config
+//
+// This fixture redirects HOME to a throwaway directory so tests for
+// ai_set_backend() / ai_set_ollama_model() never touch the real
+// ~/.tash_ai_backend or ~/.tash_ollama_model. It also clears all
+// related env vars at setup, so each test starts from a clean slate
+// and can opt-in to env overrides explicitly.
+// ═══════════════════════════════════════════════════════════════
+
+class OllamaConfigFixture : public ::testing::Test {
+protected:
+    string saved_home;
+    bool had_home = false;
+    string fake_home;
+    string backend_file;
+    string model_file;
+
+    static void clear_ollama_env() {
+        unsetenv("TASH_AI_BACKEND");
+        unsetenv("TASH_OLLAMA_URL");
+        unsetenv("TASH_OLLAMA_MODEL");
+    }
+
+    void SetUp() override {
+        const char *h = getenv("HOME");
+        had_home = (h != nullptr);
+        if (had_home) saved_home = h;
+
+        fake_home = "/tmp/tash_test_home_" + to_string(getpid());
+        mkdir(fake_home.c_str(), 0700);
+        setenv("HOME", fake_home.c_str(), 1);
+
+        backend_file = fake_home + "/.tash_ai_backend";
+        model_file = fake_home + "/.tash_ollama_model";
+        unlink(backend_file.c_str());
+        unlink(model_file.c_str());
+
+        clear_ollama_env();
+    }
+
+    void TearDown() override {
+        unlink(backend_file.c_str());
+        unlink(model_file.c_str());
+        rmdir(fake_home.c_str());
+
+        if (had_home) setenv("HOME", saved_home.c_str(), 1);
+        else unsetenv("HOME");
+
+        clear_ollama_env();
+    }
+};
+
+TEST_F(OllamaConfigFixture, DefaultBackendIsGemini) {
+    EXPECT_EQ(ai_get_backend(), AI_BACKEND_GEMINI);
+}
+
+TEST_F(OllamaConfigFixture, BackendNameMapping) {
+    EXPECT_STREQ(ai_backend_name(AI_BACKEND_GEMINI), "gemini");
+    EXPECT_STREQ(ai_backend_name(AI_BACKEND_OLLAMA), "ollama");
+}
+
+TEST_F(OllamaConfigFixture, EnvVarSelectsOllama) {
+    setenv("TASH_AI_BACKEND", "ollama", 1);
+    EXPECT_EQ(ai_get_backend(), AI_BACKEND_OLLAMA);
+}
+
+TEST_F(OllamaConfigFixture, EnvVarSelectsGemini) {
+    setenv("TASH_AI_BACKEND", "gemini", 1);
+    EXPECT_EQ(ai_get_backend(), AI_BACKEND_GEMINI);
+}
+
+TEST_F(OllamaConfigFixture, UnknownBackendFallsBackToGemini) {
+    setenv("TASH_AI_BACKEND", "claude", 1);
+    EXPECT_EQ(ai_get_backend(), AI_BACKEND_GEMINI);
+}
+
+TEST_F(OllamaConfigFixture, SetBackendPersistsToFile) {
+    EXPECT_TRUE(ai_set_backend(AI_BACKEND_OLLAMA));
+    EXPECT_EQ(ai_get_backend(), AI_BACKEND_OLLAMA);
+
+    // Rewritten content should survive a fresh getenv() call
+    EXPECT_TRUE(ai_set_backend(AI_BACKEND_GEMINI));
+    EXPECT_EQ(ai_get_backend(), AI_BACKEND_GEMINI);
+}
+
+TEST_F(OllamaConfigFixture, EnvVarOverridesFile) {
+    ASSERT_TRUE(ai_set_backend(AI_BACKEND_GEMINI));
+    setenv("TASH_AI_BACKEND", "ollama", 1);
+    EXPECT_EQ(ai_get_backend(), AI_BACKEND_OLLAMA);
+}
+
+TEST_F(OllamaConfigFixture, DefaultOllamaUrl) {
+    EXPECT_EQ(ai_get_ollama_url(), "http://localhost:11434");
+}
+
+TEST_F(OllamaConfigFixture, OllamaUrlEnvOverride) {
+    setenv("TASH_OLLAMA_URL", "http://example.internal:9999", 1);
+    EXPECT_EQ(ai_get_ollama_url(), "http://example.internal:9999");
+}
+
+TEST_F(OllamaConfigFixture, DefaultOllamaModel) {
+    EXPECT_EQ(ai_get_ollama_model(), "llama3.2");
+}
+
+TEST_F(OllamaConfigFixture, OllamaModelEnvOverride) {
+    setenv("TASH_OLLAMA_MODEL", "codellama:7b", 1);
+    EXPECT_EQ(ai_get_ollama_model(), "codellama:7b");
+}
+
+TEST_F(OllamaConfigFixture, SetOllamaModelPersistsToFile) {
+    EXPECT_TRUE(ai_set_ollama_model("gemma3:1b"));
+    // Env var unset by fixture; getter must read the file
+    EXPECT_EQ(ai_get_ollama_model(), "gemma3:1b");
+}
+
+TEST_F(OllamaConfigFixture, EnvVarOverridesModelFile) {
+    ASSERT_TRUE(ai_set_ollama_model("gemma3:1b"));
+    setenv("TASH_OLLAMA_MODEL", "mistral", 1);
+    EXPECT_EQ(ai_get_ollama_model(), "mistral");
+}
+
 #else
 
 TEST(AiDisabled, AiFeaturesNotAvailable) {
