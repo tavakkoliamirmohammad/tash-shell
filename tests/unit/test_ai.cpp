@@ -416,19 +416,19 @@ TEST(RetryLogic, NotRetryableOnNotFound) {
 TEST(LLMFactory, GeminiDefaultModel) {
     auto c = create_llm_client("gemini", "key", "", "");
     ASSERT_NE(c, nullptr);
-    EXPECT_EQ(c->get_model(), "gemini-2.5-flash");
+    EXPECT_EQ(c->get_model(), "gemini-2.5-flash-lite");
 }
 
 TEST(LLMFactory, OpenAIDefaultModel) {
     auto c = create_llm_client("openai", "", "key", "");
     ASSERT_NE(c, nullptr);
-    EXPECT_EQ(c->get_model(), "gpt-4o-mini");
+    EXPECT_EQ(c->get_model(), "gpt-4.1-nano");
 }
 
 TEST(LLMFactory, OllamaDefaultModel) {
     auto c = create_llm_client("ollama", "", "", "");
     ASSERT_NE(c, nullptr);
-    EXPECT_EQ(c->get_model(), "llama3.2");
+    EXPECT_EQ(c->get_model(), "qwen3.5:0.6b");
 }
 
 TEST(LLMFactory, SetModelOverride) {
