@@ -9,9 +9,7 @@
 #include <sstream>
 #include <memory>
 
-#ifdef TASH_CURL_STREAMING
 #include <curl/curl.h>
-#endif
 
 using namespace std;
 using json = nlohmann::json;
@@ -206,10 +204,8 @@ string extract_ollama_text(const string &json_body) {
 }
 
 // ═════════════════════════════════════════════════════════════════
-// Shared curl streaming helper (when libcurl is available)
+// Shared curl streaming helper
 // ═════════════════════════════════════════════════════════════════
-
-#ifdef TASH_CURL_STREAMING
 
 struct CurlStreamContext {
     string buffer;
@@ -305,8 +301,6 @@ static LLMResponse curl_streaming_post(
     return resp;
 }
 
-#endif // TASH_CURL_STREAMING
-
 // ═════════════════════════════════════════════════════════════════
 // Gemini error mapping
 // ═════════════════════════════════════════════════════════════════
@@ -383,40 +377,11 @@ LLMResponse GeminiClient::call_model(const string &model, const string &body) {
     return resp;
 }
 
-// NOTE: when libcurl is available (TASH_CURL_STREAMING), streaming is real-time
-// via CURLOPT_WRITEFUNCTION which fires as data arrives from the server.
-// Otherwise, httplib's buffered POST is used as a fallback — on_chunk callbacks
-// fire during post-processing of the full response, not in real time.
-
-#ifndef TASH_CURL_STREAMING
-// Helper to process SSE data from a response body for Gemini streaming (httplib fallback)
-static string process_gemini_sse(const string &body,
-                                  std::function<void(const string &chunk)> on_chunk) {
-    string accumulated_text;
-    istringstream stream(body);
-    string line;
-    while (getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-        if (line.size() > 6 && line.substr(0, 6) == "data: ") {
-            string json_str = line.substr(6);
-            string chunk_text = extract_gemini_text(json_str);
-            if (!chunk_text.empty()) {
-                accumulated_text += chunk_text;
-                if (on_chunk) {
-                    on_chunk(chunk_text);
-                }
-            }
-        }
-    }
-    return accumulated_text;
-}
-#endif // !TASH_CURL_STREAMING
+// NOTE: streaming is real-time via libcurl's CURLOPT_WRITEFUNCTION
+// which fires as data arrives from the server.
 
 LLMResponse GeminiClient::call_model_stream(const string &model, const string &body,
                                              std::function<void(const string &chunk)> on_chunk) {
-#ifdef TASH_CURL_STREAMING
     string url = "https://generativelanguage.googleapis.com/v1beta/models/"
                  + model + ":streamGenerateContent?alt=sse&key=" + api_key_;
 
@@ -435,39 +400,6 @@ LLMResponse GeminiClient::call_model_stream(const string &model, const string &b
         resp.error_message = map_gemini_error(resp.http_status, "");
     }
     return resp;
-#else
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
-    httplib::Client cli("https://generativelanguage.googleapis.com");
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
-
-    string path = "/v1beta/models/" + model + ":streamGenerateContent?alt=sse&key=" + api_key_;
-
-    auto result = cli.Post(path, body, "application/json");
-
-    if (!result) {
-        resp.error_message = "couldn't reach Gemini API. Check your connection.";
-        return resp;
-    }
-
-    resp.http_status = result->status;
-
-    if (result->status == 200) {
-        string accumulated = process_gemini_sse(result->body, on_chunk);
-        resp.text = accumulated;
-        resp.success = !accumulated.empty();
-        if (!resp.success) {
-            resp.error_message = "unexpected response. Try again.";
-        }
-    } else {
-        resp.error_message = map_gemini_error(result->status, result->body);
-    }
-
-    return resp;
-#endif // TASH_CURL_STREAMING
 }
 
 LLMResponse GeminiClient::generate(const string &system_prompt, const string &user_prompt) {
@@ -628,48 +560,8 @@ LLMResponse OpenAIClient::generate(const string &system_prompt, const string &us
     return resp;
 }
 
-#ifndef TASH_CURL_STREAMING
-// Helper to process SSE data from a response body for OpenAI streaming (httplib fallback)
-static string process_openai_sse(const string &body,
-                                  std::function<void(const string &chunk)> on_chunk) {
-    string accumulated_text;
-    istringstream stream(body);
-    string line;
-    while (getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-        if (line == "data: [DONE]") {
-            break;
-        }
-        if (line.size() > 6 && line.substr(0, 6) == "data: ") {
-            string json_str = line.substr(6);
-            try {
-                json j = json::parse(json_str);
-                if (j.contains("choices") &&
-                    j["choices"].is_array() &&
-                    !j["choices"].empty() &&
-                    j["choices"][0].contains("delta") &&
-                    j["choices"][0]["delta"].contains("content")) {
-                    string chunk_text = j["choices"][0]["delta"]["content"].get<string>();
-                    if (!chunk_text.empty()) {
-                        accumulated_text += chunk_text;
-                        if (on_chunk) {
-                            on_chunk(chunk_text);
-                        }
-                    }
-                }
-            } catch (...) {
-            }
-        }
-    }
-    return accumulated_text;
-}
-#endif // !TASH_CURL_STREAMING
-
 LLMResponse OpenAIClient::generate_stream(const string &system_prompt, const string &user_prompt,
                                            std::function<void(const string &chunk)> on_chunk) {
-#ifdef TASH_CURL_STREAMING
     string url = "https://api.openai.com/v1/chat/completions";
     vector<string> hdrs = {"Authorization: Bearer " + api_key_};
 
@@ -692,43 +584,6 @@ LLMResponse OpenAIClient::generate_stream(const string &system_prompt, const str
 
     return curl_streaming_post(url, body, hdrs, on_chunk, parse_line,
                                 connect_timeout_, read_timeout_);
-#else
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
-    httplib::Client cli("https://api.openai.com");
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
-
-    httplib::Headers headers = {
-        {"Authorization", "Bearer " + api_key_}
-    };
-
-    string body = build_openai_request_json(model_, system_prompt, user_prompt, true);
-
-    auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
-
-    if (!result) {
-        resp.error_message = "couldn't reach OpenAI API. Check your connection.";
-        return resp;
-    }
-
-    resp.http_status = result->status;
-
-    if (result->status == 200) {
-        string accumulated = process_openai_sse(result->body, on_chunk);
-        resp.text = accumulated;
-        resp.success = !accumulated.empty();
-        if (!resp.success) {
-            resp.error_message = "unexpected response. Try again.";
-        }
-    } else {
-        resp.error_message = map_openai_error(result->status, result->body);
-    }
-
-    return resp;
-#endif // TASH_CURL_STREAMING
 }
 
 LLMResponse OpenAIClient::generate_with_context(const string &system_prompt,
@@ -865,40 +720,8 @@ LLMResponse OllamaClient::generate(const string &system_prompt, const string &us
     return resp;
 }
 
-#ifndef TASH_CURL_STREAMING
-// Helper to process newline-delimited JSON from Ollama streaming response (httplib fallback)
-static string process_ollama_ndjson(const string &body,
-                                     std::function<void(const string &chunk)> on_chunk) {
-    string accumulated_text;
-    istringstream stream(body);
-    string line;
-    while (getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-        if (line.empty()) continue;
-        try {
-            json j = json::parse(line);
-            if (j.contains("message") &&
-                j["message"].contains("content")) {
-                string chunk_text = j["message"]["content"].get<string>();
-                if (!chunk_text.empty()) {
-                    accumulated_text += chunk_text;
-                    if (on_chunk) {
-                        on_chunk(chunk_text);
-                    }
-                }
-            }
-        } catch (...) {
-        }
-    }
-    return accumulated_text;
-}
-#endif // !TASH_CURL_STREAMING
-
 LLMResponse OllamaClient::generate_stream(const string &system_prompt, const string &user_prompt,
                                             std::function<void(const string &chunk)> on_chunk) {
-#ifdef TASH_CURL_STREAMING
     string client_url = host_ + ":" + to_string(port_);
     string url = client_url + "/api/chat";
 
@@ -921,40 +744,6 @@ LLMResponse OllamaClient::generate_stream(const string &system_prompt, const str
         resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
     }
     return resp;
-#else
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
-    string client_url = host_ + ":" + to_string(port_);
-    httplib::Client cli(client_url);
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
-
-    string body = build_ollama_request_json(model_, system_prompt, user_prompt, true);
-
-    auto result = cli.Post("/api/chat", body, "application/json");
-
-    if (!result) {
-        resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
-        return resp;
-    }
-
-    resp.http_status = result->status;
-
-    if (result->status == 200) {
-        string accumulated = process_ollama_ndjson(result->body, on_chunk);
-        resp.text = accumulated;
-        resp.success = !accumulated.empty();
-        if (!resp.success) {
-            resp.error_message = "unexpected response from Ollama. Try again.";
-        }
-    } else {
-        resp.error_message = "Ollama error (HTTP " + to_string(result->status) + "). Try again.";
-    }
-
-    return resp;
-#endif // TASH_CURL_STREAMING
 }
 
 LLMResponse OllamaClient::generate_with_context(const string &system_prompt,
