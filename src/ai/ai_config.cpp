@@ -5,6 +5,7 @@
 #include "theme.h"
 #include <fstream>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
@@ -302,15 +303,41 @@ void ai_increment_usage() {
     string path = ai_get_usage_path();
     if (path.empty()) return;
 
+    ensure_config_dir();
+
+    // Use file locking to prevent races between concurrent sessions
+    int fd = open(path.c_str(), O_RDWR | O_CREAT, 0644);
+    if (fd < 0) return;
+
+    if (flock(fd, LOCK_EX) != 0) {
+        close(fd);
+        return;
+    }
+
+    // Read current count under lock
     string today = today_str();
-    int count = ai_get_today_usage() + 1;
+    int count = 0;
+    {
+        ifstream in(path);
+        string line;
+        while (getline(in, line)) {
+            size_t sep = line.find('|');
+            if (sep != string::npos && line.substr(0, sep) == today) {
+                try { count = stoi(line.substr(sep + 1)); } catch (...) {}
+            }
+        }
+    }
+    count++;
 
     // Rewrite with only today's entry (prunes old days)
-    ensure_config_dir();
-    ofstream file(path, ios::trunc);
-    if (file.is_open()) {
-        file << today << "|" << count << "\n";
+    if (ftruncate(fd, 0) == 0) {
+        lseek(fd, 0, SEEK_SET);
+        string entry = today + "|" + to_string(count) + "\n";
+        if (write(fd, entry.c_str(), entry.size())) {}
     }
+
+    flock(fd, LOCK_UN);
+    close(fd);
 }
 
 #endif // TASH_AI_ENABLED

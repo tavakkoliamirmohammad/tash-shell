@@ -200,6 +200,12 @@ static int handle_nl_to_cmd(const string &query, ShellState &state, string *pref
 
     ai_print_label();
     write_stdout(AI_CMD + cmd + CAT_RESET "\n\n");
+
+    // Non-interactive mode: just print the command, don't prompt
+    if (!isatty(STDIN_FILENO)) {
+        return 0;
+    }
+
     write_stdout(AI_PROMPT "Run?" CAT_RESET " [y/n/e] ");
 
     char ch = read_single_char();
@@ -323,6 +329,12 @@ static int handle_script(const string &query, ShellState &state) {
 
     ai_print_label();
     write_stdout("\n" + resp.text + "\n\n");
+
+    // Non-interactive mode: just print the script, don't prompt to save
+    if (!isatty(STDIN_FILENO)) {
+        return 0;
+    }
+
     write_stdout(AI_PROMPT "Save to?" CAT_RESET " [filename/n] ");
 
     // For save prompt, we need a full filename so use getline
@@ -391,7 +403,6 @@ static int handle_help(const string &query, ShellState &state) {
 // ── Feature: Status ───────────────────────────────────────────
 
 static int handle_status(ShellState &state) {
-    static const int DAILY_LIMIT = 500;
     static const int RPM_LIMIT = 15;
 
     string provider = ai_get_provider();
@@ -412,12 +423,7 @@ static int handle_status(ShellState &state) {
     write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
-    int remaining = DAILY_LIMIT - usage;
-    if (remaining < 0) remaining = 0;
-
-    string usage_color = (remaining > 100) ? AI_CMD : (remaining > 0) ? CAT_YELLOW : AI_ERROR;
-    write_stdout("  Today:    " + usage_color + to_string(usage) + " / " + to_string(DAILY_LIMIT) +
-                 " requests" CAT_RESET CAT_DIM " (" + to_string(remaining) + " remaining)" CAT_RESET "\n");
+    write_stdout("  Today:    " AI_CMD + to_string(usage) + " requests" CAT_RESET "\n");
     write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min (enforced)" CAT_RESET "\n\n");
 
     return 0;
@@ -469,6 +475,11 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
     }
 
     if (rest == "config") {
+        if (!isatty(STDIN_FILENO)) {
+            ai_print_error("@ai config requires an interactive terminal.");
+            return 1;
+        }
+
         string provider = ai_get_provider();
         string model = ai_get_model_override();
         unique_ptr<LLMClient> client = create_current_client();

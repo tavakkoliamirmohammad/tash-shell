@@ -2,6 +2,7 @@
 
 #include "tash/ai.h"
 #include <fstream>
+#include <cstdlib>
 
 using namespace std;
 
@@ -62,7 +63,14 @@ string context_suggest(const string &last_command, const TransitionMap &tmap) {
 
     string best;
     int best_count = 0;
+
+    // Default threshold: 3 (configurable via TASH_SUGGEST_THRESHOLD)
     int threshold = 3;
+    const char *env_thresh = getenv("TASH_SUGGEST_THRESHOLD");
+    if (env_thresh) {
+        try { threshold = stoi(string(env_thresh)); } catch (...) {}
+        if (threshold < 1) threshold = 1;
+    }
 
     for (const auto &pair : it->second) {
         if (pair.second >= threshold && pair.second > best_count) {
