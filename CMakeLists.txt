@@ -37,6 +37,14 @@ if(OpenSSL_FOUND)
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(httplib)
+
+    FetchContent_Declare(
+        nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+
     message(STATUS "AI features enabled (OpenSSL found)")
 else()
     set(TASH_AI_ENABLED OFF)
@@ -69,8 +77,8 @@ set(SHELL_SOURCES
 if(TASH_AI_ENABLED)
     list(APPEND SHELL_SOURCES
         src/ai/ai_handler.cpp
-        src/ai/gemini_client.cpp
-        src/ai/ai_setup.cpp
+        src/ai/llm_client.cpp
+        src/ai/ai_config.cpp
         src/ai/context_suggest.cpp
     )
 endif()
@@ -85,6 +93,7 @@ if(TASH_AI_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
     target_link_libraries(tash.out PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
+    target_include_directories(tash.out PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
 endif()
 
 # ── Testing ───────────────────────────────────────────────────
@@ -112,6 +121,7 @@ if(BUILD_TESTS)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
         target_link_libraries(shell_lib PRIVATE OpenSSL::SSL OpenSSL::Crypto)
         target_include_directories(shell_lib PRIVATE ${httplib_SOURCE_DIR})
+        target_include_directories(shell_lib PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
     endif()
 
     add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
@@ -125,6 +135,7 @@ if(BUILD_TESTS)
     if(TASH_AI_ENABLED)
         target_compile_definitions(test_ai PRIVATE TASH_AI_ENABLED)
         target_include_directories(test_ai PRIVATE ${httplib_SOURCE_DIR})
+        target_include_directories(test_ai PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
     endif()
     gtest_discover_tests(test_ai TEST_PREFIX "unit/ai/")
 
