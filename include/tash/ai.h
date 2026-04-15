@@ -24,11 +24,6 @@ std::string ai_get_usage_path();
 int ai_get_today_usage();
 void ai_increment_usage();
 
-// ── Backward Compatibility ───────────────────────────────────
-
-typedef LLMResponse GeminiResponse;
-GeminiResponse gemini_generate(const std::string &api_key, const std::string &system_prompt, const std::string &user_prompt);
-
 // ── AI Response Parsing ──────────────────────────────────────
 
 enum ResponseType { RESP_COMMAND, RESP_SCRIPT, RESP_STEPS, RESP_ANSWER };

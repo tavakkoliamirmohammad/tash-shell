@@ -1219,15 +1219,4 @@ std::unique_ptr<LLMClient> create_llm_client(const string &provider,
     return nullptr;
 }
 
-// ═════════════════════════════════════════════════════════════════
-// Backward compatibility shim
-// ═════════════════════════════════════════════════════════════════
-
-LLMResponse gemini_generate(const string &api_key,
-                             const string &system_prompt,
-                             const string &user_prompt) {
-    GeminiClient client(api_key);
-    return client.generate(system_prompt, user_prompt);
-}
-
 #endif // TASH_AI_ENABLED
