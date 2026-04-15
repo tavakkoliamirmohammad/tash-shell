@@ -43,26 +43,59 @@ void setup_child_io(const vector<Redirection> &redirections) {
 }
 
 int foreground_process(const vector<string> &argv,
-                       const vector<Redirection> &redirections) {
+                       const vector<Redirection> &redirections,
+                       string *captured_stderr) {
     // Build C-style args for execvp
     vector<const char *> c_args;
     for (const string &a : argv) c_args.push_back(a.c_str());
     c_args.push_back(nullptr);
+
+    int stderr_pipe[2] = {-1, -1};
+    if (captured_stderr) {
+        captured_stderr->clear();
+        if (pipe(stderr_pipe) < 0) {
+            captured_stderr = nullptr; // fall back to no capture
+        }
+    }
 
     int status;
     pid_t pid = fork();
     if (pid < 0) {
         exit_with_message("Error: Fork failed!\n", 1);
     } else if (pid == 0) {
+        // Child
+        if (captured_stderr && stderr_pipe[1] >= 0) {
+            close(stderr_pipe[0]); // close read end in child
+            dup2(stderr_pipe[1], STDERR_FILENO);
+            close(stderr_pipe[1]);
+        }
         setup_child_io(redirections);
         execvp(c_args[0], const_cast<char *const *>(c_args.data()));
         string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
         write_stderr(err_msg);
         exit(127);
     } else {
+        // Parent
+        if (stderr_pipe[1] >= 0) close(stderr_pipe[1]); // close write end
+
         fg_child_pid = pid;
         waitpid(pid, &status, WUNTRACED);
         fg_child_pid = 0;
+
+        // Read captured stderr
+        if (captured_stderr && stderr_pipe[0] >= 0) {
+            char buf[4096];
+            ssize_t n;
+            while ((n = read(stderr_pipe[0], buf, sizeof(buf) - 1)) > 0) {
+                buf[n] = '\0';
+                captured_stderr->append(buf, static_cast<size_t>(n));
+                // Also show to user on real stderr
+                write(STDERR_FILENO, buf, static_cast<size_t>(n));
+                if (captured_stderr->size() >= 4096) break;
+            }
+            close(stderr_pipe[0]);
+        }
+
         return WEXITSTATUS(status);
     }
     return 1;
