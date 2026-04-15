@@ -416,7 +416,7 @@ TEST(RetryLogic, NotRetryableOnNotFound) {
 TEST(LLMFactory, GeminiDefaultModel) {
     auto c = create_llm_client("gemini", "key", "", "");
     ASSERT_NE(c, nullptr);
-    EXPECT_EQ(c->get_model(), "gemini-2.5-flash-lite");
+    EXPECT_EQ(c->get_model(), "gemini-3-flash-preview");
 }
 
 TEST(LLMFactory, OpenAIDefaultModel) {
@@ -428,7 +428,7 @@ TEST(LLMFactory, OpenAIDefaultModel) {
 TEST(LLMFactory, OllamaDefaultModel) {
     auto c = create_llm_client("ollama", "", "", "");
     ASSERT_NE(c, nullptr);
-    EXPECT_EQ(c->get_model(), "qwen3.5:0.6b");
+    EXPECT_EQ(c->get_model(), "qwen3.5:0.8b");
 }
 
 TEST(LLMFactory, SetModelOverride) {

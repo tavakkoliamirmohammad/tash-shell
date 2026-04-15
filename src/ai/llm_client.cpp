@@ -534,7 +534,7 @@ static string map_gemini_error(int status, const string &body) {
 
 GeminiClient::GeminiClient(const string &api_key)
     : api_key_(api_key),
-      model_("gemini-2.5-flash-lite"),
+      model_("gemini-3-flash-preview"),
       connect_timeout_(10),
       read_timeout_(30) {
     fallback_models_.push_back("gemini-2.5-flash");
@@ -1010,7 +1010,7 @@ static void parse_ollama_url(const string &url, string &host, int &port) {
 }
 
 OllamaClient::OllamaClient(const string &endpoint_url)
-    : model_("qwen3.5:0.6b"),
+    : model_("qwen3.5:0.8b"),
       connect_timeout_(5),
       read_timeout_(120) {
     parse_ollama_url(endpoint_url, host_, port_);

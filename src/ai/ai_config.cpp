@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <termios.h>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
@@ -189,8 +190,26 @@ bool ai_run_setup_wizard() {
 
     write_stdout("  Paste your API key here: ");
 
+    // Disable echo so bracketed paste sequences don't show
+    struct termios old_term, new_term;
+    bool term_modified = false;
+    if (isatty(STDIN_FILENO)) {
+        tcgetattr(STDIN_FILENO, &old_term);
+        new_term = old_term;
+        new_term.c_lflag &= ~ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &new_term);
+        term_modified = true;
+    }
+
     string key;
-    if (!getline(cin, key) || key.empty()) {
+    bool got_input = (bool)getline(cin, key);
+
+    // Restore echo
+    if (term_modified) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
+    }
+
+    if (!got_input || key.empty()) {
         write_stdout("\n" AI_ERROR "  Setup cancelled." CAT_RESET "\n\n");
         return false;
     }
@@ -210,9 +229,13 @@ bool ai_run_setup_wizard() {
         key.erase(key.begin());
 
     if (key.empty()) {
-        write_stdout(AI_ERROR "  No key provided." CAT_RESET "\n\n");
+        write_stdout("\n" AI_ERROR "  No key provided." CAT_RESET "\n\n");
         return false;
     }
+
+    // Show masked confirmation
+    string masked = key.substr(0, 4) + "..." + key.substr(key.size() > 4 ? key.size() - 4 : 0);
+    write_stdout(CAT_DIM + masked + CAT_RESET "\n");
 
     // Save to provider-specific key file
     if (!ai_save_provider_key(provider, key)) {

@@ -146,7 +146,7 @@ static void add_to_conversation(const string &role, const string &text) {
 
 // ── Rate limiter ─────────────────────────────────────────────
 
-static AiRateLimiter rate_limiter(15, 60);
+static AiRateLimiter rate_limiter(10, 60); // Gemini free tier: 10 RPM
 
 // ── Context-aware system prompt ──────────────────────────────
 
@@ -212,21 +212,6 @@ static unique_ptr<LLMClient> ensure_client(ShellState &state) {
         if (key.empty()) return unique_ptr<LLMClient>();
     }
     return create_current_client();
-}
-
-// ── Parse @ai input ───────────────────────────────────────────
-
-static string extract_quoted_query(const string &input, size_t start) {
-    size_t q1 = input.find('"', start);
-    if (q1 == string::npos) {
-        string query = input.substr(start);
-        while (!query.empty() && query.front() == ' ') query.erase(query.begin());
-        while (!query.empty() && query.back() == ' ') query.pop_back();
-        return query;
-    }
-    size_t q2 = input.find('"', q1 + 1);
-    if (q2 == string::npos) q2 = input.size();
-    return input.substr(q1 + 1, q2 - q1 - 1);
 }
 
 // ── Response tag parsing ─────────────────────────────────────
@@ -576,7 +561,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         write_stdout("  Key:      " + string(key_ok ? AI_CMD "configured" : AI_ERROR "not configured") + CAT_RESET);
         write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
         write_stdout("  Today:    " AI_CMD + to_string(usage) + " requests" CAT_RESET
-                     "  Rate: " CAT_DIM "15/min (enforced)" CAT_RESET "\n\n");
+                     "  Rate: " CAT_DIM "10/min (enforced)" CAT_RESET "\n\n");
         write_stdout(AI_STEP_NUM "  1." CAT_RESET " Switch provider (gemini/openai/ollama)\n");
         write_stdout(AI_STEP_NUM "  2." CAT_RESET " Change model\n");
         write_stdout(AI_STEP_NUM "  3." CAT_RESET " Set API key\n");
