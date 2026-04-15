@@ -213,7 +213,8 @@ bool ai_run_setup_wizard() {
         return false;
     }
 
-    if (!ai_save_key(key)) {
+    // Save to provider-specific key file
+    if (!ai_save_provider_key(provider, key)) {
         write_stdout(AI_ERROR "  Failed to save API key." CAT_RESET "\n\n");
         return false;
     }

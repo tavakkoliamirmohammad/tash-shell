@@ -115,6 +115,13 @@ TEST(AiIntegration, AiProviderInvalidShowsError) {
     EXPECT_NE(r.output.find("unknown"), std::string::npos);
 }
 
+// Test that @ai model sets model without crash
+TEST(AiIntegration, AiModelSetDoesNotCrash) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
+    auto r = run_shell("@ai model gpt-4o\nexit\n");
+    EXPECT_NE(r.exit_code, 139);
+}
+
 // Test that stderr capture works for @ai explain
 TEST(AiIntegration, StderrCapturedAfterFailedCommand) {
     auto r = run_shell("ls /nonexistent_path_xyz_12345\n@ai explain\nexit\n");
