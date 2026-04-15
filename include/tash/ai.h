@@ -32,7 +32,7 @@ GeminiResponse gemini_generate(const std::string &api_key, const std::string &sy
 // ── AI Handler ────────────────────────────────────────────────
 
 bool is_ai_command(const std::string &input);
-int handle_ai_command(const std::string &input, ShellState &state);
+int handle_ai_command(const std::string &input, ShellState &state, std::string *prefill_cmd = nullptr);
 
 // ── Context-Aware Suggestions ─────────────────────────────────
 

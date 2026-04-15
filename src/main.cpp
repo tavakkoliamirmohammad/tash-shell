@@ -505,7 +505,11 @@ int main(int argc, char *argv[]) {
 #ifdef TASH_AI_ENABLED
         // Intercept @ai commands before normal execution
         if (is_ai_command(expanded)) {
-            state.last_exit_status = handle_ai_command(expanded, state);
+            string prefill;
+            state.last_exit_status = handle_ai_command(expanded, state, &prefill);
+            if (!prefill.empty()) {
+                rx.set_state(Replxx::State(prefill.c_str(), (int)prefill.size()));
+            }
             continue;
         }
 #else

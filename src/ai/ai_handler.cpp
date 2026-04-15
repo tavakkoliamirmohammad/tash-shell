@@ -7,10 +7,12 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <termios.h>
+#include <memory>
 
 using namespace std;
 
-// Read a single character without waiting for Enter
+// ── Read a single character without waiting for Enter ─────────
+
 static char read_single_char() {
     struct termios old_term, new_term;
     tcgetattr(STDIN_FILENO, &old_term);
@@ -62,20 +64,44 @@ static void ai_print_error(const string &msg) {
     write_stdout(AI_ERROR + msg + CAT_RESET "\n");
 }
 
-// ── Ensure API key is available ───────────────────────────────
+// ── LLM client helpers ───────────────────────────────────────
 
-static string ensure_api_key(ShellState &state) {
+static unique_ptr<LLMClient> create_current_client() {
+    string provider = ai_get_provider();
+    string gemini_key = ai_load_provider_key("gemini");
+    string openai_key = ai_load_provider_key("openai");
+    string ollama_url = ai_get_ollama_url();
+
+    unique_ptr<LLMClient> client = create_llm_client(provider, gemini_key, openai_key, ollama_url);
+    if (!client) return client;
+
+    string model_override = ai_get_model_override();
+    if (!model_override.empty()) {
+        client->set_model(model_override);
+    }
+    return client;
+}
+
+static unique_ptr<LLMClient> ensure_client(ShellState &state) {
     if (!state.ai_enabled) {
         ai_print_error("AI is disabled. Run @ai on to enable.");
-        return "";
+        return unique_ptr<LLMClient>();
     }
 
-    string key = ai_load_key();
-    if (key.empty()) {
-        if (!ai_run_setup_wizard()) return "";
-        key = ai_load_key();
+    string provider = ai_get_provider();
+
+    // Ollama doesn't need a key
+    if (provider == "ollama") {
+        return create_current_client();
     }
-    return key;
+
+    string key = ai_load_provider_key(provider);
+    if (key.empty()) {
+        if (!ai_run_setup_wizard()) return unique_ptr<LLMClient>();
+        key = ai_load_provider_key(provider);
+        if (key.empty()) return unique_ptr<LLMClient>();
+    }
+    return create_current_client();
 }
 
 // ── Parse @ai input ───────────────────────────────────────────
@@ -95,18 +121,19 @@ static string extract_quoted_query(const string &input, size_t start) {
 
 // ── Feature: Natural language to command ──────────────────────
 
-static int handle_nl_to_cmd(const string &query, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
+static int handle_nl_to_cmd(const string &query, ShellState &state, string *prefill_cmd) {
+    unique_ptr<LLMClient> client = ensure_client(state);
+    if (!client) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_NL_TO_CMD, query);
-    ai_increment_usage();
+    LLMResponse resp = client->generate(PROMPT_NL_TO_CMD, query);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
         if (resp.http_status == 403) state.ai_enabled = false;
         return 1;
     }
+
+    ai_increment_usage();
 
     string cmd = resp.text;
     while (!cmd.empty() && (cmd.back() == '\n' || cmd.back() == '\r')) cmd.pop_back();
@@ -123,7 +150,8 @@ static int handle_nl_to_cmd(const string &query, ShellState &state) {
         write_stdout("\n");
         return execute_single_command(cmd, state);
     } else if (ch == 'e' || ch == 'E') {
-        write_stdout("\n" CAT_DIM "Command: " CAT_RESET + cmd + "\n");
+        if (prefill_cmd) *prefill_cmd = cmd;
+        write_stdout("\n");
         return 0;
     }
 
@@ -134,13 +162,13 @@ static int handle_nl_to_cmd(const string &query, ShellState &state) {
 // ── Feature: Error explanation ────────────────────────────────
 
 static int handle_explain_error(ShellState &state) {
-    if (state.last_command_text.empty()) {
+    if (state.last_command_text.empty() || state.last_exit_status == 0) {
         ai_print_error("no recent errors to explain.");
         return 1;
     }
 
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
+    unique_ptr<LLMClient> client = ensure_client(state);
+    if (!client) return 1;
 
     string user_prompt = "Command: " + state.last_command_text +
                          "\nExit code: " + to_string(state.last_exit_status);
@@ -148,14 +176,15 @@ static int handle_explain_error(ShellState &state) {
         user_prompt += "\nError output: " + state.last_stderr_output;
     }
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_ERROR_EXPLAIN, user_prompt);
-    ai_increment_usage();
+    LLMResponse resp = client->generate(PROMPT_ERROR_EXPLAIN, user_prompt);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
         if (resp.http_status == 403) state.ai_enabled = false;
         return 1;
     }
+
+    ai_increment_usage();
 
     ai_print_label();
     write_stdout(AI_ERROR + state.last_command_text + CAT_RESET
@@ -167,17 +196,18 @@ static int handle_explain_error(ShellState &state) {
 // ── Feature: Command explanation ──────────────────────────────
 
 static int handle_explain_cmd(const string &cmd_text, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
+    unique_ptr<LLMClient> client = ensure_client(state);
+    if (!client) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_CMD_EXPLAIN, cmd_text);
-    ai_increment_usage();
+    LLMResponse resp = client->generate(PROMPT_CMD_EXPLAIN, cmd_text);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
         if (resp.http_status == 403) state.ai_enabled = false;
         return 1;
     }
+
+    ai_increment_usage();
 
     ai_print_label();
     write_stdout(AI_CMD + cmd_text + CAT_RESET "\n\n");
@@ -188,17 +218,18 @@ static int handle_explain_cmd(const string &cmd_text, ShellState &state) {
 // ── Feature: Script generation ────────────────────────────────
 
 static int handle_script(const string &query, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
+    unique_ptr<LLMClient> client = ensure_client(state);
+    if (!client) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_SCRIPT_GEN, query);
-    ai_increment_usage();
+    LLMResponse resp = client->generate(PROMPT_SCRIPT_GEN, query);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
         if (resp.http_status == 403) state.ai_enabled = false;
         return 1;
     }
+
+    ai_increment_usage();
 
     ai_print_label();
     write_stdout("\n" + resp.text + "\n\n");
@@ -212,6 +243,11 @@ static int handle_script(const string &query, ShellState &state) {
 
     while (!filename.empty() && filename.back() == ' ') filename.pop_back();
     while (!filename.empty() && filename.front() == ' ') filename.erase(filename.begin());
+
+    if (filename.find("..") != string::npos) {
+        ai_print_error("invalid path: '..' not allowed in filename.");
+        return 1;
+    }
 
     ofstream out(filename);
     if (!out.is_open()) {
@@ -231,17 +267,18 @@ static int handle_script(const string &query, ShellState &state) {
 // ── Feature: Workflow help ────────────────────────────────────
 
 static int handle_help(const string &query, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
+    unique_ptr<LLMClient> client = ensure_client(state);
+    if (!client) return 1;
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_WORKFLOW, query);
-    ai_increment_usage();
+    LLMResponse resp = client->generate(PROMPT_WORKFLOW, query);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
         if (resp.http_status == 403) state.ai_enabled = false;
         return 1;
     }
+
+    ai_increment_usage();
 
     ai_print_label();
     write_stdout("\n" + resp.text + "\n");
@@ -251,15 +288,24 @@ static int handle_help(const string &query, ShellState &state) {
 // ── Feature: Status ───────────────────────────────────────────
 
 static int handle_status(ShellState &state) {
-    // Gemini 3.1 Flash Lite free tier limits
     static const int DAILY_LIMIT = 500;
     static const int RPM_LIMIT = 15;
+
+    string provider = ai_get_provider();
+    string model_override = ai_get_model_override();
+    unique_ptr<LLMClient> client = create_current_client();
+    string current_model = client ? client->get_model() : "unknown";
+    if (!model_override.empty()) current_model = model_override;
 
     ai_print_label();
     write_stdout("AI Status\n\n");
 
-    string key = ai_load_key();
-    write_stdout("  Key:      " + string(key.empty() ? AI_ERROR "not configured" : AI_CMD "configured") + CAT_RESET "\n");
+    string key = ai_load_provider_key(provider);
+    bool key_ok = (provider == "ollama") || !key.empty();
+
+    write_stdout("  Provider: " AI_CMD + provider + CAT_RESET "\n");
+    write_stdout("  Model:    " AI_CMD + current_model + CAT_RESET "\n");
+    write_stdout("  Key:      " + string(key_ok ? AI_CMD "configured" : AI_ERROR "not configured") + CAT_RESET "\n");
     write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
@@ -269,10 +315,8 @@ static int handle_status(ShellState &state) {
     string usage_color = (remaining > 100) ? AI_CMD : (remaining > 0) ? CAT_YELLOW : AI_ERROR;
     write_stdout("  Today:    " + usage_color + to_string(usage) + " / " + to_string(DAILY_LIMIT) +
                  " requests" CAT_RESET CAT_DIM " (" + to_string(remaining) + " remaining)" CAT_RESET "\n");
-    write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min" CAT_RESET "\n");
+    write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min" CAT_RESET "\n\n");
 
-    write_stdout("  Model:    " CAT_DIM "gemini-3.1-flash-lite-preview" CAT_RESET "\n");
-    write_stdout("\n");
     return 0;
 }
 
@@ -289,7 +333,7 @@ bool is_ai_command(const string &input) {
     return true;
 }
 
-int handle_ai_command(const string &input, ShellState &state) {
+int handle_ai_command(const string &input, ShellState &state, string *prefill_cmd) {
     string trimmed = input;
     while (!trimmed.empty() && trimmed.front() == ' ') trimmed.erase(trimmed.begin());
     string rest = (trimmed.size() > 3) ? trimmed.substr(4) : "";
@@ -390,7 +434,7 @@ int handle_ai_command(const string &input, ShellState &state) {
         return 1;
     }
 
-    return handle_nl_to_cmd(query, state);
+    return handle_nl_to_cmd(query, state, prefill_cmd);
 }
 
 #endif // TASH_AI_ENABLED
