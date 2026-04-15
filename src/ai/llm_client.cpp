@@ -97,6 +97,61 @@ string extract_gemini_error(const string &json_body) {
 }
 
 // ═════════════════════════════════════════════════════════════════
+// Gemini structured output JSON builders
+// ═════════════════════════════════════════════════════════════════
+
+string build_gemini_structured_json(const string &system_prompt,
+                                     const string &user_prompt) {
+    json req;
+    req["system_instruction"]["parts"] = json::array({{{"text", system_prompt}}});
+    req["contents"] = json::array({{{"role", "user"}, {"parts", json::array({{{"text", user_prompt}}})}}});
+
+    // Structured output schema
+    req["generationConfig"]["responseMimeType"] = "application/json";
+    req["generationConfig"]["responseSchema"]["type"] = "OBJECT";
+    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["type"] = "STRING";
+    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    req["generationConfig"]["responseSchema"]["properties"]["content"]["type"] = "STRING";
+    req["generationConfig"]["responseSchema"]["properties"]["filename"]["type"] = "STRING";
+    req["generationConfig"]["responseSchema"]["required"] = json::array({"response_type", "content"});
+
+    return req.dump();
+}
+
+string build_gemini_structured_context_json(const string &system_prompt,
+                                             const vector<ConversationTurn> &history,
+                                             const string &user_prompt) {
+    json req;
+    req["system_instruction"]["parts"] = json::array({{{"text", system_prompt}}});
+
+    json contents = json::array();
+    for (size_t i = 0; i < history.size(); i++) {
+        string role = (history[i].role == "assistant") ? "model" : "user";
+        json entry;
+        entry["role"] = role;
+        entry["parts"] = json::array({{{"text", history[i].text}}});
+        contents.push_back(entry);
+    }
+    json new_entry;
+    new_entry["role"] = "user";
+    new_entry["parts"] = json::array({{{"text", user_prompt}}});
+    contents.push_back(new_entry);
+
+    req["contents"] = contents;
+
+    // Structured output schema
+    req["generationConfig"]["responseMimeType"] = "application/json";
+    req["generationConfig"]["responseSchema"]["type"] = "OBJECT";
+    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["type"] = "STRING";
+    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    req["generationConfig"]["responseSchema"]["properties"]["content"]["type"] = "STRING";
+    req["generationConfig"]["responseSchema"]["properties"]["filename"]["type"] = "STRING";
+    req["generationConfig"]["responseSchema"]["required"] = json::array({"response_type", "content"});
+
+    return req.dump();
+}
+
+// ═════════════════════════════════════════════════════════════════
 // OpenAI JSON helpers (exposed for testing)
 // ═════════════════════════════════════════════════════════════════
 
@@ -158,6 +213,72 @@ string extract_openai_error(const string &json_body) {
 }
 
 // ═════════════════════════════════════════════════════════════════
+// OpenAI structured output JSON builders
+// ═════════════════════════════════════════════════════════════════
+
+string build_openai_structured_json(const string &model,
+                                     const string &system_prompt,
+                                     const string &user_prompt) {
+    json req;
+    req["model"] = model;
+    req["messages"] = json::array({
+        {{"role", "system"}, {"content", system_prompt}},
+        {{"role", "user"}, {"content", user_prompt}}
+    });
+
+    // Structured output
+    json schema;
+    schema["type"] = "object";
+    schema["properties"]["response_type"]["type"] = "string";
+    schema["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    schema["properties"]["content"]["type"] = "string";
+    schema["properties"]["filename"]["type"] = "string";
+    schema["required"] = json::array({"response_type", "content"});
+    schema["additionalProperties"] = false;
+
+    req["response_format"]["type"] = "json_schema";
+    req["response_format"]["json_schema"]["name"] = "ai_response";
+    req["response_format"]["json_schema"]["schema"] = schema;
+    req["response_format"]["json_schema"]["strict"] = true;
+
+    return req.dump();
+}
+
+string build_openai_structured_context_json(const string &model,
+                                             const string &system_prompt,
+                                             const vector<ConversationTurn> &history,
+                                             const string &user_prompt) {
+    json req;
+    req["model"] = model;
+
+    json messages = json::array();
+    messages.push_back({{"role", "system"}, {"content", system_prompt}});
+    for (size_t i = 0; i < history.size(); i++) {
+        messages.push_back({{"role", history[i].role}, {"content", history[i].text}});
+    }
+    messages.push_back({{"role", "user"}, {"content", user_prompt}});
+
+    req["messages"] = messages;
+
+    // Structured output
+    json schema;
+    schema["type"] = "object";
+    schema["properties"]["response_type"]["type"] = "string";
+    schema["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    schema["properties"]["content"]["type"] = "string";
+    schema["properties"]["filename"]["type"] = "string";
+    schema["required"] = json::array({"response_type", "content"});
+    schema["additionalProperties"] = false;
+
+    req["response_format"]["type"] = "json_schema";
+    req["response_format"]["json_schema"]["name"] = "ai_response";
+    req["response_format"]["json_schema"]["schema"] = schema;
+    req["response_format"]["json_schema"]["strict"] = true;
+
+    return req.dump();
+}
+
+// ═════════════════════════════════════════════════════════════════
 // Ollama JSON helpers (exposed for testing)
 // ═════════════════════════════════════════════════════════════════
 
@@ -201,6 +322,55 @@ string extract_ollama_text(const string &json_body) {
     } catch (...) {
     }
     return "";
+}
+
+// ═════════════════════════════════════════════════════════════════
+// Ollama structured output JSON builders
+// ═════════════════════════════════════════════════════════════════
+
+string build_ollama_structured_json(const string &model,
+                                     const string &system_prompt,
+                                     const string &user_prompt) {
+    // Ollama needs schema instructions in the prompt since it only has JSON mode
+    string enhanced_prompt = system_prompt +
+        "\n\nYou MUST respond with valid JSON matching this exact schema:\n"
+        "{\"response_type\": \"command\"|\"script\"|\"answer\", \"content\": \"...\", \"filename\": \"...\"}\n"
+        "response_type is required. content is required. filename is only needed for scripts.";
+
+    json req;
+    req["model"] = model;
+    req["messages"] = json::array({
+        {{"role", "system"}, {"content", enhanced_prompt}},
+        {{"role", "user"}, {"content", user_prompt}}
+    });
+    req["stream"] = false;
+    req["format"] = "json";
+    return req.dump();
+}
+
+string build_ollama_structured_context_json(const string &model,
+                                             const string &system_prompt,
+                                             const vector<ConversationTurn> &history,
+                                             const string &user_prompt) {
+    string enhanced_prompt = system_prompt +
+        "\n\nYou MUST respond with valid JSON matching this exact schema:\n"
+        "{\"response_type\": \"command\"|\"script\"|\"answer\", \"content\": \"...\", \"filename\": \"...\"}\n"
+        "response_type is required. content is required. filename is only needed for scripts.";
+
+    json req;
+    req["model"] = model;
+
+    json messages = json::array();
+    messages.push_back({{"role", "system"}, {"content", enhanced_prompt}});
+    for (size_t i = 0; i < history.size(); i++) {
+        messages.push_back({{"role", history[i].role}, {"content", history[i].text}});
+    }
+    messages.push_back({{"role", "user"}, {"content", user_prompt}});
+
+    req["messages"] = messages;
+    req["stream"] = false;
+    req["format"] = "json";
+    return req.dump();
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -478,6 +648,60 @@ LLMResponse GeminiClient::generate_with_context(const string &system_prompt,
     return resp;
 }
 
+LLMResponse GeminiClient::generate_structured(const string &system_prompt,
+                                                const string &user_prompt) {
+    string body = build_gemini_structured_json(system_prompt, user_prompt);
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) retry_sleep();
+
+        LLMResponse resp = call_model(model_, body);
+        if (resp.success || resp.error_message != "model_not_found") {
+            if (resp.success || !is_retryable(resp)) return resp;
+            continue;
+        }
+
+        for (size_t i = 0; i < fallback_models_.size(); i++) {
+            resp = call_model(fallback_models_[i], body);
+            if (resp.success || resp.error_message != "model_not_found") {
+                if (resp.success || !is_retryable(resp)) return resp;
+                break;
+            }
+        }
+        if (resp.success || !is_retryable(resp)) return resp;
+    }
+
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 404;
+    resp.error_message = "AI model unavailable.";
+    return resp;
+}
+
+LLMResponse GeminiClient::generate_structured_with_context(
+    const string &system_prompt,
+    const vector<ConversationTurn> &history,
+    const string &user_prompt) {
+    string body = build_gemini_structured_context_json(system_prompt, history, user_prompt);
+
+    LLMResponse resp = call_model(model_, body);
+    if (resp.success || resp.error_message != "model_not_found") {
+        return resp;
+    }
+
+    for (size_t i = 0; i < fallback_models_.size(); i++) {
+        resp = call_model(fallback_models_[i], body);
+        if (resp.success || resp.error_message != "model_not_found") {
+            return resp;
+        }
+    }
+
+    resp.success = false;
+    resp.http_status = 404;
+    resp.error_message = "AI model unavailable.";
+    return resp;
+}
+
 // ═════════════════════════════════════════════════════════════════
 // OpenAI error mapping
 // ═════════════════════════════════════════════════════════════════
@@ -602,6 +826,93 @@ LLMResponse OpenAIClient::generate_with_context(const string &system_prompt,
     };
 
     string body = build_openai_context_json(model_, system_prompt, history, user_prompt, false);
+
+    auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
+
+    if (!result) {
+        resp.error_message = "couldn't reach OpenAI API. Check your connection.";
+        return resp;
+    }
+
+    resp.http_status = result->status;
+
+    if (result->status == 200) {
+        resp.text = extract_openai_text(result->body);
+        if (!resp.text.empty()) {
+            resp.success = true;
+        } else {
+            resp.error_message = "unexpected response. Try again.";
+        }
+    } else {
+        resp.error_message = map_openai_error(result->status, result->body);
+    }
+
+    return resp;
+}
+
+LLMResponse OpenAIClient::generate_structured(const string &system_prompt,
+                                                const string &user_prompt) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 0;
+
+    string body = build_openai_structured_json(model_, system_prompt, user_prompt);
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) retry_sleep();
+
+        httplib::Client cli("https://api.openai.com");
+        cli.set_connection_timeout(connect_timeout_);
+        cli.set_read_timeout(read_timeout_);
+
+        httplib::Headers headers = {
+            {"Authorization", "Bearer " + api_key_}
+        };
+
+        auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
+
+        if (!result) {
+            resp.error_message = "couldn't reach OpenAI API. Check your connection.";
+            resp.http_status = 0;
+            continue;
+        }
+
+        resp.http_status = result->status;
+
+        if (result->status == 200) {
+            resp.text = extract_openai_text(result->body);
+            if (!resp.text.empty()) {
+                resp.success = true;
+            } else {
+                resp.error_message = "unexpected response. Try again.";
+            }
+            return resp;
+        }
+
+        resp.error_message = map_openai_error(result->status, result->body);
+        if (!is_retryable(resp)) return resp;
+    }
+
+    return resp;
+}
+
+LLMResponse OpenAIClient::generate_structured_with_context(
+    const string &system_prompt,
+    const vector<ConversationTurn> &history,
+    const string &user_prompt) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 0;
+
+    httplib::Client cli("https://api.openai.com");
+    cli.set_connection_timeout(connect_timeout_);
+    cli.set_read_timeout(read_timeout_);
+
+    httplib::Headers headers = {
+        {"Authorization", "Bearer " + api_key_}
+    };
+
+    string body = build_openai_structured_context_json(model_, system_prompt, history, user_prompt);
 
     auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
 
@@ -759,6 +1070,87 @@ LLMResponse OllamaClient::generate_with_context(const string &system_prompt,
     cli.set_read_timeout(read_timeout_);
 
     string body = build_ollama_context_json(model_, system_prompt, history, user_prompt, false);
+
+    auto result = cli.Post("/api/chat", body, "application/json");
+
+    if (!result) {
+        resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
+        return resp;
+    }
+
+    resp.http_status = result->status;
+
+    if (result->status == 200) {
+        resp.text = extract_ollama_text(result->body);
+        if (!resp.text.empty()) {
+            resp.success = true;
+        } else {
+            resp.error_message = "unexpected response from Ollama. Try again.";
+        }
+    } else {
+        resp.error_message = "Ollama error (HTTP " + to_string(result->status) + "). Try again.";
+    }
+
+    return resp;
+}
+
+LLMResponse OllamaClient::generate_structured(const string &system_prompt,
+                                                const string &user_prompt) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 0;
+
+    string client_url = host_ + ":" + to_string(port_);
+    string body = build_ollama_structured_json(model_, system_prompt, user_prompt);
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) retry_sleep();
+
+        httplib::Client cli(client_url);
+        cli.set_connection_timeout(connect_timeout_);
+        cli.set_read_timeout(read_timeout_);
+
+        auto result = cli.Post("/api/chat", body, "application/json");
+
+        if (!result) {
+            resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
+            resp.http_status = 0;
+            continue;
+        }
+
+        resp.http_status = result->status;
+
+        if (result->status == 200) {
+            resp.text = extract_ollama_text(result->body);
+            if (!resp.text.empty()) {
+                resp.success = true;
+            } else {
+                resp.error_message = "unexpected response from Ollama. Try again.";
+            }
+            return resp;
+        }
+
+        resp.error_message = "Ollama error (HTTP " + to_string(result->status) + "). Try again.";
+        if (!is_retryable(resp)) return resp;
+    }
+
+    return resp;
+}
+
+LLMResponse OllamaClient::generate_structured_with_context(
+    const string &system_prompt,
+    const vector<ConversationTurn> &history,
+    const string &user_prompt) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 0;
+
+    string client_url = host_ + ":" + to_string(port_);
+    httplib::Client cli(client_url);
+    cli.set_connection_timeout(connect_timeout_);
+    cli.set_read_timeout(read_timeout_);
+
+    string body = build_ollama_structured_context_json(model_, system_prompt, history, user_prompt);
 
     auto result = cli.Post("/api/chat", body, "application/json");
 

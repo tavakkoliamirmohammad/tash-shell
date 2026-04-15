@@ -3,6 +3,7 @@
 #include "tash/ai.h"
 #include "tash/core.h"
 #include "theme.h"
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
@@ -10,6 +11,8 @@
 #include <memory>
 #include <thread>
 #include <atomic>
+
+using json = nlohmann::json;
 
 using namespace std;
 
@@ -82,24 +85,13 @@ static void stop_spinner() {
 static const char *PROMPT_UNIFIED =
     "You are an AI assistant embedded in a Unix shell. The user types natural language "
     "and you respond based on what they ask.\n\n"
-    "IMPORTANT: You MUST start every response with exactly one of these tags on its own line:\n"
-    "[COMMAND] — when your response is a single shell command to run\n"
-    "[SCRIPT:filename.sh] — when your response is a script (suggest a filename)\n"
-    "[ANSWER] — for explanations, help, guidance, or any other response\n\n"
-    "Rules by tag:\n"
-    "- [COMMAND]: output ONLY the tag line then the shell command on the next line. "
-    "No explanation, no markdown, no backticks.\n"
-    "- [SCRIPT:name]: output the tag line, then the full bash script with brief comments. "
-    "No markdown backticks. Choose a descriptive filename.\n"
-    "- [ANSWER]: output the tag line, then your response in plain text. "
-    "No markdown formatting. Be concise and practical.\n\n"
-    "Examples:\n"
-    "User: list files bigger than 100MB\n"
-    "[COMMAND]\nfind . -type f -size +100M\n\n"
-    "User: write a script to backup my home\n"
-    "[SCRIPT:backup_home.sh]\n#!/bin/bash\ntar -czf /tmp/home_backup_$(date +%F).tar.gz ~/\n\n"
-    "User: what does tar -xzvf do\n"
-    "[ANSWER]\n-x extract files\n-z decompress through gzip\n-v verbose\n-f use specified file";
+    "Guidelines:\n"
+    "- If they want to run a command: set response_type to \"command\" and content to the command.\n"
+    "- If they want a script: set response_type to \"script\", content to the script, "
+    "and filename to a suggested filename.\n"
+    "- For explanations, help, or anything else: set response_type to \"answer\" "
+    "and content to your response.\n\n"
+    "Keep responses concise. No markdown formatting in content.";
 
 // ── Output helpers ────────────────────────────────────────────
 
@@ -214,49 +206,50 @@ static string extract_quoted_query(const string &input, size_t start) {
 ParsedResponse parse_ai_response(const string &raw) {
     ParsedResponse result;
     result.type = RESP_ANSWER;
+    result.script_filename = "script.sh";
 
-    string text = raw;
-    // Strip leading whitespace/newlines
-    while (!text.empty() && (text.front() == '\n' || text.front() == '\r' || text.front() == ' '))
-        text.erase(text.begin());
+    try {
+        json j = json::parse(raw);
 
-    // Check for [COMMAND] tag
-    if (text.size() > 9 && text.substr(0, 9) == "[COMMAND]") {
-        result.type = RESP_COMMAND;
-        result.content = text.substr(9);
-    }
-    // Check for [SCRIPT:filename] tag
-    else if (text.size() > 8 && text.substr(0, 8) == "[SCRIPT:") {
-        result.type = RESP_SCRIPT;
-        size_t end = text.find(']', 8);
-        if (end != string::npos) {
-            result.script_filename = text.substr(8, end - 8);
-            result.content = text.substr(end + 1);
+        string type_str = j.at("response_type").get<string>();
+        result.content = j.at("content").get<string>();
+
+        if (type_str == "command") {
+            result.type = RESP_COMMAND;
+        } else if (type_str == "script") {
+            result.type = RESP_SCRIPT;
+            if (j.count("filename") && j["filename"].is_string()) {
+                string fname = j["filename"].get<string>();
+                if (!fname.empty()) result.script_filename = fname;
+            }
         } else {
+            result.type = RESP_ANSWER;
+        }
+    } catch (...) {
+        // JSON parse failed -- treat raw text as answer (fallback)
+        result.content = raw;
+        // Strip any tag-based prefixes as last resort
+        string text = raw;
+        while (!text.empty() && (text.front() == '\n' || text.front() == ' '))
+            text.erase(text.begin());
+        if (text.size() > 9 && text.substr(0, 9) == "[COMMAND]") {
+            result.type = RESP_COMMAND;
+            result.content = text.substr(9);
+        } else if (text.size() > 8 && text.substr(0, 8) == "[SCRIPT:") {
+            result.type = RESP_SCRIPT;
+            size_t end = text.find(']', 8);
+            if (end != string::npos) {
+                result.script_filename = text.substr(8, end - 8);
+                result.content = text.substr(end + 1);
+            }
+        } else if (text.size() > 8 && text.substr(0, 8) == "[ANSWER]") {
             result.content = text.substr(8);
         }
+        while (!result.content.empty() && result.content.front() == '\n')
+            result.content.erase(result.content.begin());
+        while (!result.content.empty() && result.content.back() == '\n')
+            result.content.pop_back();
     }
-    // Check for [SCRIPT] without filename
-    else if (text.size() > 8 && text.substr(0, 8) == "[SCRIPT]") {
-        result.type = RESP_SCRIPT;
-        result.script_filename = "script.sh";
-        result.content = text.substr(8);
-    }
-    // Check for [ANSWER] tag
-    else if (text.size() > 8 && text.substr(0, 8) == "[ANSWER]") {
-        result.type = RESP_ANSWER;
-        result.content = text.substr(8);
-    }
-    // No tag — treat as answer
-    else {
-        result.content = text;
-    }
-
-    // Trim content
-    while (!result.content.empty() && (result.content.front() == '\n' || result.content.front() == '\r'))
-        result.content.erase(result.content.begin());
-    while (!result.content.empty() && (result.content.back() == '\n' || result.content.back() == '\r'))
-        result.content.pop_back();
 
     return result;
 }
@@ -296,13 +289,13 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
         }
     }
 
-    // Generate response (non-streaming so we can parse the tag before displaying)
+    // Generate response using structured output for reliable JSON parsing
     start_spinner();
     LLMResponse resp;
     if (!conversation_history.empty()) {
-        resp = client->generate_with_context(system_prompt, conversation_history, enriched_query);
+        resp = client->generate_structured_with_context(system_prompt, conversation_history, enriched_query);
     } else {
-        resp = client->generate(system_prompt, enriched_query);
+        resp = client->generate_structured(system_prompt, enriched_query);
     }
     stop_spinner();
 

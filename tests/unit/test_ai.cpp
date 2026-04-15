@@ -439,50 +439,69 @@ TEST(LLMFactory, SetModelOverride) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Response tag parsing tests
+// Response parsing tests (JSON-based with tag fallback)
 // ═══════════════════════════════════════════════════════════════
 
-TEST(ResponseParsing, ParsesCommandTag) {
-    ParsedResponse r = parse_ai_response("[COMMAND]\nfind . -type f -size +100M");
+TEST(ResponseParsing, ParsesCommandJson) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"command","content":"find . -type f -size +100M"})");
     EXPECT_EQ(r.type, RESP_COMMAND);
     EXPECT_EQ(r.content, "find . -type f -size +100M");
 }
 
-TEST(ResponseParsing, ParsesScriptTagWithFilename) {
-    ParsedResponse r = parse_ai_response("[SCRIPT:backup.sh]\n#!/bin/bash\necho hello");
+TEST(ResponseParsing, ParsesScriptJsonWithFilename) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"script","content":"#!/bin/bash\necho hello","filename":"backup.sh"})");
     EXPECT_EQ(r.type, RESP_SCRIPT);
     EXPECT_EQ(r.script_filename, "backup.sh");
     EXPECT_NE(r.content.find("#!/bin/bash"), std::string::npos);
 }
 
-TEST(ResponseParsing, ParsesScriptTagWithoutFilename) {
-    ParsedResponse r = parse_ai_response("[SCRIPT]\n#!/bin/bash\necho hello");
+TEST(ResponseParsing, ParsesScriptJsonWithoutFilename) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"script","content":"#!/bin/bash"})");
     EXPECT_EQ(r.type, RESP_SCRIPT);
     EXPECT_EQ(r.script_filename, "script.sh");
 }
 
-TEST(ResponseParsing, ParsesAnswerTag) {
-    ParsedResponse r = parse_ai_response("[ANSWER]\nThe -x flag extracts files.");
+TEST(ResponseParsing, ParsesAnswerJson) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"answer","content":"The -x flag extracts files."})");
     EXPECT_EQ(r.type, RESP_ANSWER);
     EXPECT_EQ(r.content, "The -x flag extracts files.");
 }
 
-TEST(ResponseParsing, NoTagDefaultsToAnswer) {
-    ParsedResponse r = parse_ai_response("Just some text without a tag.");
+TEST(ResponseParsing, FallsBackToRawTextOnInvalidJson) {
+    ParsedResponse r = parse_ai_response("Just some text without JSON.");
     EXPECT_EQ(r.type, RESP_ANSWER);
-    EXPECT_EQ(r.content, "Just some text without a tag.");
+    EXPECT_EQ(r.content, "Just some text without JSON.");
 }
 
-TEST(ResponseParsing, HandlesLeadingWhitespace) {
-    ParsedResponse r = parse_ai_response("\n\n  [COMMAND]\nls -la");
+TEST(ResponseParsing, FallsBackToTagsOnInvalidJson) {
+    ParsedResponse r = parse_ai_response("[COMMAND]\nls -la");
     EXPECT_EQ(r.type, RESP_COMMAND);
     EXPECT_EQ(r.content, "ls -la");
 }
 
-TEST(ResponseParsing, ScriptFilenameWithPath) {
-    ParsedResponse r = parse_ai_response("[SCRIPT:~/scripts/deploy.sh]\n#!/bin/bash");
-    EXPECT_EQ(r.type, RESP_SCRIPT);
-    EXPECT_EQ(r.script_filename, "~/scripts/deploy.sh");
+// ═══════════════════════════════════════════════════════════════
+// Structured output JSON builder tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(GeminiClient, BuildsStructuredRequestJson) {
+    std::string json_str = build_gemini_structured_json("sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_TRUE(parsed.count("generationConfig"));
+    EXPECT_EQ(parsed["generationConfig"]["responseMimeType"], "application/json");
+    EXPECT_TRUE(parsed["generationConfig"].count("responseSchema"));
+}
+
+TEST(OpenAIClient, BuildsStructuredRequestJson) {
+    std::string json_str = build_openai_structured_json("gpt-4o-mini", "sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_TRUE(parsed.count("response_format"));
+    EXPECT_EQ(parsed["response_format"]["type"], "json_schema");
+}
+
+TEST(OllamaClient, BuildsStructuredRequestJson) {
+    std::string json_str = build_ollama_structured_json("llama3.2", "sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["format"], "json");
 }
 
 #else

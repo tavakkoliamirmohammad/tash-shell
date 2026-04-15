@@ -29,6 +29,12 @@ public:
     virtual LLMResponse generate_with_context(const std::string &system_prompt,
                                                const std::vector<ConversationTurn> &history,
                                                const std::string &user_prompt) = 0;
+    virtual LLMResponse generate_structured(const std::string &system_prompt,
+                                             const std::string &user_prompt) = 0;
+    virtual LLMResponse generate_structured_with_context(
+        const std::string &system_prompt,
+        const std::vector<ConversationTurn> &history,
+        const std::string &user_prompt) = 0;
     virtual void set_model(const std::string &model) = 0;
     virtual std::string get_model() const = 0;
     virtual std::string get_provider_name() const = 0;
@@ -45,6 +51,12 @@ public:
     LLMResponse generate_with_context(const std::string &system_prompt,
                                        const std::vector<ConversationTurn> &history,
                                        const std::string &user_prompt) override;
+    LLMResponse generate_structured(const std::string &system_prompt,
+                                     const std::string &user_prompt) override;
+    LLMResponse generate_structured_with_context(
+        const std::string &system_prompt,
+        const std::vector<ConversationTurn> &history,
+        const std::string &user_prompt) override;
     void set_model(const std::string &model) override;
     std::string get_model() const override;
     std::string get_provider_name() const override { return "gemini"; }
@@ -68,6 +80,12 @@ public:
     LLMResponse generate_with_context(const std::string &system_prompt,
                                        const std::vector<ConversationTurn> &history,
                                        const std::string &user_prompt) override;
+    LLMResponse generate_structured(const std::string &system_prompt,
+                                     const std::string &user_prompt) override;
+    LLMResponse generate_structured_with_context(
+        const std::string &system_prompt,
+        const std::vector<ConversationTurn> &history,
+        const std::string &user_prompt) override;
     void set_model(const std::string &model) override;
     std::string get_model() const override;
     std::string get_provider_name() const override { return "openai"; }
@@ -87,6 +105,12 @@ public:
     LLMResponse generate_with_context(const std::string &system_prompt,
                                        const std::vector<ConversationTurn> &history,
                                        const std::string &user_prompt) override;
+    LLMResponse generate_structured(const std::string &system_prompt,
+                                     const std::string &user_prompt) override;
+    LLMResponse generate_structured_with_context(
+        const std::string &system_prompt,
+        const std::vector<ConversationTurn> &history,
+        const std::string &user_prompt) override;
     void set_model(const std::string &model) override;
     std::string get_model() const override;
     std::string get_provider_name() const override { return "ollama"; }
@@ -125,6 +149,27 @@ std::string build_ollama_context_json(const std::string &model, const std::strin
                                        const std::vector<ConversationTurn> &history,
                                        const std::string &user_prompt, bool stream);
 std::string extract_ollama_text(const std::string &json_body);
+
+// Structured output JSON builders (exposed for testing)
+std::string build_gemini_structured_json(const std::string &system_prompt,
+                                          const std::string &user_prompt);
+std::string build_gemini_structured_context_json(const std::string &system_prompt,
+                                                  const std::vector<ConversationTurn> &history,
+                                                  const std::string &user_prompt);
+std::string build_openai_structured_json(const std::string &model,
+                                          const std::string &system_prompt,
+                                          const std::string &user_prompt);
+std::string build_openai_structured_context_json(const std::string &model,
+                                                  const std::string &system_prompt,
+                                                  const std::vector<ConversationTurn> &history,
+                                                  const std::string &user_prompt);
+std::string build_ollama_structured_json(const std::string &model,
+                                          const std::string &system_prompt,
+                                          const std::string &user_prompt);
+std::string build_ollama_structured_context_json(const std::string &model,
+                                                  const std::string &system_prompt,
+                                                  const std::vector<ConversationTurn> &history,
+                                                  const std::string &user_prompt);
 
 #endif
 #endif
