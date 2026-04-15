@@ -3,6 +3,8 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
+#include "tash/llm_client.h"
+#include <nlohmann/json.hpp>
 #include <fstream>
 #include <cstdlib>
 #include <sys/stat.h>
@@ -100,9 +102,10 @@ TEST_F(AiTestFixture, LoadMissingKeyReturnsEmpty) {
 }
 
 TEST_F(AiTestFixture, ValidateKey) {
-    EXPECT_TRUE(ai_validate_key("AIzaSyAbcdefghij1234567890"));
+    EXPECT_TRUE(ai_validate_key("AIzaSyAbcdefghijklmnopqrstuvwxyz0123456789")); // 42 chars >= 39
     EXPECT_FALSE(ai_validate_key(""));
     EXPECT_FALSE(ai_validate_key("short"));
+    EXPECT_FALSE(ai_validate_key("AIzaSyAbcde")); // too short
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -180,6 +183,184 @@ TEST(ContextSuggest, EmptyHistoryNoTransitions) {
     EXPECT_TRUE(tmap.transitions.empty());
 
     unlink(hist_path.c_str());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Gemini JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(GeminiClient, BuildsValidRequestJson) {
+    std::string json_str = build_gemini_request_json("sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["system_instruction"]["parts"][0]["text"], "sys");
+    EXPECT_EQ(parsed["contents"][0]["parts"][0]["text"], "usr");
+}
+
+TEST(GeminiClient, ParsesSuccessResponse) {
+    std::string resp = R"({"candidates":[{"content":{"parts":[{"text":"hello"}]}}]})";
+    EXPECT_EQ(extract_gemini_text(resp), "hello");
+}
+
+TEST(GeminiClient, ParsesUnicodeInResponse) {
+    std::string resp = R"({"candidates":[{"content":{"parts":[{"text":"caf\u00e9"}]}}]})";
+    EXPECT_NE(extract_gemini_text(resp).find("caf"), std::string::npos);
+}
+
+TEST(GeminiClient, ParsesErrorResponse) {
+    std::string resp = R"({"error":{"message":"API key not valid"}})";
+    EXPECT_EQ(extract_gemini_error(resp), "API key not valid");
+}
+
+TEST(GeminiClient, HandlesEmptyResponse) {
+    EXPECT_TRUE(extract_gemini_text("{}").empty());
+}
+
+TEST(GeminiClient, HandlesNestedTextFields) {
+    std::string resp = R"({"candidates":[{"content":{"parts":[{"text":"correct"}]},"safetyRatings":[{"text":"SAFE"}]}]})";
+    EXPECT_EQ(extract_gemini_text(resp), "correct");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OpenAI JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(OpenAIClient, BuildsValidRequestJson) {
+    std::string json_str = build_openai_request_json("gpt-4o-mini", "sys", "usr", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["model"], "gpt-4o-mini");
+    EXPECT_EQ(parsed["messages"][0]["role"], "system");
+    EXPECT_EQ(parsed["messages"][0]["content"], "sys");
+    EXPECT_EQ(parsed["messages"][1]["role"], "user");
+    EXPECT_EQ(parsed["messages"][1]["content"], "usr");
+    EXPECT_EQ(parsed["stream"], false);
+}
+
+TEST(OpenAIClient, ParsesSuccessResponse) {
+    std::string resp = R"({"choices":[{"message":{"content":"hello"}}]})";
+    EXPECT_EQ(extract_openai_text(resp), "hello");
+}
+
+TEST(OpenAIClient, ParsesErrorResponse) {
+    std::string resp = R"({"error":{"message":"invalid key"}})";
+    EXPECT_EQ(extract_openai_error(resp), "invalid key");
+}
+
+TEST(OpenAIClient, HandlesEmptyResponse) {
+    EXPECT_TRUE(extract_openai_text("{}").empty());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Ollama JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(OllamaClient, BuildsValidRequestJson) {
+    std::string json_str = build_ollama_request_json("llama3.2", "sys", "usr", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["model"], "llama3.2");
+    EXPECT_EQ(parsed["messages"][0]["role"], "system");
+    EXPECT_EQ(parsed["messages"][0]["content"], "sys");
+    EXPECT_EQ(parsed["messages"][1]["role"], "user");
+    EXPECT_EQ(parsed["stream"], false);
+}
+
+TEST(OllamaClient, ParsesSuccessResponse) {
+    std::string resp = R"({"message":{"role":"assistant","content":"hello"}})";
+    EXPECT_EQ(extract_ollama_text(resp), "hello");
+}
+
+TEST(OllamaClient, HandlesEmptyResponse) {
+    EXPECT_TRUE(extract_ollama_text("{}").empty());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Factory tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(LLMFactory, CreateGemini) {
+    auto c = create_llm_client("gemini", "key", "", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_provider_name(), "gemini");
+}
+
+TEST(LLMFactory, CreateOpenAI) {
+    auto c = create_llm_client("openai", "", "key", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_provider_name(), "openai");
+}
+
+TEST(LLMFactory, CreateOllama) {
+    auto c = create_llm_client("ollama", "", "", "http://localhost:11434");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_provider_name(), "ollama");
+}
+
+TEST(LLMFactory, UnknownReturnsNull) {
+    auto c = create_llm_client("unknown", "", "", "");
+    EXPECT_EQ(c, nullptr);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Context JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(GeminiClient, BuildsContextJson) {
+    std::vector<ConversationTurn> hist = {{"user", "find files"}, {"assistant", "find . -type f"}};
+    std::string json_str = build_gemini_context_json("sys", hist, "now delete them");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["contents"].size(), 3u); // 2 history + 1 new
+}
+
+TEST(OpenAIClient, BuildsContextJson) {
+    std::vector<ConversationTurn> hist = {{"user", "find files"}, {"assistant", "find . -type f"}};
+    std::string json_str = build_openai_context_json("gpt-4o-mini", "sys", hist, "now delete them", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["messages"].size(), 4u); // system + 2 history + 1 new
+}
+
+TEST(OllamaClient, BuildsContextJson) {
+    std::vector<ConversationTurn> hist = {{"user", "find files"}, {"assistant", "find . -type f"}};
+    std::string json_str = build_ollama_context_json("llama3.2", "sys", hist, "now delete them", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["messages"].size(), 4u); // system + 2 history + 1 new
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Rate limiter tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(RateLimiter, AllowsUnderLimit) {
+    AiRateLimiter limiter(5, 60);
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_TRUE(limiter.allow());
+}
+
+TEST(RateLimiter, BlocksOverLimit) {
+    AiRateLimiter limiter(2, 60);
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_FALSE(limiter.allow());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// XDG config tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST_F(AiTestFixture, ConfigPathRespectsXdgOverride) {
+    unsetenv("TASH_AI_KEY_PATH");
+    setenv("XDG_CONFIG_HOME", "/tmp/tash_test_xdg", 1);
+    std::string path = ai_get_key_path();
+    EXPECT_NE(path.find("/tmp/tash_test_xdg/tash"), std::string::npos);
+    unsetenv("XDG_CONFIG_HOME");
+    setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
+}
+
+TEST_F(AiTestFixture, ConfigPathFallsBackToHome) {
+    unsetenv("TASH_AI_KEY_PATH");
+    unsetenv("XDG_CONFIG_HOME");
+    std::string path = ai_get_key_path();
+    EXPECT_NE(path.find(".config/tash"), std::string::npos);
+    setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
 }
 
 #else
