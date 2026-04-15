@@ -3,6 +3,11 @@
 #include "tash/ui.h"
 #include "tash/history.h"
 
+#include <sys/stat.h>
+#include <cstdlib>
+#include <cstdio>
+#include <unistd.h>
+
 using namespace std;
 
 // ═══════════════════════════════════════════════════════════════
@@ -624,5 +629,190 @@ TEST(Frecency, RecordAndFind) {
 TEST(Frecency, NoMatchReturnsEmpty) {
     string result = z_find_directory("xyzzy_no_such_dir_ever_99");
     EXPECT_TRUE(result.empty());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// completion_callback unit tests
+// ═══════════════════════════════════════════════════════════════
+
+static bool completions_contain(const replxx::Replxx::completions_t &c, const string &text) {
+    for (const auto &entry : c) {
+        if (entry.text() == text) return true;
+    }
+    return false;
+}
+
+// -- Command-position completion --
+
+TEST(CompletionCallback, EmptyInputReturnsBuiltinsAndPath) {
+    build_command_cache();
+    int ctx = 0;
+    auto results = completion_callback("", ctx);
+    // Should include builtins like cd and PATH commands like ls
+    EXPECT_TRUE(completions_contain(results, "cd")) << "empty input should offer cd";
+    EXPECT_TRUE(completions_contain(results, "ls")) << "empty input should offer ls";
+}
+
+TEST(CompletionCallback, PartialCommandMatchesPrefix) {
+    build_command_cache();
+    int ctx = 0;
+    auto results = completion_callback("ech", ctx);
+    EXPECT_TRUE(completions_contain(results, "echo")) << "'ech' should complete to echo";
+    EXPECT_EQ(ctx, 3) << "context_len should be length of prefix";
+}
+
+TEST(CompletionCallback, NoMatchReturnsEmpty) {
+    build_command_cache();
+    int ctx = 0;
+    auto results = completion_callback("xyzzy_not_real_99", ctx);
+    EXPECT_TRUE(results.empty()) << "gibberish should produce no completions";
+}
+
+// -- Git subcommand completion --
+
+TEST(CompletionCallback, GitSubcommands) {
+    int ctx = 0;
+    auto results = completion_callback("git st", ctx);
+    EXPECT_TRUE(completions_contain(results, "stash")) << "git st should suggest stash";
+    EXPECT_TRUE(completions_contain(results, "status")) << "git st should suggest status";
+    EXPECT_FALSE(completions_contain(results, "push")) << "git st should not suggest push";
+}
+
+// -- Docker subcommand completion --
+
+TEST(CompletionCallback, DockerSubcommands) {
+    int ctx = 0;
+    auto results = completion_callback("docker r", ctx);
+    EXPECT_TRUE(completions_contain(results, "run")) << "docker r should suggest run";
+    EXPECT_TRUE(completions_contain(results, "rm")) << "docker r should suggest rm";
+    EXPECT_TRUE(completions_contain(results, "rmi")) << "docker r should suggest rmi";
+}
+
+// -- Environment variable completion --
+
+TEST(CompletionCallback, EnvVarCompletion) {
+    setenv("TASH_TEST_COMP_VAR", "1", 1);
+    int ctx = 0;
+    auto results = completion_callback("echo $TASH_TEST_COMP", ctx);
+    EXPECT_TRUE(completions_contain(results, "$TASH_TEST_COMP_VAR"))
+        << "$TASH_TEST_COMP should complete to $TASH_TEST_COMP_VAR";
+    unsetenv("TASH_TEST_COMP_VAR");
+}
+
+// -- File/directory completion --
+
+TEST(CompletionCallback, FileCompletionListsCwd) {
+    // Create a temp dir with known contents
+    string tmpdir = "/tmp/tash_comp_test_" + to_string(getpid());
+    mkdir(tmpdir.c_str(), 0755);
+    // Create a file and a subdirectory
+    string filepath = tmpdir + "/hello.txt";
+    FILE *f = fopen(filepath.c_str(), "w");
+    if (f) fclose(f);
+    string subdir = tmpdir + "/subdir";
+    mkdir(subdir.c_str(), 0755);
+
+    // cd into the temp dir so "." resolves to it
+    char *old_cwd = getcwd(nullptr, 0);
+    chdir(tmpdir.c_str());
+
+    int ctx = 0;
+    auto results = completion_callback("ls ", ctx);
+    EXPECT_TRUE(completions_contain(results, "hello.txt"))
+        << "should complete file hello.txt";
+    EXPECT_TRUE(completions_contain(results, "subdir/"))
+        << "should complete directory with trailing slash";
+
+    // Cleanup
+    chdir(old_cwd);
+    free(old_cwd);
+    remove(filepath.c_str());
+    rmdir(subdir.c_str());
+    rmdir(tmpdir.c_str());
+}
+
+TEST(CompletionCallback, FileCompletionWithPrefix) {
+    string tmpdir = "/tmp/tash_comp_pfx_" + to_string(getpid());
+    mkdir(tmpdir.c_str(), 0755);
+    string f1 = tmpdir + "/alpha.cpp";
+    string f2 = tmpdir + "/alpha.h";
+    string f3 = tmpdir + "/beta.cpp";
+    FILE *fp;
+    fp = fopen(f1.c_str(), "w"); if (fp) fclose(fp);
+    fp = fopen(f2.c_str(), "w"); if (fp) fclose(fp);
+    fp = fopen(f3.c_str(), "w"); if (fp) fclose(fp);
+
+    char *old_cwd = getcwd(nullptr, 0);
+    chdir(tmpdir.c_str());
+
+    int ctx = 0;
+    auto results = completion_callback("cat al", ctx);
+    EXPECT_TRUE(completions_contain(results, "alpha.cpp"))
+        << "'al' prefix should match alpha.cpp";
+    EXPECT_TRUE(completions_contain(results, "alpha.h"))
+        << "'al' prefix should match alpha.h";
+    EXPECT_FALSE(completions_contain(results, "beta.cpp"))
+        << "'al' prefix should not match beta.cpp";
+    EXPECT_EQ(ctx, 2) << "context_len should be length of 'al'";
+
+    chdir(old_cwd);
+    free(old_cwd);
+    remove(f1.c_str());
+    remove(f2.c_str());
+    remove(f3.c_str());
+    rmdir(tmpdir.c_str());
+}
+
+TEST(CompletionCallback, FileCompletionWithPathPrefix) {
+    string tmpdir = "/tmp/tash_comp_path_" + to_string(getpid());
+    mkdir(tmpdir.c_str(), 0755);
+    string sub = tmpdir + "/nested";
+    mkdir(sub.c_str(), 0755);
+    string f1 = sub + "/foo.txt";
+    FILE *fp = fopen(f1.c_str(), "w");
+    if (fp) fclose(fp);
+
+    int ctx = 0;
+    string input = "cat " + sub + "/fo";
+    auto results = completion_callback(input, ctx);
+    EXPECT_TRUE(completions_contain(results, "foo.txt"))
+        << "path prefix should complete foo.txt inside nested dir";
+    EXPECT_EQ(ctx, 2) << "context_len should be length of 'fo'";
+
+    remove(f1.c_str());
+    rmdir(sub.c_str());
+    rmdir(tmpdir.c_str());
+}
+
+TEST(CompletionCallback, HiddenFilesOnlyWhenDotPrefix) {
+    string tmpdir = "/tmp/tash_comp_dot_" + to_string(getpid());
+    mkdir(tmpdir.c_str(), 0755);
+    string hidden = tmpdir + "/.hidden";
+    string visible = tmpdir + "/visible";
+    FILE *fp;
+    fp = fopen(hidden.c_str(), "w"); if (fp) fclose(fp);
+    fp = fopen(visible.c_str(), "w"); if (fp) fclose(fp);
+
+    char *old_cwd = getcwd(nullptr, 0);
+    chdir(tmpdir.c_str());
+
+    // Without dot prefix — hidden file should NOT appear
+    int ctx = 0;
+    auto r1 = completion_callback("ls ", ctx);
+    EXPECT_FALSE(completions_contain(r1, ".hidden"))
+        << "hidden files should not appear without dot prefix";
+    EXPECT_TRUE(completions_contain(r1, "visible"));
+
+    // With dot prefix — hidden file should appear
+    ctx = 0;
+    auto r2 = completion_callback("ls .", ctx);
+    EXPECT_TRUE(completions_contain(r2, ".hidden"))
+        << "hidden files should appear with dot prefix";
+
+    chdir(old_cwd);
+    free(old_cwd);
+    remove(hidden.c_str());
+    remove(visible.c_str());
+    rmdir(tmpdir.c_str());
 }
 

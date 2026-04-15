@@ -38,6 +38,6 @@ TEST(Background, FgWithNumberNoJobs) {
 }
 
 TEST(Background, FgInvalidJobNumber) {
-    auto r = run_shell("bg sleep 60\nfg abc\nexit\n");
+    auto r = run_shell("bg sleep 8\nfg abc\nexit\n");
     EXPECT_NE(r.output.find("fg: invalid job number"), std::string::npos);
 }
