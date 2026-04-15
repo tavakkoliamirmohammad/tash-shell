@@ -530,6 +530,10 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
             }
         } else if (ch == '5') {
             // Test connection
+            if (!rate_limiter.allow()) {
+                ai_print_error("rate limit exceeded. Please wait a moment.");
+                return 1;
+            }
             unique_ptr<LLMClient> test_client = create_current_client();
             if (!test_client) {
                 ai_print_error("couldn't create client. Check your config.");
@@ -572,6 +576,10 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
     }
 
     if (rest == "test") {
+        if (!rate_limiter.allow()) {
+            ai_print_error("rate limit exceeded. Please wait a moment.");
+            return 1;
+        }
         unique_ptr<LLMClient> client = create_current_client();
         if (!client) {
             ai_print_error("no API key configured. Run @ai setup or @ai config.");

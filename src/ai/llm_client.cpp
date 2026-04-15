@@ -307,12 +307,10 @@ LLMResponse GeminiClient::call_model_stream(const string &model, const string &b
     resp.http_status = result->status;
 
     if (result->status == 200) {
-        string accumulated_text = process_gemini_sse(result->body, on_chunk);
-
-        resp.text = accumulated_text;
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
+        string accumulated = process_gemini_sse(result->body, on_chunk);
+        resp.text = accumulated;
+        resp.success = !accumulated.empty();
+        if (!resp.success) {
             resp.error_message = "unexpected response. Try again.";
         }
     } else {
@@ -528,11 +526,10 @@ LLMResponse OpenAIClient::generate_stream(const string &system_prompt, const str
     resp.http_status = result->status;
 
     if (result->status == 200) {
-        string accumulated_text = process_openai_sse(result->body, on_chunk);
-        resp.text = accumulated_text;
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
+        string accumulated = process_openai_sse(result->body, on_chunk);
+        resp.text = accumulated;
+        resp.success = !accumulated.empty();
+        if (!resp.success) {
             resp.error_message = "unexpected response. Try again.";
         }
     } else {
@@ -721,11 +718,10 @@ LLMResponse OllamaClient::generate_stream(const string &system_prompt, const str
     resp.http_status = result->status;
 
     if (result->status == 200) {
-        string accumulated_text = process_ollama_ndjson(result->body, on_chunk);
-        resp.text = accumulated_text;
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
+        string accumulated = process_ollama_ndjson(result->body, on_chunk);
+        resp.text = accumulated;
+        resp.success = !accumulated.empty();
+        if (!resp.success) {
             resp.error_message = "unexpected response from Ollama. Try again.";
         }
     } else {
