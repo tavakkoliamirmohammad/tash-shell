@@ -64,6 +64,48 @@ static void ai_print_error(const string &msg) {
     write_stdout(AI_ERROR + msg + CAT_RESET "\n");
 }
 
+// ── Conversation context ─────────────────────────────────────
+
+static vector<ConversationTurn> conversation_history;
+static const size_t MAX_CONVERSATION_TURNS = 10;
+
+static void add_to_conversation(const string &role, const string &text) {
+    conversation_history.push_back({role, text});
+    while (conversation_history.size() > MAX_CONVERSATION_TURNS) {
+        conversation_history.erase(conversation_history.begin());
+    }
+}
+
+// ── Rate limiter ─────────────────────────────────────────────
+
+static AiRateLimiter rate_limiter(15, 60);
+
+// ── Context-aware system prompt ──────────────────────────────
+
+static string build_system_context() {
+    string ctx = "You are an AI assistant embedded in tash (Tavakkoli's Shell). ";
+
+    // OS
+    #ifdef __APPLE__
+    ctx += "The user is on macOS. ";
+    #else
+    ctx += "The user is on Linux. ";
+    #endif
+
+    // Current directory
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd))) {
+        ctx += "Current directory: " + string(cwd) + ". ";
+    }
+
+    ctx += "Shell features: pipes (|), redirections (>, >>, <, 2>), "
+           "aliases, background jobs (bg), globs (*,?), env vars ($VAR), "
+           "command substitution ($(...)), operators (&&, ||, ;), auto-cd, "
+           "and tilde expansion (~). ";
+
+    return ctx;
+}
+
 // ── LLM client helpers ───────────────────────────────────────
 
 static unique_ptr<LLMClient> create_current_client() {
@@ -122,10 +164,22 @@ static string extract_quoted_query(const string &input, size_t start) {
 // ── Feature: Natural language to command ──────────────────────
 
 static int handle_nl_to_cmd(const string &query, ShellState &state, string *prefill_cmd) {
+    if (!rate_limiter.allow()) {
+        ai_print_error("rate limit exceeded. Please wait a moment.");
+        return 1;
+    }
+
     unique_ptr<LLMClient> client = ensure_client(state);
     if (!client) return 1;
 
-    LLMResponse resp = client->generate(PROMPT_NL_TO_CMD, query);
+    string system_prompt = build_system_context() + PROMPT_NL_TO_CMD;
+
+    LLMResponse resp;
+    if (!conversation_history.empty()) {
+        resp = client->generate_with_context(system_prompt, conversation_history, query);
+    } else {
+        resp = client->generate(system_prompt, query);
+    }
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -134,6 +188,11 @@ static int handle_nl_to_cmd(const string &query, ShellState &state, string *pref
     }
 
     ai_increment_usage();
+
+    if (resp.success) {
+        add_to_conversation("user", query);
+        add_to_conversation("assistant", resp.text);
+    }
 
     string cmd = resp.text;
     while (!cmd.empty() && (cmd.back() == '\n' || cmd.back() == '\r')) cmd.pop_back();
@@ -167,8 +226,15 @@ static int handle_explain_error(ShellState &state) {
         return 1;
     }
 
+    if (!rate_limiter.allow()) {
+        ai_print_error("rate limit exceeded. Please wait a moment.");
+        return 1;
+    }
+
     unique_ptr<LLMClient> client = ensure_client(state);
     if (!client) return 1;
+
+    string system_prompt = build_system_context() + PROMPT_ERROR_EXPLAIN;
 
     string user_prompt = "Command: " + state.last_command_text +
                          "\nExit code: " + to_string(state.last_exit_status);
@@ -176,7 +242,14 @@ static int handle_explain_error(ShellState &state) {
         user_prompt += "\nError output: " + state.last_stderr_output;
     }
 
-    LLMResponse resp = client->generate(PROMPT_ERROR_EXPLAIN, user_prompt);
+    ai_print_label();
+    write_stdout(AI_ERROR + state.last_command_text + CAT_RESET
+                 " exited with " + to_string(state.last_exit_status) + "\n\n");
+
+    auto on_chunk = [](const string &chunk) {
+        write_stdout(chunk);
+    };
+    LLMResponse resp = client->generate_stream(system_prompt, user_prompt, on_chunk);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -186,20 +259,31 @@ static int handle_explain_error(ShellState &state) {
 
     ai_increment_usage();
 
-    ai_print_label();
-    write_stdout(AI_ERROR + state.last_command_text + CAT_RESET
-                 " exited with " + to_string(state.last_exit_status) + "\n\n");
-    write_stdout(resp.text + "\n");
+    // Stream already printed the response text via on_chunk
+    write_stdout("\n");
     return 0;
 }
 
 // ── Feature: Command explanation ──────────────────────────────
 
 static int handle_explain_cmd(const string &cmd_text, ShellState &state) {
+    if (!rate_limiter.allow()) {
+        ai_print_error("rate limit exceeded. Please wait a moment.");
+        return 1;
+    }
+
     unique_ptr<LLMClient> client = ensure_client(state);
     if (!client) return 1;
 
-    LLMResponse resp = client->generate(PROMPT_CMD_EXPLAIN, cmd_text);
+    string system_prompt = build_system_context() + PROMPT_CMD_EXPLAIN;
+
+    ai_print_label();
+    write_stdout(AI_CMD + cmd_text + CAT_RESET "\n\n");
+
+    auto on_chunk = [](const string &chunk) {
+        write_stdout(chunk);
+    };
+    LLMResponse resp = client->generate_stream(system_prompt, cmd_text, on_chunk);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -209,19 +293,25 @@ static int handle_explain_cmd(const string &cmd_text, ShellState &state) {
 
     ai_increment_usage();
 
-    ai_print_label();
-    write_stdout(AI_CMD + cmd_text + CAT_RESET "\n\n");
-    write_stdout(resp.text + "\n");
+    // Stream already printed the response text via on_chunk
+    write_stdout("\n");
     return 0;
 }
 
 // ── Feature: Script generation ────────────────────────────────
 
 static int handle_script(const string &query, ShellState &state) {
+    if (!rate_limiter.allow()) {
+        ai_print_error("rate limit exceeded. Please wait a moment.");
+        return 1;
+    }
+
     unique_ptr<LLMClient> client = ensure_client(state);
     if (!client) return 1;
 
-    LLMResponse resp = client->generate(PROMPT_SCRIPT_GEN, query);
+    string system_prompt = build_system_context() + PROMPT_SCRIPT_GEN;
+
+    LLMResponse resp = client->generate(system_prompt, query);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -267,10 +357,23 @@ static int handle_script(const string &query, ShellState &state) {
 // ── Feature: Workflow help ────────────────────────────────────
 
 static int handle_help(const string &query, ShellState &state) {
+    if (!rate_limiter.allow()) {
+        ai_print_error("rate limit exceeded. Please wait a moment.");
+        return 1;
+    }
+
     unique_ptr<LLMClient> client = ensure_client(state);
     if (!client) return 1;
 
-    LLMResponse resp = client->generate(PROMPT_WORKFLOW, query);
+    string system_prompt = build_system_context() + PROMPT_WORKFLOW;
+
+    ai_print_label();
+    write_stdout("\n");
+
+    auto on_chunk = [](const string &chunk) {
+        write_stdout(chunk);
+    };
+    LLMResponse resp = client->generate_stream(system_prompt, query, on_chunk);
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -280,8 +383,8 @@ static int handle_help(const string &query, ShellState &state) {
 
     ai_increment_usage();
 
-    ai_print_label();
-    write_stdout("\n" + resp.text + "\n");
+    // Stream already printed the response text via on_chunk
+    write_stdout("\n");
     return 0;
 }
 
@@ -315,7 +418,7 @@ static int handle_status(ShellState &state) {
     string usage_color = (remaining > 100) ? AI_CMD : (remaining > 0) ? CAT_YELLOW : AI_ERROR;
     write_stdout("  Today:    " + usage_color + to_string(usage) + " / " + to_string(DAILY_LIMIT) +
                  " requests" CAT_RESET CAT_DIM " (" + to_string(remaining) + " remaining)" CAT_RESET "\n");
-    write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min" CAT_RESET "\n\n");
+    write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min (enforced)" CAT_RESET "\n\n");
 
     return 0;
 }
@@ -347,19 +450,107 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         write_stdout("  @ai what does <cmd>      explain a command\n");
         write_stdout("  @ai script \"task\"         generate a bash script\n");
         write_stdout("  @ai help \"topic\"          step-by-step guidance\n");
-        write_stdout("  @ai status               show AI usage status\n");
+        write_stdout("  @ai status               show AI status\n");
+        write_stdout("  @ai config               interactive configuration\n");
+        write_stdout("  @ai provider <name>      switch provider (gemini/openai/ollama)\n");
+        write_stdout("  @ai model <name>         set model\n");
+        write_stdout("  @ai test                 test API connection\n");
+        write_stdout("  @ai clear                clear conversation history\n");
         write_stdout("  @ai setup                configure API key\n");
         write_stdout("  @ai on / off             enable or disable AI\n");
         return 0;
     }
 
-    // @ai setup
+    // ── 1. setup, config ──────────────────────────────────────
+
     if (rest == "setup") {
         ai_run_setup_wizard();
         return 0;
     }
 
-    // @ai on
+    if (rest == "config") {
+        string provider = ai_get_provider();
+        string model = ai_get_model_override();
+        unique_ptr<LLMClient> client = create_current_client();
+        string current_model = client ? client->get_model() : "unknown";
+        if (!model.empty()) current_model = model;
+
+        ai_print_label();
+        write_stdout("Configuration\n\n");
+        write_stdout("  Current: " AI_CMD + provider + CAT_RESET " / " AI_CMD + current_model + CAT_RESET "\n\n");
+        write_stdout(AI_STEP_NUM "  1." CAT_RESET " Switch provider (gemini/openai/ollama)\n");
+        write_stdout(AI_STEP_NUM "  2." CAT_RESET " Change model\n");
+        write_stdout(AI_STEP_NUM "  3." CAT_RESET " Set API key\n");
+        write_stdout(AI_STEP_NUM "  4." CAT_RESET " Set Ollama URL\n");
+        write_stdout(AI_STEP_NUM "  5." CAT_RESET " Test connection\n\n");
+        write_stdout(AI_PROMPT "  Choice" CAT_RESET " [1-5]: ");
+
+        char ch = read_single_char();
+        write_stdout(string(1, ch) + "\n\n");
+
+        if (ch == '1') {
+            write_stdout("  Provider (gemini/openai/ollama): ");
+            string p;
+            if (getline(cin, p)) {
+                while (!p.empty() && p.back() == ' ') p.pop_back();
+                while (!p.empty() && p.front() == ' ') p.erase(p.begin());
+                if (p == "gemini" || p == "openai" || p == "ollama") {
+                    ai_set_provider(p);
+                    ai_set_model_override("");
+                    ai_print_label();
+                    write_stdout(AI_CMD "Provider set to " + p + "." CAT_RESET "\n");
+                } else {
+                    ai_print_error("unknown provider.");
+                }
+            }
+        } else if (ch == '2') {
+            write_stdout("  Model name: ");
+            string m;
+            if (getline(cin, m)) {
+                while (!m.empty() && m.back() == ' ') m.pop_back();
+                while (!m.empty() && m.front() == ' ') m.erase(m.begin());
+                if (!m.empty()) {
+                    ai_set_model_override(m);
+                    ai_print_label();
+                    write_stdout(AI_CMD "Model set to " + m + "." CAT_RESET "\n");
+                }
+            }
+        } else if (ch == '3') {
+            ai_run_setup_wizard();
+        } else if (ch == '4') {
+            write_stdout("  Ollama URL [http://localhost:11434]: ");
+            string url;
+            if (getline(cin, url)) {
+                while (!url.empty() && url.back() == ' ') url.pop_back();
+                while (!url.empty() && url.front() == ' ') url.erase(url.begin());
+                if (url.empty()) url = "http://localhost:11434";
+                ai_set_ollama_url(url);
+                ai_print_label();
+                write_stdout(AI_CMD "Ollama URL set to " + url + "." CAT_RESET "\n");
+            }
+        } else if (ch == '5') {
+            // Test connection
+            unique_ptr<LLMClient> test_client = create_current_client();
+            if (!test_client) {
+                ai_print_error("couldn't create client. Check your config.");
+                return 1;
+            }
+            ai_print_label();
+            write_stdout("testing connection...\n");
+            LLMResponse test_resp = test_client->generate("Reply with exactly: ok", "test");
+            if (test_resp.success) {
+                ai_print_label();
+                write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
+            } else {
+                ai_print_error("connection failed: " + test_resp.error_message);
+            }
+        }
+
+        return 0;
+    }
+
+    // ── 2. on, off ────────────────────────────────────────────
+
     if (rest == "on") {
         state.ai_enabled = true;
         ai_print_label();
@@ -367,7 +558,6 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         return 0;
     }
 
-    // @ai off
     if (rest == "off") {
         state.ai_enabled = false;
         ai_print_label();
@@ -375,17 +565,80 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         return 0;
     }
 
-    // @ai status
+    // ── 3. status, test, clear ────────────────────────────────
+
     if (rest == "status") {
         return handle_status(state);
     }
 
-    // @ai explain
+    if (rest == "test") {
+        unique_ptr<LLMClient> client = create_current_client();
+        if (!client) {
+            ai_print_error("no API key configured. Run @ai setup or @ai config.");
+            return 1;
+        }
+        ai_print_label();
+        write_stdout("testing connection...\n");
+        LLMResponse resp = client->generate("Reply with exactly: ok", "test");
+        if (resp.success) {
+            ai_print_label();
+            write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
+            return 0;
+        }
+        ai_print_error("test failed: " + resp.error_message);
+        return 1;
+    }
+
+    if (rest == "clear") {
+        conversation_history.clear();
+        ai_print_label();
+        write_stdout(AI_CMD "Conversation cleared." CAT_RESET "\n");
+        return 0;
+    }
+
+    // ── 4. provider, model ────────────────────────────────────
+
+    if (rest.size() > 9 && rest.substr(0, 9) == "provider ") {
+        string provider = rest.substr(9);
+        // trim
+        while (!provider.empty() && provider.front() == ' ') provider.erase(provider.begin());
+        while (!provider.empty() && provider.back() == ' ') provider.pop_back();
+
+        if (provider != "gemini" && provider != "openai" && provider != "ollama") {
+            ai_print_error("unknown provider. Use: gemini, openai, or ollama");
+            return 1;
+        }
+        ai_set_provider(provider);
+        ai_set_model_override(""); // reset model on provider change
+        ai_print_label();
+        write_stdout(AI_CMD "Provider set to " + provider + "." CAT_RESET "\n");
+        return 0;
+    }
+
+    if (rest.size() > 6 && rest.substr(0, 6) == "model ") {
+        string model = rest.substr(6);
+        // trim
+        while (!model.empty() && model.front() == ' ') model.erase(model.begin());
+        while (!model.empty() && model.back() == ' ') model.pop_back();
+
+        if (model.empty()) {
+            ai_print_error("usage: @ai model <model-name>");
+            return 1;
+        }
+        ai_set_model_override(model);
+        ai_print_label();
+        write_stdout(AI_CMD "Model set to " + model + "." CAT_RESET "\n");
+        return 0;
+    }
+
+    // ── 5. explain ────────────────────────────────────────────
+
     if (rest == "explain") {
         return handle_explain_error(state);
     }
 
-    // @ai what does <command>
+    // ── 6. what does, what ────────────────────────────────────
+
     if (rest.size() > 9 && rest.substr(0, 9) == "what does") {
         string cmd_text = rest.substr(9);
         while (!cmd_text.empty() && cmd_text.front() == ' ') cmd_text.erase(cmd_text.begin());
@@ -396,7 +649,6 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         return handle_explain_cmd(cmd_text, state);
     }
 
-    // @ai what <command> (shorthand)
     if (rest.size() > 5 && rest.substr(0, 5) == "what ") {
         string cmd_text = rest.substr(5);
         while (!cmd_text.empty() && cmd_text.front() == ' ') cmd_text.erase(cmd_text.begin());
@@ -407,7 +659,8 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         return handle_explain_cmd(cmd_text, state);
     }
 
-    // @ai script "..."
+    // ── 7. script ─────────────────────────────────────────────
+
     if (rest.size() > 6 && rest.substr(0, 6) == "script") {
         string query = extract_quoted_query(rest, 6);
         if (query.empty()) {
@@ -417,7 +670,8 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         return handle_script(query, state);
     }
 
-    // @ai help "..."
+    // ── 8. help ───────────────────────────────────────────────
+
     if (rest.size() > 4 && rest.substr(0, 4) == "help") {
         string query = extract_quoted_query(rest, 4);
         if (query.empty()) {
@@ -427,7 +681,8 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         return handle_help(query, state);
     }
 
-    // Default: natural language to command
+    // ── 9. Default: natural language to command ───────────────
+
     string query = extract_quoted_query(trimmed, 3);
     if (query.empty()) {
         ai_print_error("usage: @ai \"your question\"");
