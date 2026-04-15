@@ -5,6 +5,7 @@
 #include <cstring>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <termios.h>
 
 #ifdef TASH_AI_ENABLED
 #include "tash/ai.h"
@@ -147,7 +148,8 @@ int execute_single_command(string command, ShellState &state) {
         }
     }
 
-    int result = foreground_process(cmd.argv, cmd.redirections);
+    state.last_stderr_output.clear();
+    int result = foreground_process(cmd.argv, cmd.redirections, &state.last_stderr_output);
 
     if (result == 127) {
         string suggestion = suggest_command(cmd.argv[0]);
@@ -219,12 +221,7 @@ void sigchld_handler(int) {
 // Shared between hint callback and right-arrow handler
 static string current_hint;
 
-#ifdef TASH_AI_ENABLED
-// Last executed command for context-aware suggestions
-static string last_executed_cmd;
-#endif
-
-static Replxx::hints_t history_hint_callback(const string &input, int &context_len, Replxx::Color &color, Replxx &rx) {
+static Replxx::hints_t history_hint_callback(const string &input, int &context_len, Replxx::Color &color, Replxx &rx, const ShellState &state) {
     Replxx::hints_t hints;
     current_hint.clear();
 
@@ -245,8 +242,8 @@ static Replxx::hints_t history_hint_callback(const string &input, int &context_l
     }
 #ifdef TASH_AI_ENABLED
     // If no history prefix match, try context-aware suggestion
-    if (best.empty() && !last_executed_cmd.empty()) {
-        string ctx = context_suggest(last_executed_cmd, get_transition_map());
+    if (best.empty() && !state.last_executed_cmd.empty()) {
+        string ctx = context_suggest(state.last_executed_cmd, get_transition_map());
         if (!ctx.empty() && ctx.size() > input.size() &&
             ctx.compare(0, input.size(), input) == 0) {
             best = ctx;
@@ -340,6 +337,35 @@ int main(int argc, char *argv[]) {
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
         write_stdout("\n");
+
+#ifdef TASH_AI_ENABLED
+        // Prompt user to configure AI if not set up yet
+        {
+            string provider = ai_get_provider();
+            string key = ai_load_provider_key(provider);
+            if (key.empty() && provider != "ollama") {
+                write_stdout(AI_LABEL "tash ai" CAT_RESET AI_SEPARATOR " ─ " CAT_RESET
+                             "AI features available! Set up now? [y/n] ");
+                char setup_ch = 0;
+                struct termios old_t, new_t;
+                tcgetattr(STDIN_FILENO, &old_t);
+                new_t = old_t;
+                new_t.c_lflag &= ~(ICANON | ECHO);
+                new_t.c_cc[VMIN] = 1;
+                new_t.c_cc[VTIME] = 0;
+                tcsetattr(STDIN_FILENO, TCSANOW, &new_t);
+                if (read(STDIN_FILENO, &setup_ch, 1) != 1) setup_ch = 'n';
+                tcsetattr(STDIN_FILENO, TCSANOW, &old_t);
+                write_stdout(string(1, setup_ch) + "\n");
+                if (setup_ch == 'y' || setup_ch == 'Y') {
+                    ai_run_setup_wizard();
+                } else {
+                    write_stdout(CAT_DIM "  Tip: run @ai config anytime to set up.\n" CAT_RESET);
+                }
+                write_stdout("\n");
+            }
+        }
+#endif
     }
 
     // ── Setup replxx ───────────────────────────────────────────
@@ -368,8 +394,8 @@ int main(int argc, char *argv[]) {
         );
 
         rx.set_hint_callback(
-            [&rx](const string &input, int &ctx, Replxx::Color &color) {
-                return history_hint_callback(input, ctx, color, rx);
+            [&rx, &state](const string &input, int &ctx, Replxx::Color &color) {
+                return history_hint_callback(input, ctx, color, rx, state);
             }
         );
     }
@@ -509,7 +535,11 @@ int main(int argc, char *argv[]) {
 #ifdef TASH_AI_ENABLED
         // Intercept @ai commands before normal execution
         if (is_ai_command(expanded)) {
-            state.last_exit_status = handle_ai_command(expanded, state);
+            string prefill;
+            state.last_exit_status = handle_ai_command(expanded, state, &prefill);
+            if (!prefill.empty()) {
+                rx.set_state(Replxx::State(prefill.c_str(), (int)prefill.size()));
+            }
             continue;
         }
 #else
@@ -536,7 +566,7 @@ int main(int argc, char *argv[]) {
         // Track last command for @ai explain
         state.last_command_text = expanded;
 #ifdef TASH_AI_ENABLED
-        last_executed_cmd = expanded;
+        state.last_executed_cmd = expanded;
 #endif
 
         state.last_cmd_duration = get_time_s() - start_time;

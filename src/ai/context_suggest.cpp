@@ -2,10 +2,9 @@
 
 #include "tash/ai.h"
 #include <fstream>
+#include <cstdlib>
 
 using namespace std;
-
-static TransitionMap global_transition_map;
 
 // Extract command key (first word, or first two for compound commands)
 static string command_key(const string &line) {
@@ -64,7 +63,14 @@ string context_suggest(const string &last_command, const TransitionMap &tmap) {
 
     string best;
     int best_count = 0;
+
+    // Default threshold: 3 (configurable via TASH_SUGGEST_THRESHOLD)
     int threshold = 3;
+    const char *env_thresh = getenv("TASH_SUGGEST_THRESHOLD");
+    if (env_thresh) {
+        try { threshold = stoi(string(env_thresh)); } catch (...) {}
+        if (threshold < 1) threshold = 1;
+    }
 
     for (const auto &pair : it->second) {
         if (pair.second >= threshold && pair.second > best_count) {
@@ -77,7 +83,8 @@ string context_suggest(const string &last_command, const TransitionMap &tmap) {
 }
 
 TransitionMap& get_transition_map() {
-    return global_transition_map;
+    static TransitionMap instance;
+    return instance;
 }
 
 #endif // TASH_AI_ENABLED

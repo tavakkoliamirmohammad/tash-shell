@@ -3,14 +3,22 @@
 #include "tash/ai.h"
 #include "tash/core.h"
 #include "theme.h"
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
 #include <termios.h>
+#include <memory>
+#include <thread>
+#include <atomic>
+#include <random>
+
+using json = nlohmann::json;
 
 using namespace std;
 
-// Read a single character without waiting for Enter
+// ── Read a single character without waiting for Enter ─────────
+
 static char read_single_char() {
     struct termios old_term, new_term;
     tcgetattr(STDIN_FILENO, &old_term);
@@ -27,29 +35,96 @@ static char read_single_char() {
     return ch;
 }
 
-// ── System prompts ────────────────────────────────────────────
+// ── Loading spinner with fun messages ────────────────────────
 
-static const char *PROMPT_NL_TO_CMD =
-    "You are a shell command expert. Given a natural language description, "
-    "output ONLY the shell command. No explanation, no markdown, no backticks.";
+static atomic<bool> spinner_active(false);
 
-static const char *PROMPT_ERROR_EXPLAIN =
-    "Explain this shell error concisely. Include what went wrong and how to fix it. "
-    "Do not use markdown formatting.";
+static const char *SPINNER_MESSAGES[] = {
+    "Reticulating splines",
+    "Consulting the oracle",
+    "Defragmenting neurons",
+    "Calibrating flux capacitor",
+    "Compiling witty response",
+    "Traversing the syntax tree",
+    "Unfolding higher dimensions",
+    "Brewing digital espresso",
+    "Summoning shell spirits",
+    "Rearranging electrons",
+    "Negotiating with the kernel",
+    "Decoding the matrix",
+    "Harmonizing syscalls",
+    "Waking up the hamsters",
+    "Consulting man pages telepathically",
+    "Polishing the pipeline",
+    "Untangling spaghetti code",
+    "Asking the rubber duck",
+};
+static const int NUM_SPINNER_MESSAGES = 18;
 
-static const char *PROMPT_CMD_EXPLAIN =
-    "Explain what this command does, flag by flag, in plain English. "
-    "Format each flag on its own line like: -x  description. "
-    "Do not use markdown formatting.";
+static thread *spinner_thread_ptr = nullptr;
 
-static const char *PROMPT_SCRIPT_GEN =
-    "Write a bash script for the following task. Include brief comments. "
-    "Output ONLY the script, no explanation, no markdown backticks.";
+static void spinner_thread_fn() {
+    const char *braille[] = {
+        "\xe2\xa0\x8b", "\xe2\xa0\x99", "\xe2\xa0\xb9", "\xe2\xa0\xb8",
+        "\xe2\xa0\xbc", "\xe2\xa0\xb4", "\xe2\xa0\xa6", "\xe2\xa0\xa7",
+        "\xe2\xa0\x87", "\xe2\xa0\x8f",
+    };
 
-static const char *PROMPT_WORKFLOW =
-    "Give step-by-step instructions for this task. Be concise and practical. "
-    "Number each step. Include actual commands where relevant. "
-    "Do not use markdown formatting.";
+    // Pick a random starting message using thread-safe RNG
+    std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> dist(0, NUM_SPINNER_MESSAGES - 1);
+    int msg_idx = dist(rng);
+    int frame = 0;
+    int ticks_per_message = 25; // ~2 seconds per message (25 * 80ms)
+
+    while (spinner_active.load()) {
+        string line = string("\r\033[K") + AI_LABEL + braille[frame % 10] + CAT_RESET
+                      + " " + CAT_DIM + SPINNER_MESSAGES[msg_idx] + "..." + CAT_RESET;
+        write_stdout(line);
+        frame++;
+        if (frame % ticks_per_message == 0) {
+            msg_idx = (msg_idx + 1) % NUM_SPINNER_MESSAGES;
+        }
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 80000000; // 80ms
+        nanosleep(&ts, NULL);
+    }
+    // Clear spinner line
+    write_stdout("\r\033[K");
+}
+
+static void start_spinner() {
+    if (!isatty(STDOUT_FILENO)) return;
+    if (spinner_active.load()) return; // prevent double-start
+    spinner_active.store(true);
+    spinner_thread_ptr = new thread(spinner_thread_fn);
+}
+
+static void stop_spinner() {
+    spinner_active.store(false);
+    if (spinner_thread_ptr) {
+        spinner_thread_ptr->join();
+        delete spinner_thread_ptr;
+        spinner_thread_ptr = nullptr;
+    }
+}
+
+// ── System prompt ────────────────────────────────────────────
+
+static const char *PROMPT_UNIFIED =
+    "You are an AI assistant embedded in a Unix shell. The user types natural language "
+    "and you respond based on what they ask.\n\n"
+    "Guidelines:\n"
+    "- Single command: set response_type to \"command\", content to the command.\n"
+    "- Multiple commands/steps: set response_type to \"steps\", and steps to an array "
+    "of objects each with \"description\" (what it does) and \"command\" (the shell command). "
+    "Use this when the task requires creating directories, writing files, running multiple "
+    "commands in sequence, or any multi-step workflow.\n"
+    "- Script file: set response_type to \"script\", content to the script, "
+    "filename to a suggested name.\n"
+    "- Explanations or help: set response_type to \"answer\", content to your response.\n\n"
+    "Keep responses concise. No markdown formatting in content.";
 
 // ── Output helpers ────────────────────────────────────────────
 
@@ -62,217 +137,396 @@ static void ai_print_error(const string &msg) {
     write_stdout(AI_ERROR + msg + CAT_RESET "\n");
 }
 
-// ── Ensure API key is available ───────────────────────────────
+// ── Conversation context ─────────────────────────────────────
 
-static string ensure_api_key(ShellState &state) {
+static vector<ConversationTurn> conversation_history;
+static const size_t MAX_CONVERSATION_TURNS = 10;
+
+static void add_to_conversation(const string &role, const string &text) {
+    conversation_history.push_back({role, text});
+    while (conversation_history.size() > MAX_CONVERSATION_TURNS) {
+        conversation_history.erase(conversation_history.begin());
+    }
+}
+
+// ── Rate limiter ─────────────────────────────────────────────
+
+static AiRateLimiter rate_limiter(10, 60); // Gemini free tier: 10 RPM
+
+// ── Context-aware system prompt ──────────────────────────────
+
+static string build_system_context() {
+    string ctx = "You are an AI assistant embedded in tash (Tavakkoli's Shell). ";
+
+    // OS
+    #ifdef __APPLE__
+    ctx += "The user is on macOS. ";
+    #else
+    ctx += "The user is on Linux. ";
+    #endif
+
+    // Current directory
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd))) {
+        ctx += "Current directory: " + string(cwd) + ". ";
+    }
+
+    ctx += "Shell features: pipes (|), redirections (>, >>, <, 2>), "
+           "aliases, background jobs (bg), globs (*,?), env vars ($VAR), "
+           "command substitution ($(...)), operators (&&, ||, ;), auto-cd, "
+           "and tilde expansion (~). ";
+
+    return ctx;
+}
+
+// ── LLM client helpers ───────────────────────────────────────
+
+static unique_ptr<LLMClient> create_current_client() {
+    string provider = ai_get_provider();
+    string gemini_key = ai_load_provider_key("gemini");
+    string openai_key = ai_load_provider_key("openai");
+    string ollama_url = ai_get_ollama_url();
+
+    unique_ptr<LLMClient> client = create_llm_client(provider, gemini_key, openai_key, ollama_url);
+    if (!client) return client;
+
+    string model_override = ai_get_model_override();
+    if (!model_override.empty()) {
+        client->set_model(model_override);
+    }
+    return client;
+}
+
+static unique_ptr<LLMClient> ensure_client(ShellState &state) {
     if (!state.ai_enabled) {
         ai_print_error("AI is disabled. Run @ai on to enable.");
-        return "";
+        return unique_ptr<LLMClient>();
     }
 
-    string key = ai_load_key();
+    string provider = ai_get_provider();
+
+    // Ollama doesn't need a key
+    if (provider == "ollama") {
+        auto client = create_current_client();
+        if (!client) ai_print_error("failed to create Ollama client.");
+        return client;
+    }
+
+    // Validate provider
+    if (provider != "gemini" && provider != "openai") {
+        ai_print_error("unknown provider '" + provider + "'. Run @ai config.");
+        return unique_ptr<LLMClient>();
+    }
+
+    string key = ai_load_provider_key(provider);
     if (key.empty()) {
-        if (!ai_run_setup_wizard()) return "";
-        key = ai_load_key();
+        if (!ai_run_setup_wizard()) return unique_ptr<LLMClient>();
+        key = ai_load_provider_key(provider);
+        if (key.empty()) return unique_ptr<LLMClient>();
     }
-    return key;
+    return create_current_client();
 }
 
-// ── Parse @ai input ───────────────────────────────────────────
+// ── Response tag parsing ─────────────────────────────────────
 
-static string extract_quoted_query(const string &input, size_t start) {
-    size_t q1 = input.find('"', start);
-    if (q1 == string::npos) {
-        string query = input.substr(start);
-        while (!query.empty() && query.front() == ' ') query.erase(query.begin());
-        while (!query.empty() && query.back() == ' ') query.pop_back();
-        return query;
+ParsedResponse parse_ai_response(const string &raw) {
+    ParsedResponse result;
+    result.type = RESP_ANSWER;
+    result.script_filename = "script.sh";
+
+    try {
+        json j = json::parse(raw);
+
+        string type_str = j.at("response_type").get<string>();
+        result.content = j.at("content").get<string>();
+
+        if (type_str == "command") {
+            result.type = RESP_COMMAND;
+        } else if (type_str == "script") {
+            result.type = RESP_SCRIPT;
+            if (j.count("filename") && j["filename"].is_string()) {
+                string fname = j["filename"].get<string>();
+                if (!fname.empty()) result.script_filename = fname;
+            }
+        } else if (type_str == "steps") {
+            result.type = RESP_STEPS;
+            if (j.count("steps") && j["steps"].is_array()) {
+                for (size_t i = 0; i < j["steps"].size(); i++) {
+                    StepInfo step;
+                    if (j["steps"][i].count("description"))
+                        step.description = j["steps"][i]["description"].get<string>();
+                    if (j["steps"][i].count("command"))
+                        step.command = j["steps"][i]["command"].get<string>();
+                    result.steps.push_back(step);
+                }
+            }
+        } else {
+            result.type = RESP_ANSWER;
+        }
+    } catch (const json::exception &) {
+        // JSON parse failed -- treat raw text as answer (fallback)
+        result.content = raw;
+        // Strip any tag-based prefixes as last resort
+        string text = raw;
+        while (!text.empty() && (text.front() == '\n' || text.front() == ' '))
+            text.erase(text.begin());
+        if (text.size() > 9 && text.substr(0, 9) == "[COMMAND]") {
+            result.type = RESP_COMMAND;
+            result.content = text.substr(9);
+        } else if (text.size() > 8 && text.substr(0, 8) == "[SCRIPT:") {
+            result.type = RESP_SCRIPT;
+            size_t end = text.find(']', 8);
+            if (end != string::npos) {
+                result.script_filename = text.substr(8, end - 8);
+                result.content = text.substr(end + 1);
+            }
+        } else if (text.size() > 8 && text.substr(0, 8) == "[ANSWER]") {
+            result.content = text.substr(8);
+        }
+        while (!result.content.empty() && result.content.front() == '\n')
+            result.content.erase(result.content.begin());
+        while (!result.content.empty() && result.content.back() == '\n')
+            result.content.pop_back();
     }
-    size_t q2 = input.find('"', q1 + 1);
-    if (q2 == string::npos) q2 = input.size();
-    return input.substr(q1 + 1, q2 - q1 - 1);
+
+    return result;
 }
 
-// ── Feature: Natural language to command ──────────────────────
+// ── Unified AI handler ───────────────────────────────────────
 
-static int handle_nl_to_cmd(const string &query, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
+static int handle_ask(const string &query, ShellState &state, string *prefill_cmd) {
+    if (!rate_limiter.allow()) {
+        ai_print_error("rate limit exceeded. Please wait a moment.");
+        return 1;
+    }
 
-    GeminiResponse resp = gemini_generate(key, PROMPT_NL_TO_CMD, query);
-    ai_increment_usage();
+    unique_ptr<LLMClient> client = ensure_client(state);
+    if (!client) return 1;
+
+    string system_prompt = build_system_context() + PROMPT_UNIFIED;
+
+    // Enrich query with error context if asking about last error
+    string enriched_query = query;
+    if (state.last_exit_status != 0 && !state.last_command_text.empty()) {
+        string lower_query = query;
+        for (size_t i = 0; i < lower_query.size(); i++)
+            lower_query[i] = tolower(lower_query[i]);
+
+        if (lower_query.find("explain") != string::npos ||
+            lower_query.find("error") != string::npos ||
+            lower_query.find("wrong") != string::npos ||
+            lower_query.find("fail") != string::npos ||
+            lower_query.find("fix") != string::npos ||
+            query == "explain") {
+            enriched_query += "\n\nContext — last failed command:\n";
+            enriched_query += "Command: " + state.last_command_text +
+                              "\nExit code: " + to_string(state.last_exit_status);
+            if (!state.last_stderr_output.empty()) {
+                enriched_query += "\nError output: " + state.last_stderr_output;
+            }
+        }
+    }
+
+    // Generate response using structured output for reliable JSON parsing
+    start_spinner();
+    LLMResponse resp;
+    if (!conversation_history.empty()) {
+        resp = client->generate_structured_with_context(system_prompt, conversation_history, enriched_query);
+    } else {
+        resp = client->generate_structured(system_prompt, enriched_query);
+    }
+    stop_spinner();
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
         if (resp.http_status == 403) state.ai_enabled = false;
+        if (resp.http_status == 401 && isatty(STDIN_FILENO)) {
+            write_stdout("\n");
+            ai_print_label();
+            write_stdout("Your API key appears invalid. Run setup? [y/n] ");
+            char ch = read_single_char();
+            write_stdout(string(1, ch) + "\n");
+            if (ch == 'y' || ch == 'Y') {
+                ai_run_setup_wizard();
+            }
+        }
         return 1;
     }
 
-    string cmd = resp.text;
-    while (!cmd.empty() && (cmd.back() == '\n' || cmd.back() == '\r')) cmd.pop_back();
-    while (!cmd.empty() && (cmd.front() == '\n' || cmd.front() == '\r')) cmd.erase(cmd.begin());
-
-    ai_print_label();
-    write_stdout(AI_CMD + cmd + CAT_RESET "\n\n");
-    write_stdout(AI_PROMPT "Run?" CAT_RESET " [y/n/e] ");
-
-    char ch = read_single_char();
-    write_stdout(string(1, ch) + "\n");
-
-    if (ch == 'y' || ch == 'Y') {
-        write_stdout("\n");
-        return execute_single_command(cmd, state);
-    } else if (ch == 'e' || ch == 'E') {
-        write_stdout("\n" CAT_DIM "Command: " CAT_RESET + cmd + "\n");
-        return 0;
-    }
-
-    write_stdout("\n");
-    return 0;
-}
-
-// ── Feature: Error explanation ────────────────────────────────
-
-static int handle_explain_error(ShellState &state) {
-    if (state.last_command_text.empty()) {
-        ai_print_error("no recent errors to explain.");
-        return 1;
-    }
-
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
-
-    string user_prompt = "Command: " + state.last_command_text +
-                         "\nExit code: " + to_string(state.last_exit_status);
-    if (!state.last_stderr_output.empty()) {
-        user_prompt += "\nError output: " + state.last_stderr_output;
-    }
-
-    GeminiResponse resp = gemini_generate(key, PROMPT_ERROR_EXPLAIN, user_prompt);
     ai_increment_usage();
+    add_to_conversation("user", query);
+    add_to_conversation("assistant", resp.text);
 
-    if (!resp.success) {
-        ai_print_error(resp.error_message);
-        if (resp.http_status == 403) state.ai_enabled = false;
-        return 1;
+    // Parse the structured response
+    ParsedResponse parsed = parse_ai_response(resp.text);
+
+    switch (parsed.type) {
+        case RESP_COMMAND: {
+            // Show command and offer to run
+            ai_print_label();
+            write_stdout(AI_CMD + parsed.content + CAT_RESET "\n\n");
+
+            if (!isatty(STDIN_FILENO)) return 0;
+
+            write_stdout(AI_PROMPT "Run?" CAT_RESET " [y/n/e] ");
+            char ch = read_single_char();
+            write_stdout(string(1, ch) + "\n");
+
+            if (ch == 'y' || ch == 'Y') {
+                write_stdout("\n");
+                return execute_single_command(parsed.content, state);
+            } else if (ch == 'e' || ch == 'E') {
+                if (prefill_cmd) *prefill_cmd = parsed.content;
+                write_stdout("\n");
+                return 0;
+            }
+            write_stdout("\n");
+            return 0;
+        }
+
+        case RESP_SCRIPT: {
+            // Show script and offer to save
+            ai_print_label();
+            write_stdout("\n" + parsed.content + "\n\n");
+
+            if (!isatty(STDIN_FILENO)) return 0;
+
+            write_stdout(AI_PROMPT "Save to?" CAT_RESET " [" + parsed.script_filename + "/n] ");
+
+            string filename;
+            if (!getline(cin, filename) || filename.empty() || filename[0] == 'n' || filename[0] == 'N') {
+                return 0;
+            }
+
+            while (!filename.empty() && filename.back() == ' ') filename.pop_back();
+            while (!filename.empty() && filename.front() == ' ') filename.erase(filename.begin());
+
+            // If user just pressed Enter, use suggested filename
+            if (filename.empty() || filename == "\n") {
+                filename = parsed.script_filename;
+            }
+
+            if (filename.find("..") != string::npos) {
+                ai_print_error("invalid path: '..' not allowed in filename.");
+                return 1;
+            }
+            if (!filename.empty() && filename[0] == '/') {
+                ai_print_error("invalid path: absolute paths not allowed.");
+                return 1;
+            }
+            if (!filename.empty() && filename[0] == '~') {
+                ai_print_error("invalid path: use a relative filename.");
+                return 1;
+            }
+
+            ofstream out(filename);
+            if (!out.is_open()) {
+                ai_print_error("couldn't write to " + filename);
+                return 1;
+            }
+            out << parsed.content << "\n";
+            bool write_ok = out.good();
+            out.close();
+
+            if (!write_ok) {
+                ai_print_error("failed to write to " + filename);
+                return 1;
+            }
+
+            chmod(filename.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
+
+            ai_print_label();
+            write_stdout(AI_CMD "saved to " + filename + CAT_RESET "\n");
+            return 0;
+        }
+
+        case RESP_STEPS: {
+            // Show steps and execute one by one with confirmation
+            if (parsed.steps.empty()) {
+                ai_print_label();
+                write_stdout("\n" + parsed.content + "\n");
+                return 0;
+            }
+
+            ai_print_label();
+            write_stdout(to_string(parsed.steps.size()) + " steps:\n\n");
+
+            bool run_all = false;
+            int last_status = 0;
+
+            for (size_t i = 0; i < parsed.steps.size(); i++) {
+                write_stdout(AI_STEP_NUM "  " + to_string(i + 1) + "." CAT_RESET " "
+                             + parsed.steps[i].description + "\n");
+                write_stdout("     " AI_CMD + parsed.steps[i].command + CAT_RESET "\n");
+
+                if (!isatty(STDIN_FILENO)) continue;
+
+                if (!run_all) {
+                    write_stdout(AI_PROMPT "     Run?" CAT_RESET " [y/n/a(ll)/s(kip)] ");
+                    char ch = read_single_char();
+                    write_stdout(string(1, ch) + "\n");
+
+                    if (ch == 'n' || ch == 'N') {
+                        write_stdout("\n");
+                        return 0;
+                    } else if (ch == 'a' || ch == 'A') {
+                        run_all = true;
+                    } else if (ch == 's' || ch == 'S') {
+                        write_stdout("\n");
+                        continue;
+                    }
+                    // y or a: fall through to execute
+                }
+
+                write_stdout("\n");
+                last_status = execute_single_command(parsed.steps[i].command, state);
+                if (last_status != 0 && !run_all) {
+                    ai_print_error("step " + to_string(i + 1) + " failed (exit " + to_string(last_status) + "). Stop? [y/n] ");
+                    char ch = read_single_char();
+                    write_stdout(string(1, ch) + "\n");
+                    if (ch == 'y' || ch == 'Y') return last_status;
+                }
+                write_stdout("\n");
+            }
+            return last_status;
+        }
+
+        case RESP_ANSWER:
+        default: {
+            // Just display the answer
+            ai_print_label();
+            write_stdout("\n" + parsed.content + "\n");
+            return 0;
+        }
     }
-
-    ai_print_label();
-    write_stdout(AI_ERROR + state.last_command_text + CAT_RESET
-                 " exited with " + to_string(state.last_exit_status) + "\n\n");
-    write_stdout(resp.text + "\n");
-    return 0;
-}
-
-// ── Feature: Command explanation ──────────────────────────────
-
-static int handle_explain_cmd(const string &cmd_text, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
-
-    GeminiResponse resp = gemini_generate(key, PROMPT_CMD_EXPLAIN, cmd_text);
-    ai_increment_usage();
-
-    if (!resp.success) {
-        ai_print_error(resp.error_message);
-        if (resp.http_status == 403) state.ai_enabled = false;
-        return 1;
-    }
-
-    ai_print_label();
-    write_stdout(AI_CMD + cmd_text + CAT_RESET "\n\n");
-    write_stdout(resp.text + "\n");
-    return 0;
-}
-
-// ── Feature: Script generation ────────────────────────────────
-
-static int handle_script(const string &query, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
-
-    GeminiResponse resp = gemini_generate(key, PROMPT_SCRIPT_GEN, query);
-    ai_increment_usage();
-
-    if (!resp.success) {
-        ai_print_error(resp.error_message);
-        if (resp.http_status == 403) state.ai_enabled = false;
-        return 1;
-    }
-
-    ai_print_label();
-    write_stdout("\n" + resp.text + "\n\n");
-    write_stdout(AI_PROMPT "Save to?" CAT_RESET " [filename/n] ");
-
-    // For save prompt, we need a full filename so use getline
-    string filename;
-    if (!getline(cin, filename) || filename.empty() || filename[0] == 'n' || filename[0] == 'N') {
-        return 0;
-    }
-
-    while (!filename.empty() && filename.back() == ' ') filename.pop_back();
-    while (!filename.empty() && filename.front() == ' ') filename.erase(filename.begin());
-
-    ofstream out(filename);
-    if (!out.is_open()) {
-        ai_print_error("couldn't write to " + filename);
-        return 1;
-    }
-    out << resp.text << "\n";
-    out.close();
-
-    chmod(filename.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
-
-    ai_print_label();
-    write_stdout(AI_CMD "saved to " + filename + CAT_RESET "\n");
-    return 0;
-}
-
-// ── Feature: Workflow help ────────────────────────────────────
-
-static int handle_help(const string &query, ShellState &state) {
-    string key = ensure_api_key(state);
-    if (key.empty()) return 1;
-
-    GeminiResponse resp = gemini_generate(key, PROMPT_WORKFLOW, query);
-    ai_increment_usage();
-
-    if (!resp.success) {
-        ai_print_error(resp.error_message);
-        if (resp.http_status == 403) state.ai_enabled = false;
-        return 1;
-    }
-
-    ai_print_label();
-    write_stdout("\n" + resp.text + "\n");
-    return 0;
 }
 
 // ── Feature: Status ───────────────────────────────────────────
 
 static int handle_status(ShellState &state) {
-    // Gemini 3.1 Flash Lite free tier limits
-    static const int DAILY_LIMIT = 500;
     static const int RPM_LIMIT = 15;
+
+    string provider = ai_get_provider();
+    string model_override = ai_get_model_override();
+    unique_ptr<LLMClient> client = create_current_client();
+    string current_model = client ? client->get_model() : "unknown";
+    if (!model_override.empty()) current_model = model_override;
 
     ai_print_label();
     write_stdout("AI Status\n\n");
 
-    string key = ai_load_key();
-    write_stdout("  Key:      " + string(key.empty() ? AI_ERROR "not configured" : AI_CMD "configured") + CAT_RESET "\n");
+    string key = ai_load_provider_key(provider);
+    bool key_ok = (provider == "ollama") || !key.empty();
+
+    write_stdout("  Provider: " AI_CMD + provider + CAT_RESET "\n");
+    write_stdout("  Model:    " AI_CMD + current_model + CAT_RESET "\n");
+    write_stdout("  Key:      " + string(key_ok ? AI_CMD "configured" : AI_ERROR "not configured") + CAT_RESET "\n");
     write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
-    int remaining = DAILY_LIMIT - usage;
-    if (remaining < 0) remaining = 0;
+    write_stdout("  Today:    " AI_CMD + to_string(usage) + " requests" CAT_RESET "\n");
+    write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min (enforced)" CAT_RESET "\n\n");
 
-    string usage_color = (remaining > 100) ? AI_CMD : (remaining > 0) ? CAT_YELLOW : AI_ERROR;
-    write_stdout("  Today:    " + usage_color + to_string(usage) + " / " + to_string(DAILY_LIMIT) +
-                 " requests" CAT_RESET CAT_DIM " (" + to_string(remaining) + " remaining)" CAT_RESET "\n");
-    write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min" CAT_RESET "\n");
-
-    write_stdout("  Model:    " CAT_DIM "gemini-3.1-flash-lite-preview" CAT_RESET "\n");
-    write_stdout("\n");
     return 0;
 }
 
@@ -289,7 +543,7 @@ bool is_ai_command(const string &input) {
     return true;
 }
 
-int handle_ai_command(const string &input, ShellState &state) {
+int handle_ai_command(const string &input, ShellState &state, string *prefill_cmd) {
     string trimmed = input;
     while (!trimmed.empty() && trimmed.front() == ' ') trimmed.erase(trimmed.begin());
     string rest = (trimmed.size() > 3) ? trimmed.substr(4) : "";
@@ -297,25 +551,124 @@ int handle_ai_command(const string &input, ShellState &state) {
 
     if (rest.empty()) {
         ai_print_label();
-        write_stdout("Usage:\n");
-        write_stdout("  @ai \"question\"           generate a shell command\n");
-        write_stdout("  @ai explain              explain last failed command\n");
-        write_stdout("  @ai what does <cmd>      explain a command\n");
-        write_stdout("  @ai script \"task\"         generate a bash script\n");
-        write_stdout("  @ai help \"topic\"          step-by-step guidance\n");
-        write_stdout("  @ai status               show AI usage status\n");
-        write_stdout("  @ai setup                configure API key\n");
-        write_stdout("  @ai on / off             enable or disable AI\n");
+        write_stdout("Usage:\n\n");
+        write_stdout("  @ai <anything>           ask the AI in natural language\n");
+        write_stdout("  @ai config               configure provider, model, and API keys\n");
+        write_stdout("  @ai clear                clear conversation history\n");
+        write_stdout("  @ai on / off             enable or disable AI\n\n");
+        write_stdout(CAT_DIM "  Examples:" CAT_RESET "\n");
+        write_stdout(CAT_DIM "    @ai find files larger than 100MB" CAT_RESET "\n");
+        write_stdout(CAT_DIM "    @ai explain this error" CAT_RESET "\n");
+        write_stdout(CAT_DIM "    @ai what does tar -xzvf archive.tar.gz" CAT_RESET "\n");
+        write_stdout(CAT_DIM "    @ai write a script to backup my home" CAT_RESET "\n");
         return 0;
     }
 
-    // @ai setup
-    if (rest == "setup") {
-        ai_run_setup_wizard();
+    // ── 1. config (also handles setup, status) ─────────────────
+
+    if (rest == "config" || rest == "status" || rest == "setup") {
+        if (!isatty(STDIN_FILENO)) {
+            // Non-interactive: just show status
+            return handle_status(state);
+        }
+
+        string provider = ai_get_provider();
+        string model = ai_get_model_override();
+        unique_ptr<LLMClient> client = create_current_client();
+        string current_model = client ? client->get_model() : "unknown";
+        if (!model.empty()) current_model = model;
+
+        string key = ai_load_provider_key(provider);
+        bool key_ok = (provider == "ollama") || !key.empty();
+        int usage = ai_get_today_usage();
+
+        ai_print_label();
+        write_stdout("Configuration\n\n");
+        write_stdout("  Provider: " AI_CMD + provider + CAT_RESET "  Model: " AI_CMD + current_model + CAT_RESET "\n");
+        write_stdout("  Key:      " + string(key_ok ? AI_CMD "configured" : AI_ERROR "not configured") + CAT_RESET);
+        write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
+        write_stdout("  Today:    " AI_CMD + to_string(usage) + " requests" CAT_RESET
+                     "  Rate: " CAT_DIM "10/min (enforced)" CAT_RESET "\n\n");
+        write_stdout(AI_STEP_NUM "  1." CAT_RESET " Switch provider (gemini/openai/ollama)\n");
+        write_stdout(AI_STEP_NUM "  2." CAT_RESET " Change model\n");
+        write_stdout(AI_STEP_NUM "  3." CAT_RESET " Set API key\n");
+        write_stdout(AI_STEP_NUM "  4." CAT_RESET " Set Ollama URL\n");
+        write_stdout(AI_STEP_NUM "  5." CAT_RESET " Test connection\n");
+        write_stdout(AI_STEP_NUM "  q." CAT_RESET " Back\n\n");
+        write_stdout(AI_PROMPT "  Choice" CAT_RESET " [1-5/q]: ");
+
+        char ch = read_single_char();
+        write_stdout(string(1, ch) + "\n\n");
+
+        if (ch == '1') {
+            write_stdout("  Provider (gemini/openai/ollama): ");
+            string p;
+            if (getline(cin, p)) {
+                while (!p.empty() && p.back() == ' ') p.pop_back();
+                while (!p.empty() && p.front() == ' ') p.erase(p.begin());
+                if (p == "gemini" || p == "openai" || p == "ollama") {
+                    ai_set_provider(p);
+                    ai_set_model_override("");
+                    ai_print_label();
+                    write_stdout(AI_CMD "Provider set to " + p + "." CAT_RESET "\n");
+                } else {
+                    ai_print_error("unknown provider.");
+                }
+            }
+        } else if (ch == '2') {
+            write_stdout("  Model name: ");
+            string m;
+            if (getline(cin, m)) {
+                while (!m.empty() && m.back() == ' ') m.pop_back();
+                while (!m.empty() && m.front() == ' ') m.erase(m.begin());
+                if (!m.empty()) {
+                    ai_set_model_override(m);
+                    ai_print_label();
+                    write_stdout(AI_CMD "Model set to " + m + "." CAT_RESET "\n");
+                }
+            }
+        } else if (ch == '3') {
+            ai_run_setup_wizard();
+        } else if (ch == '4') {
+            write_stdout("  Ollama URL [http://localhost:11434]: ");
+            string url;
+            if (getline(cin, url)) {
+                while (!url.empty() && url.back() == ' ') url.pop_back();
+                while (!url.empty() && url.front() == ' ') url.erase(url.begin());
+                if (url.empty()) url = "http://localhost:11434";
+                ai_set_ollama_url(url);
+                ai_print_label();
+                write_stdout(AI_CMD "Ollama URL set to " + url + "." CAT_RESET "\n");
+            }
+        } else if (ch == '5') {
+            // Test connection
+            if (!rate_limiter.allow()) {
+                ai_print_error("rate limit exceeded. Please wait a moment.");
+                return 1;
+            }
+            unique_ptr<LLMClient> test_client = create_current_client();
+            if (!test_client) {
+                ai_print_error("couldn't create client. Check your config.");
+                return 1;
+            }
+            ai_print_label();
+            write_stdout("testing connection...\n");
+            start_spinner();
+            LLMResponse test_resp = test_client->generate("Reply with exactly: ok", "test");
+            stop_spinner();
+            if (test_resp.success) {
+                ai_print_label();
+                write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
+            } else {
+                ai_print_error("connection failed: " + test_resp.error_message);
+            }
+        }
+
         return 0;
     }
 
-    // @ai on
+    // ── 2. on, off ────────────────────────────────────────────
+
     if (rest == "on") {
         state.ai_enabled = true;
         ai_print_label();
@@ -323,7 +676,6 @@ int handle_ai_command(const string &input, ShellState &state) {
         return 0;
     }
 
-    // @ai off
     if (rest == "off") {
         state.ai_enabled = false;
         ai_print_label();
@@ -331,66 +683,71 @@ int handle_ai_command(const string &input, ShellState &state) {
         return 0;
     }
 
-    // @ai status
-    if (rest == "status") {
-        return handle_status(state);
+    // ── 3. clear ───────────────────────────────────────────────
+
+    if (rest == "clear") {
+        conversation_history.clear();
+        ai_print_label();
+        write_stdout(AI_CMD "Conversation cleared." CAT_RESET "\n");
+        return 0;
     }
 
-    // @ai explain
-    if (rest == "explain") {
-        return handle_explain_error(state);
-    }
+    // ── 4. Hidden shortcuts (still work, not shown in help) ──
 
-    // @ai what does <command>
-    if (rest.size() > 9 && rest.substr(0, 9) == "what does") {
-        string cmd_text = rest.substr(9);
-        while (!cmd_text.empty() && cmd_text.front() == ' ') cmd_text.erase(cmd_text.begin());
-        if (cmd_text.empty()) {
-            ai_print_error("usage: @ai what does <command>");
+    if (rest == "test") {
+        if (!rate_limiter.allow()) {
+            ai_print_error("rate limit exceeded. Please wait a moment.");
             return 1;
         }
-        return handle_explain_cmd(cmd_text, state);
-    }
-
-    // @ai what <command> (shorthand)
-    if (rest.size() > 5 && rest.substr(0, 5) == "what ") {
-        string cmd_text = rest.substr(5);
-        while (!cmd_text.empty() && cmd_text.front() == ' ') cmd_text.erase(cmd_text.begin());
-        if (cmd_text.empty()) {
-            ai_print_error("usage: @ai what <command>");
+        unique_ptr<LLMClient> client = create_current_client();
+        if (!client) {
+            ai_print_error("not configured. Run @ai config.");
             return 1;
         }
-        return handle_explain_cmd(cmd_text, state);
-    }
-
-    // @ai script "..."
-    if (rest.size() > 6 && rest.substr(0, 6) == "script") {
-        string query = extract_quoted_query(rest, 6);
-        if (query.empty()) {
-            ai_print_error("usage: @ai script \"task description\"");
-            return 1;
+        ai_print_label();
+        write_stdout("testing connection...\n");
+        start_spinner();
+        LLMResponse resp = client->generate("Reply with exactly: ok", "test");
+        stop_spinner();
+        if (resp.success) {
+            ai_print_label();
+            write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
+            return 0;
         }
-        return handle_script(query, state);
-    }
-
-    // @ai help "..."
-    if (rest.size() > 4 && rest.substr(0, 4) == "help") {
-        string query = extract_quoted_query(rest, 4);
-        if (query.empty()) {
-            ai_print_error("usage: @ai help \"topic\"");
-            return 1;
-        }
-        return handle_help(query, state);
-    }
-
-    // Default: natural language to command
-    string query = extract_quoted_query(trimmed, 3);
-    if (query.empty()) {
-        ai_print_error("usage: @ai \"your question\"");
+        ai_print_error("test failed: " + resp.error_message);
         return 1;
     }
 
-    return handle_nl_to_cmd(query, state);
+    if (rest.size() > 9 && rest.substr(0, 9) == "provider ") {
+        string provider = rest.substr(9);
+        while (!provider.empty() && provider.front() == ' ') provider.erase(provider.begin());
+        while (!provider.empty() && provider.back() == ' ') provider.pop_back();
+        if (provider != "gemini" && provider != "openai" && provider != "ollama") {
+            ai_print_error("unknown provider. Use: gemini, openai, or ollama");
+            return 1;
+        }
+        ai_set_provider(provider);
+        ai_set_model_override("");
+        ai_print_label();
+        write_stdout(AI_CMD "Provider set to " + provider + "." CAT_RESET "\n");
+        return 0;
+    }
+
+    if (rest.size() > 6 && rest.substr(0, 6) == "model ") {
+        string model = rest.substr(6);
+        while (!model.empty() && model.front() == ' ') model.erase(model.begin());
+        while (!model.empty() && model.back() == ' ') model.pop_back();
+        if (!model.empty()) {
+            ai_set_model_override(model);
+            ai_print_label();
+            write_stdout(AI_CMD "Model set to " + model + "." CAT_RESET "\n");
+        }
+        return 0;
+    }
+
+    // ── 5. Everything else: ask the AI ───────────────────────
+
+    return handle_ask(rest, state, prefill_cmd);
 }
 
 #endif // TASH_AI_ENABLED

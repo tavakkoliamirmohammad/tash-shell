@@ -37,7 +37,18 @@ if(OpenSSL_FOUND)
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(httplib)
-    message(STATUS "AI features enabled (OpenSSL found)")
+
+    FetchContent_Declare(
+        nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+
+    find_package(CURL REQUIRED)
+    find_package(Threads REQUIRED)
+
+    message(STATUS "AI features enabled (OpenSSL + libcurl found)")
 else()
     set(TASH_AI_ENABLED OFF)
     message(STATUS "AI features disabled (OpenSSL not found)")
@@ -69,8 +80,8 @@ set(SHELL_SOURCES
 if(TASH_AI_ENABLED)
     list(APPEND SHELL_SOURCES
         src/ai/ai_handler.cpp
-        src/ai/gemini_client.cpp
-        src/ai/ai_setup.cpp
+        src/ai/llm_client.cpp
+        src/ai/ai_config.cpp
         src/ai/context_suggest.cpp
     )
 endif()
@@ -83,8 +94,9 @@ target_compile_options(tash.out PRIVATE -Wall -Wextra)
 
 if(TASH_AI_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
-    target_link_libraries(tash.out PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(tash.out PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
     target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
+    target_include_directories(tash.out PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
 endif()
 
 # ── Testing ───────────────────────────────────────────────────
@@ -110,8 +122,9 @@ if(BUILD_TESTS)
 
     if(TASH_AI_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
-        target_link_libraries(shell_lib PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        target_link_libraries(shell_lib PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
         target_include_directories(shell_lib PRIVATE ${httplib_SOURCE_DIR})
+        target_include_directories(shell_lib PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
     endif()
 
     add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
@@ -125,6 +138,8 @@ if(BUILD_TESTS)
     if(TASH_AI_ENABLED)
         target_compile_definitions(test_ai PRIVATE TASH_AI_ENABLED)
         target_include_directories(test_ai PRIVATE ${httplib_SOURCE_DIR})
+        target_include_directories(test_ai PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
+        target_link_libraries(test_ai CURL::libcurl)
     endif()
     gtest_discover_tests(test_ai TEST_PREFIX "unit/ai/")
 

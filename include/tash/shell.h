@@ -63,6 +63,7 @@ struct ShellState {
     // AI features
     std::string last_command_text;
     std::string last_stderr_output;
+    std::string last_executed_cmd;
     bool ai_enabled;
 
     ShellState()

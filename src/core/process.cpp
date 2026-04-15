@@ -43,27 +43,65 @@ void setup_child_io(const vector<Redirection> &redirections) {
 }
 
 int foreground_process(const vector<string> &argv,
-                       const vector<Redirection> &redirections) {
+                       const vector<Redirection> &redirections,
+                       string *captured_stderr) {
     // Build C-style args for execvp
     vector<const char *> c_args;
     for (const string &a : argv) c_args.push_back(a.c_str());
     c_args.push_back(nullptr);
+
+    int stderr_pipe[2] = {-1, -1};
+    if (captured_stderr) {
+        captured_stderr->clear();
+        if (pipe(stderr_pipe) < 0) {
+            write_stderr("tash: warning: could not capture stderr\n");
+            captured_stderr = nullptr; // fall back to no capture
+        }
+    }
 
     int status;
     pid_t pid = fork();
     if (pid < 0) {
         exit_with_message("Error: Fork failed!\n", 1);
     } else if (pid == 0) {
+        // Child
+        if (captured_stderr && stderr_pipe[1] >= 0) {
+            close(stderr_pipe[0]); // close read end in child
+            dup2(stderr_pipe[1], STDERR_FILENO);
+            close(stderr_pipe[1]);
+        }
         setup_child_io(redirections);
         execvp(c_args[0], const_cast<char *const *>(c_args.data()));
         string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
         write_stderr(err_msg);
         exit(127);
     } else {
+        // Parent
+        if (stderr_pipe[1] >= 0) close(stderr_pipe[1]); // close write end
+
         fg_child_pid = pid;
+
+        // Read stderr BEFORE waitpid to prevent deadlock on large output
+        if (captured_stderr && stderr_pipe[0] >= 0) {
+            char buf[4096];
+            ssize_t n;
+            while ((n = read(stderr_pipe[0], buf, sizeof(buf) - 1)) > 0) {
+                buf[n] = '\0';
+                captured_stderr->append(buf, static_cast<size_t>(n));
+                // Also show to user on real stderr
+                write(STDERR_FILENO, buf, static_cast<size_t>(n));
+                if (captured_stderr->size() >= 4096) break;
+            }
+            close(stderr_pipe[0]);
+        }
+
         waitpid(pid, &status, WUNTRACED);
         fg_child_pid = 0;
-        return WEXITSTATUS(status);
+
+        // Check exit status properly
+        if (WIFEXITED(status)) return WEXITSTATUS(status);
+        if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+        return 0; // stopped
     }
     return 1;
 }
@@ -173,7 +211,8 @@ int execute_pipeline(vector<vector<string>> &pipeline_cmds,
         int status;
         waitpid(pids[i], &status, 0);
         if (i == num_cmds - 1) {
-            last_status = WEXITSTATUS(status);
+            if (WIFEXITED(status)) last_status = WEXITSTATUS(status);
+            else if (WIFSIGNALED(status)) last_status = 128 + WTERMSIG(status);
         }
     }
     return last_status;

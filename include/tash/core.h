@@ -40,7 +40,8 @@ bool is_builtin(const std::string &name);
 
 void setup_child_io(const std::vector<Redirection> &redirections);
 int foreground_process(const std::vector<std::string> &argv,
-                       const std::vector<Redirection> &redirections);
+                       const std::vector<Redirection> &redirections,
+                       std::string *captured_stderr = nullptr);
 void background_process(const std::vector<std::string> &argv,
                         ShellState &state,
                         const std::vector<Redirection> &redirections);

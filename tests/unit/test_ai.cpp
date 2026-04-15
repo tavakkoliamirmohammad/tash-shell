@@ -3,6 +3,8 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
+#include "tash/llm_client.h"
+#include <nlohmann/json.hpp>
 #include <fstream>
 #include <cstdlib>
 #include <sys/stat.h>
@@ -100,9 +102,10 @@ TEST_F(AiTestFixture, LoadMissingKeyReturnsEmpty) {
 }
 
 TEST_F(AiTestFixture, ValidateKey) {
-    EXPECT_TRUE(ai_validate_key("AIzaSyAbcdefghij1234567890"));
+    EXPECT_TRUE(ai_validate_key("AIzaSyAbcdefghijklmnopqrstuvwxyz0123456789")); // 42 chars >= 39
     EXPECT_FALSE(ai_validate_key(""));
     EXPECT_FALSE(ai_validate_key("short"));
+    EXPECT_FALSE(ai_validate_key("AIzaSyAbcde")); // too short
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -180,6 +183,380 @@ TEST(ContextSuggest, EmptyHistoryNoTransitions) {
     EXPECT_TRUE(tmap.transitions.empty());
 
     unlink(hist_path.c_str());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Gemini JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(GeminiClient, BuildsValidRequestJson) {
+    std::string json_str = build_gemini_request_json("sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["system_instruction"]["parts"][0]["text"], "sys");
+    EXPECT_EQ(parsed["contents"][0]["parts"][0]["text"], "usr");
+}
+
+TEST(GeminiClient, ParsesSuccessResponse) {
+    std::string resp = R"({"candidates":[{"content":{"parts":[{"text":"hello"}]}}]})";
+    EXPECT_EQ(extract_gemini_text(resp), "hello");
+}
+
+TEST(GeminiClient, ParsesUnicodeInResponse) {
+    std::string resp = R"({"candidates":[{"content":{"parts":[{"text":"caf\u00e9"}]}}]})";
+    EXPECT_NE(extract_gemini_text(resp).find("caf"), std::string::npos);
+}
+
+TEST(GeminiClient, ParsesErrorResponse) {
+    std::string resp = R"({"error":{"message":"API key not valid"}})";
+    EXPECT_EQ(extract_gemini_error(resp), "API key not valid");
+}
+
+TEST(GeminiClient, HandlesEmptyResponse) {
+    EXPECT_TRUE(extract_gemini_text("{}").empty());
+}
+
+TEST(GeminiClient, HandlesNestedTextFields) {
+    std::string resp = R"({"candidates":[{"content":{"parts":[{"text":"correct"}]},"safetyRatings":[{"text":"SAFE"}]}]})";
+    EXPECT_EQ(extract_gemini_text(resp), "correct");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OpenAI JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(OpenAIClient, BuildsValidRequestJson) {
+    std::string json_str = build_openai_request_json("gpt-4o-mini", "sys", "usr", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["model"], "gpt-4o-mini");
+    EXPECT_EQ(parsed["messages"][0]["role"], "system");
+    EXPECT_EQ(parsed["messages"][0]["content"], "sys");
+    EXPECT_EQ(parsed["messages"][1]["role"], "user");
+    EXPECT_EQ(parsed["messages"][1]["content"], "usr");
+    EXPECT_EQ(parsed["stream"], false);
+}
+
+TEST(OpenAIClient, ParsesSuccessResponse) {
+    std::string resp = R"({"choices":[{"message":{"content":"hello"}}]})";
+    EXPECT_EQ(extract_openai_text(resp), "hello");
+}
+
+TEST(OpenAIClient, ParsesErrorResponse) {
+    std::string resp = R"({"error":{"message":"invalid key"}})";
+    EXPECT_EQ(extract_openai_error(resp), "invalid key");
+}
+
+TEST(OpenAIClient, HandlesEmptyResponse) {
+    EXPECT_TRUE(extract_openai_text("{}").empty());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Ollama JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(OllamaClient, BuildsValidRequestJson) {
+    std::string json_str = build_ollama_request_json("llama3.2", "sys", "usr", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["model"], "llama3.2");
+    EXPECT_EQ(parsed["messages"][0]["role"], "system");
+    EXPECT_EQ(parsed["messages"][0]["content"], "sys");
+    EXPECT_EQ(parsed["messages"][1]["role"], "user");
+    EXPECT_EQ(parsed["stream"], false);
+}
+
+TEST(OllamaClient, ParsesSuccessResponse) {
+    std::string resp = R"({"message":{"role":"assistant","content":"hello"}})";
+    EXPECT_EQ(extract_ollama_text(resp), "hello");
+}
+
+TEST(OllamaClient, HandlesEmptyResponse) {
+    EXPECT_TRUE(extract_ollama_text("{}").empty());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Factory tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(LLMFactory, CreateGemini) {
+    auto c = create_llm_client("gemini", "key", "", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_provider_name(), "gemini");
+}
+
+TEST(LLMFactory, CreateOpenAI) {
+    auto c = create_llm_client("openai", "", "key", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_provider_name(), "openai");
+}
+
+TEST(LLMFactory, CreateOllama) {
+    auto c = create_llm_client("ollama", "", "", "http://localhost:11434");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_provider_name(), "ollama");
+}
+
+TEST(LLMFactory, UnknownReturnsNull) {
+    auto c = create_llm_client("unknown", "", "", "");
+    EXPECT_EQ(c, nullptr);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Context JSON tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(GeminiClient, BuildsContextJson) {
+    std::vector<ConversationTurn> hist = {{"user", "find files"}, {"assistant", "find . -type f"}};
+    std::string json_str = build_gemini_context_json("sys", hist, "now delete them");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["contents"].size(), 3u); // 2 history + 1 new
+}
+
+TEST(OpenAIClient, BuildsContextJson) {
+    std::vector<ConversationTurn> hist = {{"user", "find files"}, {"assistant", "find . -type f"}};
+    std::string json_str = build_openai_context_json("gpt-4o-mini", "sys", hist, "now delete them", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["messages"].size(), 4u); // system + 2 history + 1 new
+}
+
+TEST(OllamaClient, BuildsContextJson) {
+    std::vector<ConversationTurn> hist = {{"user", "find files"}, {"assistant", "find . -type f"}};
+    std::string json_str = build_ollama_context_json("llama3.2", "sys", hist, "now delete them", false);
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["messages"].size(), 4u); // system + 2 history + 1 new
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Rate limiter tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(RateLimiter, AllowsUnderLimit) {
+    AiRateLimiter limiter(5, 60);
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_TRUE(limiter.allow());
+}
+
+TEST(RateLimiter, BlocksOverLimit) {
+    AiRateLimiter limiter(2, 60);
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_TRUE(limiter.allow());
+    EXPECT_FALSE(limiter.allow());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// XDG config tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST_F(AiTestFixture, ConfigPathRespectsXdgOverride) {
+    unsetenv("TASH_AI_KEY_PATH");
+    setenv("XDG_CONFIG_HOME", "/tmp/tash_test_xdg", 1);
+    std::string path = ai_get_key_path();
+    EXPECT_NE(path.find("/tmp/tash_test_xdg/tash"), std::string::npos);
+    unsetenv("XDG_CONFIG_HOME");
+    setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
+}
+
+TEST_F(AiTestFixture, ConfigPathFallsBackToHome) {
+    unsetenv("TASH_AI_KEY_PATH");
+    unsetenv("XDG_CONFIG_HOME");
+    std::string path = ai_get_key_path();
+    EXPECT_NE(path.find(".config/tash"), std::string::npos);
+    setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Retry logic tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(RetryLogic, IsRetryableOnServerError) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 500;
+    EXPECT_TRUE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, IsRetryableOnRateLimit) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 429;
+    EXPECT_TRUE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, IsRetryableOnConnectionFailure) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 0;
+    EXPECT_TRUE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, NotRetryableOnAuthError) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 401;
+    EXPECT_FALSE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, NotRetryableOnSuccess) {
+    LLMResponse resp;
+    resp.success = true;
+    resp.http_status = 200;
+    EXPECT_FALSE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, NotRetryableOnNotFound) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 404;
+    EXPECT_FALSE(LLMClient::is_retryable(resp));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Model set/get tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(LLMFactory, GeminiDefaultModel) {
+    auto c = create_llm_client("gemini", "key", "", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_model(), "gemini-3-flash-preview");
+}
+
+TEST(LLMFactory, OpenAIDefaultModel) {
+    auto c = create_llm_client("openai", "", "key", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_model(), "gpt-4.1-nano");
+}
+
+TEST(LLMFactory, OllamaDefaultModel) {
+    auto c = create_llm_client("ollama", "", "", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_model(), "qwen3.5:0.8b");
+}
+
+TEST(LLMFactory, SetModelOverride) {
+    auto c = create_llm_client("gemini", "key", "", "");
+    ASSERT_NE(c, nullptr);
+    c->set_model("gemini-2.0-flash");
+    EXPECT_EQ(c->get_model(), "gemini-2.0-flash");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Response parsing tests (JSON-based with tag fallback)
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ResponseParsing, ParsesCommandJson) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"command","content":"find . -type f -size +100M"})");
+    EXPECT_EQ(r.type, RESP_COMMAND);
+    EXPECT_EQ(r.content, "find . -type f -size +100M");
+}
+
+TEST(ResponseParsing, ParsesScriptJsonWithFilename) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"script","content":"#!/bin/bash\necho hello","filename":"backup.sh"})");
+    EXPECT_EQ(r.type, RESP_SCRIPT);
+    EXPECT_EQ(r.script_filename, "backup.sh");
+    EXPECT_NE(r.content.find("#!/bin/bash"), std::string::npos);
+}
+
+TEST(ResponseParsing, ParsesScriptJsonWithoutFilename) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"script","content":"#!/bin/bash"})");
+    EXPECT_EQ(r.type, RESP_SCRIPT);
+    EXPECT_EQ(r.script_filename, "script.sh");
+}
+
+TEST(ResponseParsing, ParsesAnswerJson) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"answer","content":"The -x flag extracts files."})");
+    EXPECT_EQ(r.type, RESP_ANSWER);
+    EXPECT_EQ(r.content, "The -x flag extracts files.");
+}
+
+TEST(ResponseParsing, FallsBackToRawTextOnInvalidJson) {
+    ParsedResponse r = parse_ai_response("Just some text without JSON.");
+    EXPECT_EQ(r.type, RESP_ANSWER);
+    EXPECT_EQ(r.content, "Just some text without JSON.");
+}
+
+TEST(ResponseParsing, FallsBackToTagsOnInvalidJson) {
+    ParsedResponse r = parse_ai_response("[COMMAND]\nls -la");
+    EXPECT_EQ(r.type, RESP_COMMAND);
+    EXPECT_EQ(r.content, "ls -la");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Structured output JSON builder tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(GeminiClient, BuildsStructuredRequestJson) {
+    std::string json_str = build_gemini_structured_json("sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_TRUE(parsed.count("generationConfig"));
+    EXPECT_EQ(parsed["generationConfig"]["responseMimeType"], "application/json");
+    EXPECT_TRUE(parsed["generationConfig"].count("responseSchema"));
+}
+
+TEST(OpenAIClient, BuildsStructuredRequestJson) {
+    std::string json_str = build_openai_structured_json("gpt-4o-mini", "sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_TRUE(parsed.count("response_format"));
+    EXPECT_EQ(parsed["response_format"]["type"], "json_schema");
+}
+
+TEST(OllamaClient, BuildsStructuredRequestJson) {
+    std::string json_str = build_ollama_structured_json("llama3.2", "sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    EXPECT_EQ(parsed["format"], "json");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Steps response parsing tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ResponseParsing, ParsesStepsJson) {
+    std::string input = R"({
+        "response_type": "steps",
+        "content": "",
+        "steps": [
+            {"description": "Create folder", "command": "mkdir -p ~/scripts"},
+            {"description": "Create script", "command": "echo '#!/bin/bash' > ~/scripts/backup.sh"}
+        ]
+    })";
+    ParsedResponse r = parse_ai_response(input);
+    EXPECT_EQ(r.type, RESP_STEPS);
+    ASSERT_EQ(r.steps.size(), 2u);
+    EXPECT_EQ(r.steps[0].description, "Create folder");
+    EXPECT_EQ(r.steps[0].command, "mkdir -p ~/scripts");
+    EXPECT_EQ(r.steps[1].description, "Create script");
+}
+
+TEST(ResponseParsing, ParsesStepsJsonEmpty) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"steps","content":"","steps":[]})");
+    EXPECT_EQ(r.type, RESP_STEPS);
+    EXPECT_TRUE(r.steps.empty());
+}
+
+TEST(ResponseParsing, ParsesStepsJsonSingleStep) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"steps","content":"","steps":[{"description":"List files","command":"ls -la"}]})");
+    EXPECT_EQ(r.type, RESP_STEPS);
+    ASSERT_EQ(r.steps.size(), 1u);
+    EXPECT_EQ(r.steps[0].command, "ls -la");
+}
+
+// Verify structured builders include steps in schema
+TEST(GeminiClient, StructuredSchemaIncludesSteps) {
+    std::string json_str = build_gemini_structured_json("sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    auto &schema = parsed["generationConfig"]["responseSchema"];
+    EXPECT_TRUE(schema["properties"].count("steps"));
+    auto &enum_vals = schema["properties"]["response_type"]["enum"];
+    bool has_steps = false;
+    for (size_t i = 0; i < enum_vals.size(); i++) {
+        if (enum_vals[i] == "steps") has_steps = true;
+    }
+    EXPECT_TRUE(has_steps);
+}
+
+TEST(OpenAIClient, StructuredSchemaIncludesSteps) {
+    std::string json_str = build_openai_structured_json("gpt-4o-mini", "sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    auto &schema = parsed["response_format"]["json_schema"]["schema"];
+    EXPECT_TRUE(schema["properties"].count("steps"));
 }
 
 #else
