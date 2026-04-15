@@ -328,7 +328,7 @@ int main(int argc, char *argv[]) {
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ██║  ██║███████║██║  ██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " BANNER_VERSION "v1.2.0" CAT_RESET "               " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " BANNER_VERSION "v" TASH_VERSION_STRING CAT_RESET "               " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ syntax highlighting  ▸ autosuggestions" CAT_RESET "   " BANNER_FRAME "║" CAT_RESET "\n");
         write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ smart completions    ▸ catppuccin theme" CAT_RESET "  " BANNER_FRAME "║" CAT_RESET "\n");
 #ifdef TASH_AI_ENABLED

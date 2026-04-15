@@ -1,4 +1,4 @@
-.TH TASH 1 "April 2026" "v1.2.0" "User Commands"
+.TH TASH 1 "April 2026" "v@PROJECT_VERSION@" "User Commands"
 .SH NAME
 tash \- Tavakkoli's Shell, a lightweight Unix shell
 .SH SYNOPSIS
