@@ -33,7 +33,6 @@ public:
     virtual std::string get_model() const = 0;
     virtual std::string get_provider_name() const = 0;
 
-protected:
     static bool is_retryable(const LLMResponse &resp);
 };
 

@@ -363,6 +363,81 @@ TEST_F(AiTestFixture, ConfigPathFallsBackToHome) {
     setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Retry logic tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(RetryLogic, IsRetryableOnServerError) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 500;
+    EXPECT_TRUE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, IsRetryableOnRateLimit) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 429;
+    EXPECT_TRUE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, IsRetryableOnConnectionFailure) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 0;
+    EXPECT_TRUE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, NotRetryableOnAuthError) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 401;
+    EXPECT_FALSE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, NotRetryableOnSuccess) {
+    LLMResponse resp;
+    resp.success = true;
+    resp.http_status = 200;
+    EXPECT_FALSE(LLMClient::is_retryable(resp));
+}
+
+TEST(RetryLogic, NotRetryableOnNotFound) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 404;
+    EXPECT_FALSE(LLMClient::is_retryable(resp));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Model set/get tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(LLMFactory, GeminiDefaultModel) {
+    auto c = create_llm_client("gemini", "key", "", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_model(), "gemini-2.5-flash");
+}
+
+TEST(LLMFactory, OpenAIDefaultModel) {
+    auto c = create_llm_client("openai", "", "key", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_model(), "gpt-4o-mini");
+}
+
+TEST(LLMFactory, OllamaDefaultModel) {
+    auto c = create_llm_client("ollama", "", "", "");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_model(), "llama3.2");
+}
+
+TEST(LLMFactory, SetModelOverride) {
+    auto c = create_llm_client("gemini", "key", "", "");
+    ASSERT_NE(c, nullptr);
+    c->set_model("gemini-2.0-flash");
+    EXPECT_EQ(c->get_model(), "gemini-2.0-flash");
+}
+
 #else
 
 TEST(AiDisabled, AiFeaturesNotAvailable) {
