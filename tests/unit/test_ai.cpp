@@ -504,6 +504,61 @@ TEST(OllamaClient, BuildsStructuredRequestJson) {
     EXPECT_EQ(parsed["format"], "json");
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Steps response parsing tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ResponseParsing, ParsesStepsJson) {
+    std::string input = R"({
+        "response_type": "steps",
+        "content": "",
+        "steps": [
+            {"description": "Create folder", "command": "mkdir -p ~/scripts"},
+            {"description": "Create script", "command": "echo '#!/bin/bash' > ~/scripts/backup.sh"}
+        ]
+    })";
+    ParsedResponse r = parse_ai_response(input);
+    EXPECT_EQ(r.type, RESP_STEPS);
+    ASSERT_EQ(r.steps.size(), 2u);
+    EXPECT_EQ(r.steps[0].description, "Create folder");
+    EXPECT_EQ(r.steps[0].command, "mkdir -p ~/scripts");
+    EXPECT_EQ(r.steps[1].description, "Create script");
+}
+
+TEST(ResponseParsing, ParsesStepsJsonEmpty) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"steps","content":"","steps":[]})");
+    EXPECT_EQ(r.type, RESP_STEPS);
+    EXPECT_TRUE(r.steps.empty());
+}
+
+TEST(ResponseParsing, ParsesStepsJsonSingleStep) {
+    ParsedResponse r = parse_ai_response(R"({"response_type":"steps","content":"","steps":[{"description":"List files","command":"ls -la"}]})");
+    EXPECT_EQ(r.type, RESP_STEPS);
+    ASSERT_EQ(r.steps.size(), 1u);
+    EXPECT_EQ(r.steps[0].command, "ls -la");
+}
+
+// Verify structured builders include steps in schema
+TEST(GeminiClient, StructuredSchemaIncludesSteps) {
+    std::string json_str = build_gemini_structured_json("sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    auto &schema = parsed["generationConfig"]["responseSchema"];
+    EXPECT_TRUE(schema["properties"].count("steps"));
+    auto &enum_vals = schema["properties"]["response_type"]["enum"];
+    bool has_steps = false;
+    for (size_t i = 0; i < enum_vals.size(); i++) {
+        if (enum_vals[i] == "steps") has_steps = true;
+    }
+    EXPECT_TRUE(has_steps);
+}
+
+TEST(OpenAIClient, StructuredSchemaIncludesSteps) {
+    std::string json_str = build_openai_structured_json("gpt-4o-mini", "sys", "usr");
+    auto parsed = nlohmann::json::parse(json_str);
+    auto &schema = parsed["response_format"]["json_schema"]["schema"];
+    EXPECT_TRUE(schema["properties"].count("steps"));
+}
+
 #else
 
 TEST(AiDisabled, AiFeaturesNotAvailable) {

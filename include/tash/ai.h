@@ -31,12 +31,18 @@ GeminiResponse gemini_generate(const std::string &api_key, const std::string &sy
 
 // ── AI Response Parsing ──────────────────────────────────────
 
-enum ResponseType { RESP_COMMAND, RESP_SCRIPT, RESP_ANSWER };
+enum ResponseType { RESP_COMMAND, RESP_SCRIPT, RESP_STEPS, RESP_ANSWER };
+
+struct StepInfo {
+    std::string description;
+    std::string command;
+};
 
 struct ParsedResponse {
     ResponseType type;
     std::string content;
     std::string script_filename;
+    std::vector<StepInfo> steps; // for RESP_STEPS
 };
 
 ParsedResponse parse_ai_response(const std::string &raw);

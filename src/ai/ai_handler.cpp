@@ -86,11 +86,14 @@ static const char *PROMPT_UNIFIED =
     "You are an AI assistant embedded in a Unix shell. The user types natural language "
     "and you respond based on what they ask.\n\n"
     "Guidelines:\n"
-    "- If they want to run a command: set response_type to \"command\" and content to the command.\n"
-    "- If they want a script: set response_type to \"script\", content to the script, "
-    "and filename to a suggested filename.\n"
-    "- For explanations, help, or anything else: set response_type to \"answer\" "
-    "and content to your response.\n\n"
+    "- Single command: set response_type to \"command\", content to the command.\n"
+    "- Multiple commands/steps: set response_type to \"steps\", and steps to an array "
+    "of objects each with \"description\" (what it does) and \"command\" (the shell command). "
+    "Use this when the task requires creating directories, writing files, running multiple "
+    "commands in sequence, or any multi-step workflow.\n"
+    "- Script file: set response_type to \"script\", content to the script, "
+    "filename to a suggested name.\n"
+    "- Explanations or help: set response_type to \"answer\", content to your response.\n\n"
     "Keep responses concise. No markdown formatting in content.";
 
 // ── Output helpers ────────────────────────────────────────────
@@ -221,6 +224,18 @@ ParsedResponse parse_ai_response(const string &raw) {
             if (j.count("filename") && j["filename"].is_string()) {
                 string fname = j["filename"].get<string>();
                 if (!fname.empty()) result.script_filename = fname;
+            }
+        } else if (type_str == "steps") {
+            result.type = RESP_STEPS;
+            if (j.count("steps") && j["steps"].is_array()) {
+                for (size_t i = 0; i < j["steps"].size(); i++) {
+                    StepInfo step;
+                    if (j["steps"][i].count("description"))
+                        step.description = j["steps"][i]["description"].get<string>();
+                    if (j["steps"][i].count("command"))
+                        step.command = j["steps"][i]["command"].get<string>();
+                    result.steps.push_back(step);
+                }
             }
         } else {
             result.type = RESP_ANSWER;
@@ -376,6 +391,57 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
             ai_print_label();
             write_stdout(AI_CMD "saved to " + filename + CAT_RESET "\n");
             return 0;
+        }
+
+        case RESP_STEPS: {
+            // Show steps and execute one by one with confirmation
+            if (parsed.steps.empty()) {
+                ai_print_label();
+                write_stdout("\n" + parsed.content + "\n");
+                return 0;
+            }
+
+            ai_print_label();
+            write_stdout(to_string(parsed.steps.size()) + " steps:\n\n");
+
+            bool run_all = false;
+            int last_status = 0;
+
+            for (size_t i = 0; i < parsed.steps.size(); i++) {
+                write_stdout(AI_STEP_NUM "  " + to_string(i + 1) + "." CAT_RESET " "
+                             + parsed.steps[i].description + "\n");
+                write_stdout("     " AI_CMD + parsed.steps[i].command + CAT_RESET "\n");
+
+                if (!isatty(STDIN_FILENO)) continue;
+
+                if (!run_all) {
+                    write_stdout(AI_PROMPT "     Run?" CAT_RESET " [y/n/a(ll)/s(kip)] ");
+                    char ch = read_single_char();
+                    write_stdout(string(1, ch) + "\n");
+
+                    if (ch == 'n' || ch == 'N') {
+                        write_stdout("\n");
+                        return 0;
+                    } else if (ch == 'a' || ch == 'A') {
+                        run_all = true;
+                    } else if (ch == 's' || ch == 'S') {
+                        write_stdout("\n");
+                        continue;
+                    }
+                    // y or a: fall through to execute
+                }
+
+                write_stdout("\n");
+                last_status = execute_single_command(parsed.steps[i].command, state);
+                if (last_status != 0 && !run_all) {
+                    ai_print_error("step " + to_string(i + 1) + " failed (exit " + to_string(last_status) + "). Stop? [y/n] ");
+                    char ch = read_single_char();
+                    write_stdout(string(1, ch) + "\n");
+                    if (ch == 'y' || ch == 'Y') return last_status;
+                }
+                write_stdout("\n");
+            }
+            return last_status;
         }
 
         case RESP_ANSWER:

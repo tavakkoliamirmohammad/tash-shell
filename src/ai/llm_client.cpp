@@ -110,9 +110,16 @@ string build_gemini_structured_json(const string &system_prompt,
     req["generationConfig"]["responseMimeType"] = "application/json";
     req["generationConfig"]["responseSchema"]["type"] = "OBJECT";
     req["generationConfig"]["responseSchema"]["properties"]["response_type"]["type"] = "STRING";
-    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["enum"] = json::array({"command", "script", "steps", "answer"});
     req["generationConfig"]["responseSchema"]["properties"]["content"]["type"] = "STRING";
     req["generationConfig"]["responseSchema"]["properties"]["filename"]["type"] = "STRING";
+    json step_item;
+    step_item["type"] = "OBJECT";
+    step_item["properties"]["description"]["type"] = "STRING";
+    step_item["properties"]["command"]["type"] = "STRING";
+    step_item["required"] = json::array({"description", "command"});
+    req["generationConfig"]["responseSchema"]["properties"]["steps"]["type"] = "ARRAY";
+    req["generationConfig"]["responseSchema"]["properties"]["steps"]["items"] = step_item;
     req["generationConfig"]["responseSchema"]["required"] = json::array({"response_type", "content"});
 
     return req.dump();
@@ -143,9 +150,16 @@ string build_gemini_structured_context_json(const string &system_prompt,
     req["generationConfig"]["responseMimeType"] = "application/json";
     req["generationConfig"]["responseSchema"]["type"] = "OBJECT";
     req["generationConfig"]["responseSchema"]["properties"]["response_type"]["type"] = "STRING";
-    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    req["generationConfig"]["responseSchema"]["properties"]["response_type"]["enum"] = json::array({"command", "script", "steps", "answer"});
     req["generationConfig"]["responseSchema"]["properties"]["content"]["type"] = "STRING";
     req["generationConfig"]["responseSchema"]["properties"]["filename"]["type"] = "STRING";
+    json step_item2;
+    step_item2["type"] = "OBJECT";
+    step_item2["properties"]["description"]["type"] = "STRING";
+    step_item2["properties"]["command"]["type"] = "STRING";
+    step_item2["required"] = json::array({"description", "command"});
+    req["generationConfig"]["responseSchema"]["properties"]["steps"]["type"] = "ARRAY";
+    req["generationConfig"]["responseSchema"]["properties"]["steps"]["items"] = step_item2;
     req["generationConfig"]["responseSchema"]["required"] = json::array({"response_type", "content"});
 
     return req.dump();
@@ -230,9 +244,17 @@ string build_openai_structured_json(const string &model,
     json schema;
     schema["type"] = "object";
     schema["properties"]["response_type"]["type"] = "string";
-    schema["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    schema["properties"]["response_type"]["enum"] = json::array({"command", "script", "steps", "answer"});
     schema["properties"]["content"]["type"] = "string";
     schema["properties"]["filename"]["type"] = "string";
+    json step_obj;
+    step_obj["type"] = "object";
+    step_obj["properties"]["description"]["type"] = "string";
+    step_obj["properties"]["command"]["type"] = "string";
+    step_obj["required"] = json::array({"description", "command"});
+    step_obj["additionalProperties"] = false;
+    schema["properties"]["steps"]["type"] = "array";
+    schema["properties"]["steps"]["items"] = step_obj;
     schema["required"] = json::array({"response_type", "content"});
     schema["additionalProperties"] = false;
 
@@ -264,9 +286,17 @@ string build_openai_structured_context_json(const string &model,
     json schema;
     schema["type"] = "object";
     schema["properties"]["response_type"]["type"] = "string";
-    schema["properties"]["response_type"]["enum"] = json::array({"command", "script", "answer"});
+    schema["properties"]["response_type"]["enum"] = json::array({"command", "script", "steps", "answer"});
     schema["properties"]["content"]["type"] = "string";
     schema["properties"]["filename"]["type"] = "string";
+    json step_obj;
+    step_obj["type"] = "object";
+    step_obj["properties"]["description"]["type"] = "string";
+    step_obj["properties"]["command"]["type"] = "string";
+    step_obj["required"] = json::array({"description", "command"});
+    step_obj["additionalProperties"] = false;
+    schema["properties"]["steps"]["type"] = "array";
+    schema["properties"]["steps"]["items"] = step_obj;
     schema["required"] = json::array({"response_type", "content"});
     schema["additionalProperties"] = false;
 
@@ -334,7 +364,7 @@ string build_ollama_structured_json(const string &model,
     // Ollama needs schema instructions in the prompt since it only has JSON mode
     string enhanced_prompt = system_prompt +
         "\n\nYou MUST respond with valid JSON matching this exact schema:\n"
-        "{\"response_type\": \"command\"|\"script\"|\"answer\", \"content\": \"...\", \"filename\": \"...\"}\n"
+        "{\"response_type\": \"command\"|\"script\"|\"steps\"|\"answer\", \"content\": \"...\", \"filename\": \"...\", \"steps\": [{\"description\": \"...\", \"command\": \"...\"}]}\n"
         "response_type is required. content is required. filename is only needed for scripts.";
 
     json req;
@@ -354,7 +384,7 @@ string build_ollama_structured_context_json(const string &model,
                                              const string &user_prompt) {
     string enhanced_prompt = system_prompt +
         "\n\nYou MUST respond with valid JSON matching this exact schema:\n"
-        "{\"response_type\": \"command\"|\"script\"|\"answer\", \"content\": \"...\", \"filename\": \"...\"}\n"
+        "{\"response_type\": \"command\"|\"script\"|\"steps\"|\"answer\", \"content\": \"...\", \"filename\": \"...\", \"steps\": [{\"description\": \"...\", \"command\": \"...\"}]}\n"
         "response_type is required. content is required. filename is only needed for scripts.";
 
     json req;
