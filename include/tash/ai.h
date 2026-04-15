@@ -29,6 +29,18 @@ void ai_increment_usage();
 typedef LLMResponse GeminiResponse;
 GeminiResponse gemini_generate(const std::string &api_key, const std::string &system_prompt, const std::string &user_prompt);
 
+// ── AI Response Parsing ──────────────────────────────────────
+
+enum ResponseType { RESP_COMMAND, RESP_SCRIPT, RESP_ANSWER };
+
+struct ParsedResponse {
+    ResponseType type;
+    std::string content;
+    std::string script_filename;
+};
+
+ParsedResponse parse_ai_response(const std::string &raw);
+
 // ── AI Handler ────────────────────────────────────────────────
 
 bool is_ai_command(const std::string &input);

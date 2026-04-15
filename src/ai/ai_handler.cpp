@@ -81,17 +81,25 @@ static void stop_spinner() {
 
 static const char *PROMPT_UNIFIED =
     "You are an AI assistant embedded in a Unix shell. The user types natural language "
-    "and you respond appropriately based on what they ask. Follow these rules:\n"
-    "- If they ask to generate a command: output ONLY the shell command, no explanation, "
-    "no markdown, no backticks.\n"
-    "- If they ask to explain a command or error: explain concisely in plain text, "
-    "no markdown formatting. For commands, explain flag by flag.\n"
-    "- If they ask for a script: output ONLY the bash script with brief comments, "
-    "no markdown backticks.\n"
-    "- If they ask for help or instructions: give numbered step-by-step guidance "
-    "with actual commands where relevant.\n"
-    "- For everything else: be concise, practical, and shell-focused.\n"
-    "Do not use markdown formatting in any response.";
+    "and you respond based on what they ask.\n\n"
+    "IMPORTANT: You MUST start every response with exactly one of these tags on its own line:\n"
+    "[COMMAND] — when your response is a single shell command to run\n"
+    "[SCRIPT:filename.sh] — when your response is a script (suggest a filename)\n"
+    "[ANSWER] — for explanations, help, guidance, or any other response\n\n"
+    "Rules by tag:\n"
+    "- [COMMAND]: output ONLY the tag line then the shell command on the next line. "
+    "No explanation, no markdown, no backticks.\n"
+    "- [SCRIPT:name]: output the tag line, then the full bash script with brief comments. "
+    "No markdown backticks. Choose a descriptive filename.\n"
+    "- [ANSWER]: output the tag line, then your response in plain text. "
+    "No markdown formatting. Be concise and practical.\n\n"
+    "Examples:\n"
+    "User: list files bigger than 100MB\n"
+    "[COMMAND]\nfind . -type f -size +100M\n\n"
+    "User: write a script to backup my home\n"
+    "[SCRIPT:backup_home.sh]\n#!/bin/bash\ntar -czf /tmp/home_backup_$(date +%F).tar.gz ~/\n\n"
+    "User: what does tar -xzvf do\n"
+    "[ANSWER]\n-x extract files\n-z decompress through gzip\n-v verbose\n-f use specified file";
 
 // ── Output helpers ────────────────────────────────────────────
 
@@ -201,6 +209,58 @@ static string extract_quoted_query(const string &input, size_t start) {
     return input.substr(q1 + 1, q2 - q1 - 1);
 }
 
+// ── Response tag parsing ─────────────────────────────────────
+
+ParsedResponse parse_ai_response(const string &raw) {
+    ParsedResponse result;
+    result.type = RESP_ANSWER;
+
+    string text = raw;
+    // Strip leading whitespace/newlines
+    while (!text.empty() && (text.front() == '\n' || text.front() == '\r' || text.front() == ' '))
+        text.erase(text.begin());
+
+    // Check for [COMMAND] tag
+    if (text.size() > 9 && text.substr(0, 9) == "[COMMAND]") {
+        result.type = RESP_COMMAND;
+        result.content = text.substr(9);
+    }
+    // Check for [SCRIPT:filename] tag
+    else if (text.size() > 8 && text.substr(0, 8) == "[SCRIPT:") {
+        result.type = RESP_SCRIPT;
+        size_t end = text.find(']', 8);
+        if (end != string::npos) {
+            result.script_filename = text.substr(8, end - 8);
+            result.content = text.substr(end + 1);
+        } else {
+            result.content = text.substr(8);
+        }
+    }
+    // Check for [SCRIPT] without filename
+    else if (text.size() > 8 && text.substr(0, 8) == "[SCRIPT]") {
+        result.type = RESP_SCRIPT;
+        result.script_filename = "script.sh";
+        result.content = text.substr(8);
+    }
+    // Check for [ANSWER] tag
+    else if (text.size() > 8 && text.substr(0, 8) == "[ANSWER]") {
+        result.type = RESP_ANSWER;
+        result.content = text.substr(8);
+    }
+    // No tag — treat as answer
+    else {
+        result.content = text;
+    }
+
+    // Trim content
+    while (!result.content.empty() && (result.content.front() == '\n' || result.content.front() == '\r'))
+        result.content.erase(result.content.begin());
+    while (!result.content.empty() && (result.content.back() == '\n' || result.content.back() == '\r'))
+        result.content.pop_back();
+
+    return result;
+}
+
 // ── Unified AI handler ───────────────────────────────────────
 
 static int handle_ask(const string &query, ShellState &state, string *prefill_cmd) {
@@ -217,7 +277,6 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
     // Enrich query with error context if asking about last error
     string enriched_query = query;
     if (state.last_exit_status != 0 && !state.last_command_text.empty()) {
-        // Check if user is likely asking about an error
         string lower_query = query;
         for (size_t i = 0; i < lower_query.size(); i++)
             lower_query[i] = tolower(lower_query[i]);
@@ -237,26 +296,15 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
         }
     }
 
-    ai_print_label();
-    write_stdout("\n");
-
-    auto on_chunk = [](const string &chunk) {
-        write_stdout(chunk);
-    };
-
+    // Generate response (non-streaming so we can parse the tag before displaying)
+    start_spinner();
     LLMResponse resp;
     if (!conversation_history.empty()) {
-        // Multi-turn: use context (non-streaming, show spinner)
-        start_spinner();
         resp = client->generate_with_context(system_prompt, conversation_history, enriched_query);
-        stop_spinner();
-        if (resp.success) {
-            write_stdout(resp.text);
-        }
     } else {
-        // First turn: stream the response
-        resp = client->generate_stream(system_prompt, enriched_query, on_chunk);
+        resp = client->generate(system_prompt, enriched_query);
     }
+    stop_spinner();
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -268,8 +316,83 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
     add_to_conversation("user", query);
     add_to_conversation("assistant", resp.text);
 
-    write_stdout("\n");
-    return 0;
+    // Parse the structured response
+    ParsedResponse parsed = parse_ai_response(resp.text);
+
+    switch (parsed.type) {
+        case RESP_COMMAND: {
+            // Show command and offer to run
+            ai_print_label();
+            write_stdout(AI_CMD + parsed.content + CAT_RESET "\n\n");
+
+            if (!isatty(STDIN_FILENO)) return 0;
+
+            write_stdout(AI_PROMPT "Run?" CAT_RESET " [y/n/e] ");
+            char ch = read_single_char();
+            write_stdout(string(1, ch) + "\n");
+
+            if (ch == 'y' || ch == 'Y') {
+                write_stdout("\n");
+                return execute_single_command(parsed.content, state);
+            } else if (ch == 'e' || ch == 'E') {
+                if (prefill_cmd) *prefill_cmd = parsed.content;
+                write_stdout("\n");
+                return 0;
+            }
+            write_stdout("\n");
+            return 0;
+        }
+
+        case RESP_SCRIPT: {
+            // Show script and offer to save
+            ai_print_label();
+            write_stdout("\n" + parsed.content + "\n\n");
+
+            if (!isatty(STDIN_FILENO)) return 0;
+
+            write_stdout(AI_PROMPT "Save to?" CAT_RESET " [" + parsed.script_filename + "/n] ");
+
+            string filename;
+            if (!getline(cin, filename) || filename.empty() || filename[0] == 'n' || filename[0] == 'N') {
+                return 0;
+            }
+
+            while (!filename.empty() && filename.back() == ' ') filename.pop_back();
+            while (!filename.empty() && filename.front() == ' ') filename.erase(filename.begin());
+
+            // If user just pressed Enter, use suggested filename
+            if (filename.empty() || filename == "\n") {
+                filename = parsed.script_filename;
+            }
+
+            if (filename.find("..") != string::npos) {
+                ai_print_error("invalid path: '..' not allowed in filename.");
+                return 1;
+            }
+
+            ofstream out(filename);
+            if (!out.is_open()) {
+                ai_print_error("couldn't write to " + filename);
+                return 1;
+            }
+            out << parsed.content << "\n";
+            out.close();
+
+            chmod(filename.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
+
+            ai_print_label();
+            write_stdout(AI_CMD "saved to " + filename + CAT_RESET "\n");
+            return 0;
+        }
+
+        case RESP_ANSWER:
+        default: {
+            // Just display the answer
+            ai_print_label();
+            write_stdout("\n" + parsed.content + "\n");
+            return 0;
+        }
+    }
 }
 
 // ── Feature: Status ───────────────────────────────────────────

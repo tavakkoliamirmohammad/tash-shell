@@ -438,6 +438,53 @@ TEST(LLMFactory, SetModelOverride) {
     EXPECT_EQ(c->get_model(), "gemini-2.0-flash");
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Response tag parsing tests
+// ═══════════════════════════════════════════════════════════════
+
+TEST(ResponseParsing, ParsesCommandTag) {
+    ParsedResponse r = parse_ai_response("[COMMAND]\nfind . -type f -size +100M");
+    EXPECT_EQ(r.type, RESP_COMMAND);
+    EXPECT_EQ(r.content, "find . -type f -size +100M");
+}
+
+TEST(ResponseParsing, ParsesScriptTagWithFilename) {
+    ParsedResponse r = parse_ai_response("[SCRIPT:backup.sh]\n#!/bin/bash\necho hello");
+    EXPECT_EQ(r.type, RESP_SCRIPT);
+    EXPECT_EQ(r.script_filename, "backup.sh");
+    EXPECT_NE(r.content.find("#!/bin/bash"), std::string::npos);
+}
+
+TEST(ResponseParsing, ParsesScriptTagWithoutFilename) {
+    ParsedResponse r = parse_ai_response("[SCRIPT]\n#!/bin/bash\necho hello");
+    EXPECT_EQ(r.type, RESP_SCRIPT);
+    EXPECT_EQ(r.script_filename, "script.sh");
+}
+
+TEST(ResponseParsing, ParsesAnswerTag) {
+    ParsedResponse r = parse_ai_response("[ANSWER]\nThe -x flag extracts files.");
+    EXPECT_EQ(r.type, RESP_ANSWER);
+    EXPECT_EQ(r.content, "The -x flag extracts files.");
+}
+
+TEST(ResponseParsing, NoTagDefaultsToAnswer) {
+    ParsedResponse r = parse_ai_response("Just some text without a tag.");
+    EXPECT_EQ(r.type, RESP_ANSWER);
+    EXPECT_EQ(r.content, "Just some text without a tag.");
+}
+
+TEST(ResponseParsing, HandlesLeadingWhitespace) {
+    ParsedResponse r = parse_ai_response("\n\n  [COMMAND]\nls -la");
+    EXPECT_EQ(r.type, RESP_COMMAND);
+    EXPECT_EQ(r.content, "ls -la");
+}
+
+TEST(ResponseParsing, ScriptFilenameWithPath) {
+    ParsedResponse r = parse_ai_response("[SCRIPT:~/scripts/deploy.sh]\n#!/bin/bash");
+    EXPECT_EQ(r.type, RESP_SCRIPT);
+    EXPECT_EQ(r.script_filename, "~/scripts/deploy.sh");
+}
+
 #else
 
 TEST(AiDisabled, AiFeaturesNotAvailable) {
