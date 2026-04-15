@@ -11,6 +11,7 @@
 #include <memory>
 #include <thread>
 #include <atomic>
+#include <random>
 
 using json = nlohmann::json;
 
@@ -60,6 +61,8 @@ static const char *SPINNER_MESSAGES[] = {
 };
 static const int NUM_SPINNER_MESSAGES = 18;
 
+static thread *spinner_thread_ptr = nullptr;
+
 static void spinner_thread_fn() {
     const char *braille[] = {
         "\xe2\xa0\x8b", "\xe2\xa0\x99", "\xe2\xa0\xb9", "\xe2\xa0\xb8",
@@ -67,9 +70,10 @@ static void spinner_thread_fn() {
         "\xe2\xa0\x87", "\xe2\xa0\x8f",
     };
 
-    // Pick a random starting message
-    srand((unsigned)time(NULL));
-    int msg_idx = rand() % NUM_SPINNER_MESSAGES;
+    // Pick a random starting message using thread-safe RNG
+    std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> dist(0, NUM_SPINNER_MESSAGES - 1);
+    int msg_idx = dist(rng);
     int frame = 0;
     int ticks_per_message = 25; // ~2 seconds per message (25 * 80ms)
 
@@ -92,17 +96,18 @@ static void spinner_thread_fn() {
 
 static void start_spinner() {
     if (!isatty(STDOUT_FILENO)) return;
+    if (spinner_active.load()) return; // prevent double-start
     spinner_active.store(true);
-    thread t(spinner_thread_fn);
-    t.detach();
+    spinner_thread_ptr = new thread(spinner_thread_fn);
 }
 
 static void stop_spinner() {
     spinner_active.store(false);
-    struct timespec ts;
-    ts.tv_sec = 0;
-    ts.tv_nsec = 100000000; // 100ms
-    nanosleep(&ts, NULL);
+    if (spinner_thread_ptr) {
+        spinner_thread_ptr->join();
+        delete spinner_thread_ptr;
+        spinner_thread_ptr = nullptr;
+    }
 }
 
 // ── System prompt ────────────────────────────────────────────
@@ -202,7 +207,15 @@ static unique_ptr<LLMClient> ensure_client(ShellState &state) {
 
     // Ollama doesn't need a key
     if (provider == "ollama") {
-        return create_current_client();
+        auto client = create_current_client();
+        if (!client) ai_print_error("failed to create Ollama client.");
+        return client;
+    }
+
+    // Validate provider
+    if (provider != "gemini" && provider != "openai") {
+        ai_print_error("unknown provider '" + provider + "'. Run @ai config.");
+        return unique_ptr<LLMClient>();
     }
 
     string key = ai_load_provider_key(provider);
@@ -250,7 +263,7 @@ ParsedResponse parse_ai_response(const string &raw) {
         } else {
             result.type = RESP_ANSWER;
         }
-    } catch (...) {
+    } catch (const json::exception &) {
         // JSON parse failed -- treat raw text as answer (fallback)
         result.content = raw;
         // Strip any tag-based prefixes as last resort
@@ -397,6 +410,14 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
                 ai_print_error("invalid path: '..' not allowed in filename.");
                 return 1;
             }
+            if (!filename.empty() && filename[0] == '/') {
+                ai_print_error("invalid path: absolute paths not allowed.");
+                return 1;
+            }
+            if (!filename.empty() && filename[0] == '~') {
+                ai_print_error("invalid path: use a relative filename.");
+                return 1;
+            }
 
             ofstream out(filename);
             if (!out.is_open()) {
@@ -404,7 +425,13 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
                 return 1;
             }
             out << parsed.content << "\n";
+            bool write_ok = out.good();
             out.close();
+
+            if (!write_ok) {
+                ai_print_error("failed to write to " + filename);
+                return 1;
+            }
 
             chmod(filename.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
 

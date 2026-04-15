@@ -79,7 +79,7 @@ string extract_gemini_text(const string &json_body) {
             j["candidates"][0]["content"]["parts"][0].contains("text")) {
             return j["candidates"][0]["content"]["parts"][0]["text"].get<string>();
         }
-    } catch (...) {
+    } catch (const json::exception &) {
     }
     return "";
 }
@@ -91,7 +91,7 @@ string extract_gemini_error(const string &json_body) {
             j["error"].contains("message")) {
             return j["error"]["message"].get<string>();
         }
-    } catch (...) {
+    } catch (const json::exception &) {
     }
     return "";
 }
@@ -209,7 +209,7 @@ string extract_openai_text(const string &json_body) {
             j["choices"][0]["message"].contains("content")) {
             return j["choices"][0]["message"]["content"].get<string>();
         }
-    } catch (...) {
+    } catch (const json::exception &) {
     }
     return "";
 }
@@ -221,7 +221,7 @@ string extract_openai_error(const string &json_body) {
             j["error"].contains("message")) {
             return j["error"]["message"].get<string>();
         }
-    } catch (...) {
+    } catch (const json::exception &) {
     }
     return "";
 }
@@ -349,7 +349,7 @@ string extract_ollama_text(const string &json_body) {
             j["message"].contains("content")) {
             return j["message"]["content"].get<string>();
         }
-    } catch (...) {
+    } catch (const json::exception &) {
     }
     return "";
 }
@@ -831,7 +831,7 @@ LLMResponse OpenAIClient::generate_stream(const string &system_prompt, const str
                     j["choices"][0]["delta"].contains("content")) {
                     return j["choices"][0]["delta"]["content"].get<string>();
                 }
-            } catch (...) {}
+            } catch (const json::exception &) {}
         }
         return "";
     };
@@ -1001,7 +1001,7 @@ static void parse_ollama_url(const string &url, string &host, int &port) {
         try {
             port = stoi(port_str);
             host = scheme + work.substr(0, colon);
-        } catch (...) {
+        } catch (const std::exception &) {
             host = scheme + work;
         }
     } else {

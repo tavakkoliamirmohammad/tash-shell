@@ -54,6 +54,7 @@ int foreground_process(const vector<string> &argv,
     if (captured_stderr) {
         captured_stderr->clear();
         if (pipe(stderr_pipe) < 0) {
+            write_stderr("tash: warning: could not capture stderr\n");
             captured_stderr = nullptr; // fall back to no capture
         }
     }
@@ -79,10 +80,8 @@ int foreground_process(const vector<string> &argv,
         if (stderr_pipe[1] >= 0) close(stderr_pipe[1]); // close write end
 
         fg_child_pid = pid;
-        waitpid(pid, &status, WUNTRACED);
-        fg_child_pid = 0;
 
-        // Read captured stderr
+        // Read stderr BEFORE waitpid to prevent deadlock on large output
         if (captured_stderr && stderr_pipe[0] >= 0) {
             char buf[4096];
             ssize_t n;
@@ -96,7 +95,13 @@ int foreground_process(const vector<string> &argv,
             close(stderr_pipe[0]);
         }
 
-        return WEXITSTATUS(status);
+        waitpid(pid, &status, WUNTRACED);
+        fg_child_pid = 0;
+
+        // Check exit status properly
+        if (WIFEXITED(status)) return WEXITSTATUS(status);
+        if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+        return 0; // stopped
     }
     return 1;
 }
@@ -206,7 +211,8 @@ int execute_pipeline(vector<vector<string>> &pipeline_cmds,
         int status;
         waitpid(pids[i], &status, 0);
         if (i == num_cmds - 1) {
-            last_status = WEXITSTATUS(status);
+            if (WIFEXITED(status)) last_status = WEXITSTATUS(status);
+            else if (WIFSIGNALED(status)) last_status = 128 + WTERMSIG(status);
         }
     }
     return last_status;

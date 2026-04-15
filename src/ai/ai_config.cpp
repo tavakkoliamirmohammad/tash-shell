@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <termios.h>
+#include <cerrno>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
@@ -28,13 +29,14 @@ string ai_get_config_dir() {
     return string(home) + "/.config/tash";
 }
 
-static void ensure_config_dir() {
+static bool ensure_config_dir() {
     string dir = ai_get_config_dir();
-    if (dir.empty()) return;
+    if (dir.empty()) return false;
     // Create parent ~/.config if needed
     string parent = dir.substr(0, dir.rfind('/'));
-    mkdir(parent.c_str(), 0755);
-    mkdir(dir.c_str(), 0755);
+    if (mkdir(parent.c_str(), 0755) != 0 && errno != EEXIST) return false;
+    if (mkdir(dir.c_str(), 0755) != 0 && errno != EEXIST) return false;
+    return true;
 }
 
 // ── Helper: read single-line file ────────────────────────────
@@ -58,8 +60,9 @@ static bool write_file_line(const string &path, const string &content) {
     ofstream file(path, ios::trunc);
     if (!file.is_open()) return false;
     file << content << "\n";
+    bool ok = file.good();
     file.close();
-    return true;
+    return ok;
 }
 
 // ── Key management ────────────────────────────────────────────
@@ -89,7 +92,9 @@ bool ai_save_key(const string &key) {
     file << key << "\n";
     file.close();
 
-    chmod(path.c_str(), S_IRUSR | S_IWUSR);
+    if (chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0) {
+        write_stderr("tash: warning: could not set permissions on " + path + "\n");
+    }
     return true;
 }
 
@@ -121,12 +126,14 @@ void ai_set_model_override(const string &model) {
 }
 
 string ai_load_provider_key(const string &provider) {
+    if (provider != "gemini" && provider != "openai" && provider != "ollama") return "";
     string dir = ai_get_config_dir();
     if (dir.empty()) return "";
     return read_file_line(dir + "/" + provider + "_key");
 }
 
 bool ai_save_provider_key(const string &provider, const string &key) {
+    if (provider != "gemini" && provider != "openai" && provider != "ollama") return false;
     string dir = ai_get_config_dir();
     if (dir.empty()) return false;
 
@@ -138,7 +145,9 @@ bool ai_save_provider_key(const string &provider, const string &key) {
     file << key << "\n";
     file.close();
 
-    chmod(path.c_str(), S_IRUSR | S_IWUSR);
+    if (chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0) {
+        write_stderr("tash: warning: could not set permissions on " + path + "\n");
+    }
     return true;
 }
 
@@ -234,7 +243,12 @@ bool ai_run_setup_wizard() {
     }
 
     // Show masked confirmation
-    string masked = key.substr(0, 4) + "..." + key.substr(key.size() > 4 ? key.size() - 4 : 0);
+    string masked;
+    if (key.size() > 8) {
+        masked = key.substr(0, 4) + "..." + key.substr(key.size() - 4);
+    } else {
+        masked = "****";
+    }
     write_stdout(CAT_DIM + masked + CAT_RESET "\n");
 
     // Save to provider-specific key file
@@ -314,7 +328,7 @@ int ai_get_today_usage() {
         if (sep != string::npos && line.substr(0, sep) == today) {
             try {
                 return stoi(line.substr(sep + 1));
-            } catch (...) {
+            } catch (const std::exception &) {
                 return 0;
             }
         }
@@ -346,7 +360,7 @@ void ai_increment_usage() {
         while (getline(in, line)) {
             size_t sep = line.find('|');
             if (sep != string::npos && line.substr(0, sep) == today) {
-                try { count = stoi(line.substr(sep + 1)); } catch (...) {}
+                try { count = stoi(line.substr(sep + 1)); } catch (const std::exception &) {}
             }
         }
     }
