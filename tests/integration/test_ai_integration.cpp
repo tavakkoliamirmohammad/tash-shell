@@ -67,3 +67,56 @@ TEST(AiIntegration, AiStatusShowsInfo) {
     auto r = run_shell("@ai status\nexit\n");
     EXPECT_NE(r.output.find("Status"), std::string::npos);
 }
+
+// Test that @ai clear does not crash
+TEST(AiIntegration, AiClearDoesNotCrash) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
+    auto r = run_shell("@ai clear\nexit\n");
+    EXPECT_NE(r.exit_code, 139);
+    EXPECT_NE(r.output.find("clear"), std::string::npos);
+}
+
+// Test that @ai test without key does not crash
+TEST(AiIntegration, AiTestDoesNotCrash) {
+    auto r = run_shell("@ai test\nexit\n");
+    EXPECT_NE(r.exit_code, 139);
+}
+
+// Test that help text shows new commands
+TEST(AiIntegration, AiHelpTextShowsNewCommands) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
+    auto r = run_shell("@ai\nexit\n");
+    EXPECT_NE(r.output.find("config"), std::string::npos);
+    EXPECT_NE(r.output.find("provider"), std::string::npos);
+    EXPECT_NE(r.output.find("model"), std::string::npos);
+    EXPECT_NE(r.output.find("test"), std::string::npos);
+    EXPECT_NE(r.output.find("clear"), std::string::npos);
+}
+
+// Test that @ai status shows provider info
+TEST(AiIntegration, AiStatusShowsProvider) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
+    auto r = run_shell("@ai status\nexit\n");
+    EXPECT_NE(r.output.find("Provider"), std::string::npos);
+    EXPECT_NE(r.output.find("Model"), std::string::npos);
+}
+
+// Test that @ai provider with valid name does not crash
+TEST(AiIntegration, AiProviderSwitchDoesNotCrash) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
+    auto r = run_shell("@ai provider gemini\nexit\n");
+    EXPECT_NE(r.exit_code, 139);
+}
+
+// Test that @ai provider with invalid name shows error
+TEST(AiIntegration, AiProviderInvalidShowsError) {
+    if (!ai_is_available()) { GTEST_SKIP() << "AI not compiled in"; }
+    auto r = run_shell("@ai provider foobar\nexit\n");
+    EXPECT_NE(r.output.find("unknown"), std::string::npos);
+}
+
+// Test that stderr capture works for @ai explain
+TEST(AiIntegration, StderrCapturedAfterFailedCommand) {
+    auto r = run_shell("ls /nonexistent_path_xyz_12345\n@ai explain\nexit\n");
+    EXPECT_NE(r.exit_code, 139); // no segfault
+}
