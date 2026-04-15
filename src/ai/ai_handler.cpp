@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <memory>
+#include <thread>
+#include <atomic>
 
 using namespace std;
 
@@ -27,6 +29,52 @@ static char read_single_char() {
 
     tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
     return ch;
+}
+
+// ── Loading spinner ──────────────────────────────────────────
+
+static atomic<bool> spinner_active(false);
+
+static void spinner_thread_fn() {
+    const char *frames[] = {
+        "\r" AI_LABEL "\xe2\xa0\x8b" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\x99" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\xb9" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\xb8" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\xbc" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\xb4" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\xa6" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\xa7" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\x87" CAT_RESET " ",
+        "\r" AI_LABEL "\xe2\xa0\x8f" CAT_RESET " ",
+    };
+    int i = 0;
+    while (spinner_active.load()) {
+        write_stdout(frames[i % 10]);
+        i++;
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 80000000; // 80ms
+        nanosleep(&ts, NULL);
+    }
+    // Clear spinner line
+    write_stdout("\r\033[K");
+}
+
+static void start_spinner() {
+    if (!isatty(STDOUT_FILENO)) return;
+    spinner_active.store(true);
+    thread t(spinner_thread_fn);
+    t.detach();
+}
+
+static void stop_spinner() {
+    spinner_active.store(false);
+    // Give spinner thread time to clear
+    struct timespec ts;
+    ts.tv_sec = 0;
+    ts.tv_nsec = 100000000; // 100ms
+    nanosleep(&ts, NULL);
 }
 
 // ── System prompts ────────────────────────────────────────────
@@ -174,12 +222,14 @@ static int handle_nl_to_cmd(const string &query, ShellState &state, string *pref
 
     string system_prompt = build_system_context() + PROMPT_NL_TO_CMD;
 
+    start_spinner();
     LLMResponse resp;
     if (!conversation_history.empty()) {
         resp = client->generate_with_context(system_prompt, conversation_history, query);
     } else {
         resp = client->generate(system_prompt, query);
     }
+    stop_spinner();
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -317,7 +367,9 @@ static int handle_script(const string &query, ShellState &state) {
 
     string system_prompt = build_system_context() + PROMPT_SCRIPT_GEN;
 
+    start_spinner();
     LLMResponse resp = client->generate(system_prompt, query);
+    stop_spinner();
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -552,7 +604,9 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
             }
             ai_print_label();
             write_stdout("testing connection...\n");
+            start_spinner();
             LLMResponse test_resp = test_client->generate("Reply with exactly: ok", "test");
+            stop_spinner();
             if (test_resp.success) {
                 ai_print_label();
                 write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
@@ -598,7 +652,9 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         }
         ai_print_label();
         write_stdout("testing connection...\n");
+        start_spinner();
         LLMResponse resp = client->generate("Reply with exactly: ok", "test");
+        stop_spinner();
         if (resp.success) {
             ai_print_label();
             write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
