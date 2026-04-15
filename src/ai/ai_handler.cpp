@@ -34,27 +34,53 @@ static char read_single_char() {
     return ch;
 }
 
-// ── Loading spinner ──────────────────────────────────────────
+// ── Loading spinner with fun messages ────────────────────────
 
 static atomic<bool> spinner_active(false);
 
+static const char *SPINNER_MESSAGES[] = {
+    "Reticulating splines",
+    "Consulting the oracle",
+    "Defragmenting neurons",
+    "Calibrating flux capacitor",
+    "Compiling witty response",
+    "Traversing the syntax tree",
+    "Unfolding higher dimensions",
+    "Brewing digital espresso",
+    "Summoning shell spirits",
+    "Rearranging electrons",
+    "Negotiating with the kernel",
+    "Decoding the matrix",
+    "Harmonizing syscalls",
+    "Waking up the hamsters",
+    "Consulting man pages telepathically",
+    "Polishing the pipeline",
+    "Untangling spaghetti code",
+    "Asking the rubber duck",
+};
+static const int NUM_SPINNER_MESSAGES = 18;
+
 static void spinner_thread_fn() {
-    const char *frames[] = {
-        "\r" AI_LABEL "\xe2\xa0\x8b" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\x99" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\xb9" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\xb8" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\xbc" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\xb4" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\xa6" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\xa7" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\x87" CAT_RESET " ",
-        "\r" AI_LABEL "\xe2\xa0\x8f" CAT_RESET " ",
+    const char *braille[] = {
+        "\xe2\xa0\x8b", "\xe2\xa0\x99", "\xe2\xa0\xb9", "\xe2\xa0\xb8",
+        "\xe2\xa0\xbc", "\xe2\xa0\xb4", "\xe2\xa0\xa6", "\xe2\xa0\xa7",
+        "\xe2\xa0\x87", "\xe2\xa0\x8f",
     };
-    int i = 0;
+
+    // Pick a random starting message
+    srand((unsigned)time(NULL));
+    int msg_idx = rand() % NUM_SPINNER_MESSAGES;
+    int frame = 0;
+    int ticks_per_message = 25; // ~2 seconds per message (25 * 80ms)
+
     while (spinner_active.load()) {
-        write_stdout(frames[i % 10]);
-        i++;
+        string line = string("\r\033[K") + AI_LABEL + braille[frame % 10] + CAT_RESET
+                      + " " + CAT_DIM + SPINNER_MESSAGES[msg_idx] + "..." + CAT_RESET;
+        write_stdout(line);
+        frame++;
+        if (frame % ticks_per_message == 0) {
+            msg_idx = (msg_idx + 1) % NUM_SPINNER_MESSAGES;
+        }
         struct timespec ts;
         ts.tv_sec = 0;
         ts.tv_nsec = 80000000; // 80ms
@@ -73,7 +99,6 @@ static void start_spinner() {
 
 static void stop_spinner() {
     spinner_active.store(false);
-    // Give spinner thread time to clear
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = 100000000; // 100ms
@@ -317,6 +342,16 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
     if (!resp.success) {
         ai_print_error(resp.error_message);
         if (resp.http_status == 403) state.ai_enabled = false;
+        if (resp.http_status == 401 && isatty(STDIN_FILENO)) {
+            write_stdout("\n");
+            ai_print_label();
+            write_stdout("Your API key appears invalid. Run setup? [y/n] ");
+            char ch = read_single_char();
+            write_stdout(string(1, ch) + "\n");
+            if (ch == 'y' || ch == 'Y') {
+                ai_run_setup_wizard();
+            }
+        }
         return 1;
     }
 
