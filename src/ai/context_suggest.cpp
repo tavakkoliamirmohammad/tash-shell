@@ -5,8 +5,6 @@
 
 using namespace std;
 
-static TransitionMap global_transition_map;
-
 // Extract command key (first word, or first two for compound commands)
 static string command_key(const string &line) {
     if (line.empty()) return "";
@@ -77,7 +75,8 @@ string context_suggest(const string &last_command, const TransitionMap &tmap) {
 }
 
 TransitionMap& get_transition_map() {
-    return global_transition_map;
+    static TransitionMap instance;
+    return instance;
 }
 
 #endif // TASH_AI_ENABLED

@@ -147,7 +147,8 @@ int execute_single_command(string command, ShellState &state) {
         }
     }
 
-    int result = foreground_process(cmd.argv, cmd.redirections);
+    state.last_stderr_output.clear();
+    int result = foreground_process(cmd.argv, cmd.redirections, &state.last_stderr_output);
 
     if (result == 127) {
         string suggestion = suggest_command(cmd.argv[0]);
@@ -219,12 +220,7 @@ void sigchld_handler(int) {
 // Shared between hint callback and right-arrow handler
 static string current_hint;
 
-#ifdef TASH_AI_ENABLED
-// Last executed command for context-aware suggestions
-static string last_executed_cmd;
-#endif
-
-static Replxx::hints_t history_hint_callback(const string &input, int &context_len, Replxx::Color &color, Replxx &rx) {
+static Replxx::hints_t history_hint_callback(const string &input, int &context_len, Replxx::Color &color, Replxx &rx, const ShellState &state) {
     Replxx::hints_t hints;
     current_hint.clear();
 
@@ -245,8 +241,8 @@ static Replxx::hints_t history_hint_callback(const string &input, int &context_l
     }
 #ifdef TASH_AI_ENABLED
     // If no history prefix match, try context-aware suggestion
-    if (best.empty() && !last_executed_cmd.empty()) {
-        string ctx = context_suggest(last_executed_cmd, get_transition_map());
+    if (best.empty() && !state.last_executed_cmd.empty()) {
+        string ctx = context_suggest(state.last_executed_cmd, get_transition_map());
         if (!ctx.empty() && ctx.size() > input.size() &&
             ctx.compare(0, input.size(), input) == 0) {
             best = ctx;
@@ -368,8 +364,8 @@ int main(int argc, char *argv[]) {
         );
 
         rx.set_hint_callback(
-            [&rx](const string &input, int &ctx, Replxx::Color &color) {
-                return history_hint_callback(input, ctx, color, rx);
+            [&rx, &state](const string &input, int &ctx, Replxx::Color &color) {
+                return history_hint_callback(input, ctx, color, rx, state);
             }
         );
     }
@@ -536,7 +532,7 @@ int main(int argc, char *argv[]) {
         // Track last command for @ai explain
         state.last_command_text = expanded;
 #ifdef TASH_AI_ENABLED
-        last_executed_cmd = expanded;
+        state.last_executed_cmd = expanded;
 #endif
 
         state.last_cmd_duration = get_time_s() - start_time;
