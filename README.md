@@ -180,7 +180,7 @@ Run `@ai config` to interactively choose your provider and set API keys:
 
 **Ollama (local, free):**
 1. Install Ollama: [ollama.com](https://ollama.com)
-2. Run `ollama serve` and `ollama pull llama3.2`
+2. Run `ollama serve` and `ollama pull qwen3.5:0.8b`
 3. Run `@ai config` → option 1 → type `ollama`
 
 #### Conversation Memory
