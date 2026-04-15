@@ -2,6 +2,9 @@
 #include "tash/ui.h"
 #include "theme.h"
 
+#include <dirent.h>
+#include <sys/stat.h>
+
 using namespace std;
 using namespace replxx;
 
@@ -23,6 +26,8 @@ static Replxx::Color comp_builtin() { return replxx::color::rgb666(2, 5, 4); }  
 static Replxx::Color comp_command() { return replxx::color::rgb666(3, 5, 3); }  // green
 static Replxx::Color comp_subcmd()  { return replxx::color::rgb666(4, 3, 5); }  // mauve
 static Replxx::Color comp_envvar()  { return replxx::color::rgb666(2, 4, 5); }  // sky
+static Replxx::Color comp_file()    { return replxx::color::rgb666(5, 4, 3); }  // peach
+static Replxx::Color comp_dir()     { return replxx::color::rgb666(2, 3, 5); }  // blue
 
 Replxx::completions_t completion_callback(const string &input, int &context_len) {
     Replxx::completions_t completions;
@@ -97,6 +102,48 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
                 completions.emplace_back(sub, comp_subcmd());
             }
         }
+    }
+
+    // File/directory completion
+    string dir_part;
+    string name_prefix;
+    size_t last_slash = prefix.find_last_of('/');
+    if (last_slash != string::npos) {
+        dir_part = prefix.substr(0, last_slash + 1);
+        name_prefix = prefix.substr(last_slash + 1);
+    } else {
+        dir_part = "";
+        name_prefix = prefix;
+    }
+
+    string search_dir = dir_part.empty() ? "." : dir_part;
+    // Expand ~ to HOME
+    if (!search_dir.empty() && search_dir[0] == '~') {
+        const char *home = getenv("HOME");
+        if (home) search_dir = string(home) + search_dir.substr(1);
+    }
+
+    DIR *dp = opendir(search_dir.c_str());
+    if (dp) {
+        // Only replace the name portion, not the directory path
+        context_len = (int)name_prefix.size();
+        struct dirent *entry;
+        while ((entry = readdir(dp)) != nullptr) {
+            string name = entry->d_name;
+            if (name == "." || name == "..") continue;
+            // Skip hidden files unless the user typed a dot
+            if (name[0] == '.' && (name_prefix.empty() || name_prefix[0] != '.')) continue;
+            if (name.compare(0, name_prefix.size(), name_prefix) == 0) {
+                string full_path = search_dir + "/" + name;
+                struct stat st;
+                if (stat(full_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+                    completions.emplace_back(name + "/", comp_dir());
+                } else {
+                    completions.emplace_back(name, comp_file());
+                }
+            }
+        }
+        closedir(dp);
     }
 
     return completions;
