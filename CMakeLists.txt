@@ -27,6 +27,14 @@ if(TARGET replxx)
     target_compile_options(replxx PRIVATE -Wno-c++20-compat)
 endif()
 
+# ── Fetch nlohmann/json (used by Fig completion provider + AI) ─
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # ── AI features (optional, requires OpenSSL) ─────────────────
 find_package(OpenSSL QUIET)
 if(OpenSSL_FOUND)
@@ -37,13 +45,6 @@ if(OpenSSL_FOUND)
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(httplib)
-
-    FetchContent_Declare(
-        nlohmann_json
-        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-    FetchContent_MakeAvailable(nlohmann_json)
 
     find_package(CURL REQUIRED)
     find_package(Threads REQUIRED)
@@ -75,6 +76,8 @@ set(SHELL_SOURCES
     src/history/frecency.cpp
     src/util/colors.cpp
     src/plugins/plugin_registry.cpp
+    src/plugins/fish_completion_provider.cpp
+    src/plugins/fig_completion_provider.cpp
 )
 
 # ── AI source files (conditional) ────────────────────────────
@@ -94,6 +97,7 @@ configure_file(tash.1.in tash.1 @ONLY)
 add_executable(tash.out ${SHELL_SOURCES})
 target_link_libraries(tash.out PRIVATE replxx)
 target_include_directories(tash.out PRIVATE ${TASH_INCLUDE_DIRS})
+target_include_directories(tash.out PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
 target_compile_options(tash.out PRIVATE -Wall -Wextra)
 target_compile_definitions(tash.out PRIVATE TASH_VERSION_STRING="${PROJECT_VERSION}")
 
@@ -101,7 +105,6 @@ if(TASH_AI_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
     target_link_libraries(tash.out PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
     target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
-    target_include_directories(tash.out PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
 endif()
 
 # ── Testing ───────────────────────────────────────────────────
@@ -123,13 +126,13 @@ if(BUILD_TESTS)
     add_library(shell_lib STATIC ${SHELL_SOURCES})
     target_link_libraries(shell_lib PRIVATE replxx)
     target_include_directories(shell_lib PRIVATE ${TASH_INCLUDE_DIRS})
+    target_include_directories(shell_lib PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
     target_compile_definitions(shell_lib PRIVATE TESTING_BUILD TASH_VERSION_STRING="${PROJECT_VERSION}")
 
     if(TASH_AI_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
         target_link_libraries(shell_lib PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
         target_include_directories(shell_lib PRIVATE ${httplib_SOURCE_DIR})
-        target_include_directories(shell_lib PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
     endif()
 
     add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
@@ -153,6 +156,24 @@ if(BUILD_TESTS)
     target_include_directories(test_plugin_registry PRIVATE ${TASH_INCLUDE_DIRS})
     target_link_libraries(test_plugin_registry GTest::gtest_main shell_lib)
     gtest_discover_tests(test_plugin_registry TEST_PREFIX "unit/plugins/")
+
+    # ── Fish completion provider tests ────────────────────────
+    add_executable(test_fish_completion tests/unit/test_fish_completion.cpp)
+    target_include_directories(test_fish_completion PRIVATE ${TASH_INCLUDE_DIRS})
+    target_include_directories(test_fish_completion PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
+    target_link_libraries(test_fish_completion GTest::gtest_main shell_lib)
+    gtest_discover_tests(test_fish_completion TEST_PREFIX "unit/fish/")
+
+    # ── Fig completion provider tests ─────────────────────────
+    add_executable(test_fig_completion tests/unit/test_fig_completion.cpp)
+    target_include_directories(test_fig_completion PRIVATE ${TASH_INCLUDE_DIRS})
+    target_include_directories(test_fig_completion PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
+    target_link_libraries(test_fig_completion GTest::gtest_main shell_lib)
+    if(TASH_AI_ENABLED)
+        target_compile_definitions(test_fig_completion PRIVATE TASH_AI_ENABLED)
+        target_include_directories(test_fig_completion PRIVATE ${httplib_SOURCE_DIR})
+    endif()
+    gtest_discover_tests(test_fig_completion TEST_PREFIX "unit/fig/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
