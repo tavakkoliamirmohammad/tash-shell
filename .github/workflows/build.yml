@@ -9,7 +9,7 @@ on:
 
 jobs:
   test:
-    environment: ci-approval
+    environment: ${{ github.event_name == 'pull_request' && 'ci-approval' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +42,7 @@ jobs:
           path: build/tash.out
 
   build-fedora:
-    environment: ci-approval
+    environment: ${{ github.event_name == 'pull_request' && 'ci-approval' || '' }}
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
@@ -64,7 +64,7 @@ jobs:
           echo -e "echo install_test\nexit" | /usr/local/bin/tash
 
   build-alpine:
-    environment: ci-approval
+    environment: ${{ github.event_name == 'pull_request' && 'ci-approval' || '' }}
     runs-on: ubuntu-latest
     container: alpine:latest
     steps:
@@ -86,7 +86,7 @@ jobs:
           echo -e "echo install_test\nexit" | /usr/local/bin/tash
 
   sanitizer:
-    environment: ci-approval
+    environment: ${{ github.event_name == 'pull_request' && 'ci-approval' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -117,7 +117,7 @@ jobs:
         run: echo -e "pwd\nls\necho hello\nexit" | ./build/tash.out
 
   coverage:
-    environment: ci-approval
+    environment: ${{ github.event_name == 'pull_request' && 'ci-approval' || '' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
