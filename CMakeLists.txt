@@ -192,6 +192,7 @@ if(BUILD_TESTS)
         tests/integration/test_contextual_ai.cpp
         tests/integration/test_safety.cpp
         tests/integration/test_explain.cpp
+        tests/integration/test_alias_suggest.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests

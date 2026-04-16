@@ -3,6 +3,7 @@
 #include "tash/history.h"
 #include "tash/plugin.h"
 #include "tash/plugins/safety_hook_provider.h"
+#include "tash/plugins/alias_suggest_provider.h"
 #include "theme.h"
 #include <cstring>
 #include <sys/stat.h>
@@ -295,6 +296,8 @@ int main(int argc, char *argv[]) {
     // Register built-in hook providers.
     global_plugin_registry().register_hook_provider(
         std::make_unique<SafetyHookProvider>());
+    global_plugin_registry().register_hook_provider(
+        std::make_unique<AliasSuggestProvider>());
 
     ShellState state;
 
