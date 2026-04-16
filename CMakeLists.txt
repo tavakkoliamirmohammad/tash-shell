@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.17)
-project(tash VERSION 1.1.0 LANGUAGES CXX)
+project(tash VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,11 +86,15 @@ if(TASH_AI_ENABLED)
     )
 endif()
 
+# ── Generate man page with version ────────────────────────────
+configure_file(tash.1.in tash.1 @ONLY)
+
 # ── Main shell binary ─────────────────────────────────────────
 add_executable(tash.out ${SHELL_SOURCES})
 target_link_libraries(tash.out PRIVATE replxx)
 target_include_directories(tash.out PRIVATE ${TASH_INCLUDE_DIRS})
 target_compile_options(tash.out PRIVATE -Wall -Wextra)
+target_compile_definitions(tash.out PRIVATE TASH_VERSION_STRING="${PROJECT_VERSION}")
 
 if(TASH_AI_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
@@ -118,7 +122,7 @@ if(BUILD_TESTS)
     add_library(shell_lib STATIC ${SHELL_SOURCES})
     target_link_libraries(shell_lib PRIVATE replxx)
     target_include_directories(shell_lib PRIVATE ${TASH_INCLUDE_DIRS})
-    target_compile_definitions(shell_lib PRIVATE TESTING_BUILD)
+    target_compile_definitions(shell_lib PRIVATE TESTING_BUILD TASH_VERSION_STRING="${PROJECT_VERSION}")
 
     if(TASH_AI_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
