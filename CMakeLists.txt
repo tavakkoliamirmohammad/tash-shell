@@ -55,6 +55,16 @@ else()
     message(STATUS "AI features disabled (OpenSSL not found)")
 endif()
 
+# ── SQLite history (optional) ─────────────────────────────────
+find_package(SQLite3 QUIET)
+if(SQLite3_FOUND)
+    set(TASH_SQLITE_ENABLED ON)
+    message(STATUS "SQLite history enabled (SQLite3 found)")
+else()
+    set(TASH_SQLITE_ENABLED OFF)
+    message(STATUS "SQLite history disabled (SQLite3 not found)")
+endif()
+
 # ── Common include directories ────────────────────────────────
 set(TASH_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/include
@@ -90,6 +100,13 @@ if(TASH_AI_ENABLED)
     )
 endif()
 
+# ── SQLite history source files (conditional) ────────────────
+if(TASH_SQLITE_ENABLED)
+    list(APPEND SHELL_SOURCES
+        src/plugins/sqlite_history_provider.cpp
+    )
+endif()
+
 # ── Generate man page with version ────────────────────────────
 configure_file(tash.1.in tash.1 @ONLY)
 
@@ -105,6 +122,11 @@ if(TASH_AI_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
     target_link_libraries(tash.out PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
     target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
+endif()
+
+if(TASH_SQLITE_ENABLED)
+    target_compile_definitions(tash.out PRIVATE TASH_SQLITE_ENABLED)
+    target_link_libraries(tash.out PRIVATE SQLite3::SQLite3)
 endif()
 
 # ── Testing ───────────────────────────────────────────────────
@@ -133,6 +155,11 @@ if(BUILD_TESTS)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
         target_link_libraries(shell_lib PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
         target_include_directories(shell_lib PRIVATE ${httplib_SOURCE_DIR})
+    endif()
+
+    if(TASH_SQLITE_ENABLED)
+        target_compile_definitions(shell_lib PRIVATE TASH_SQLITE_ENABLED)
+        target_link_libraries(shell_lib PRIVATE SQLite3::SQLite3)
     endif()
 
     add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
@@ -174,6 +201,15 @@ if(BUILD_TESTS)
         target_include_directories(test_fig_completion PRIVATE ${httplib_SOURCE_DIR})
     endif()
     gtest_discover_tests(test_fig_completion TEST_PREFIX "unit/fig/")
+
+    # ── SQLite history tests (conditional) ────────────────────
+    if(TASH_SQLITE_ENABLED)
+        add_executable(test_sqlite_history tests/unit/test_sqlite_history.cpp
+            src/plugins/sqlite_history_provider.cpp)
+        target_include_directories(test_sqlite_history PRIVATE ${TASH_INCLUDE_DIRS})
+        target_link_libraries(test_sqlite_history GTest::gtest_main SQLite3::SQLite3)
+        gtest_discover_tests(test_sqlite_history TEST_PREFIX "unit/sqlite/")
+    endif()
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
