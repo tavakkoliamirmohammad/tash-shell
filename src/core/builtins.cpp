@@ -458,18 +458,45 @@ static int builtin_linkify(const vector<string> &argv, ShellState &) {
     return 0;
 }
 
-static int builtin_table(const vector<string> &, ShellState &) {
+static int builtin_table(const vector<string> &argv, ShellState &) {
+    // Optional: --max-width N  (default 60) caps long cell contents.
+    size_t max_width = 60;
+    for (size_t i = 1; i + 1 < argv.size(); i++) {
+        if (argv[i] == "--max-width") {
+            try { max_width = static_cast<size_t>(std::stoi(argv[i + 1])); }
+            catch (...) {}
+        }
+    }
+
     string text = read_stdin_to_string();
     if (text.empty()) {
         write_stderr("table: no input on stdin\n");
         return 1;
     }
-    if (!tash::ui::looks_like_table(text)) {
-        // Pass through unchanged when heuristic says it isn't tabular.
+    // The user pipes to `table` deliberately, so we always try to render
+    // — the looks_like_table heuristic (≥2 aligned rows by token count)
+    // misses realistic output like `ps aux` whose last column contains
+    // spaces. parse_table_output uses header column positions, which
+    // handles that correctly. Fall back to passthrough only when we
+    // can't detect a header row at all.
+    auto data = tash::ui::parse_table_output(text);
+    // No header OR no data rows → treat as non-tabular and pass through.
+    if (data.headers.empty() || data.rows.empty()) {
         write_stdout(text);
         return 0;
     }
-    auto data = tash::ui::parse_table_output(text);
+
+    // Truncate over-wide cells so commands like `ps aux` stay readable.
+    auto truncate = [&](std::string &cell) {
+        if (cell.size() > max_width) {
+            cell.resize(max_width > 1 ? max_width - 1 : max_width);
+            cell += "\xe2\x80\xa6"; // UTF-8 "…"
+        }
+    };
+    for (auto &h : data.headers) truncate(h);
+    for (auto &row : data.rows)
+        for (auto &c : row) truncate(c);
+
     write_stdout(tash::ui::render_table(data));
     return 0;
 }
