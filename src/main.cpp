@@ -9,6 +9,7 @@
 
 #ifdef TASH_AI_ENABLED
 #include "tash/ai.h"
+#include "tash/ai/contextual_ai.h"
 #endif
 
 using namespace std;
@@ -540,6 +541,16 @@ int main(int argc, char *argv[]) {
         if (is_ai_command(expanded)) {
             string prefill;
             state.last_exit_status = handle_ai_command(expanded, state, &prefill);
+            if (!prefill.empty()) {
+                rx.set_state(Replxx::State(prefill.c_str(), (int)prefill.size()));
+            }
+            continue;
+        }
+        // Natural-language question with trailing '?' → route through AI.
+        if (is_ai_question(expanded)) {
+            string prefill;
+            state.last_exit_status =
+                handle_ai_command("@ai " + expanded, state, &prefill);
             if (!prefill.empty()) {
                 rx.set_state(Replxx::State(prefill.c_str(), (int)prefill.size()));
             }

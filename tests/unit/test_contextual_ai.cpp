@@ -135,13 +135,13 @@ TEST_F(GitBranchFixture, GitBranchFromHead) {
         ofstream f(head_path);
         f << "ref: refs/heads/main\n";
     }
-    EXPECT_EQ(get_git_branch(head_path), "main");
+    EXPECT_EQ(ai_get_git_branch(head_path), "main");
 }
 
 TEST_F(GitBranchFixture, GitBranchNoRepo) {
     // Point at a non-existent path
     string nonexistent = "/tmp/tash_test_no_repo_" + to_string(getpid()) + "/.git/HEAD";
-    EXPECT_EQ(get_git_branch(nonexistent), "");
+    EXPECT_EQ(ai_get_git_branch(nonexistent), "");
 }
 
 #else

@@ -53,10 +53,10 @@ std::string detect_project_type(const std::string &directory);
 
 // Reads .git/HEAD in the current working directory and parses
 // "ref: refs/heads/<branch>".  Returns the branch name or "".
-std::string get_git_branch();
+std::string ai_get_git_branch();
 
 // Overload that reads from an explicit .git/HEAD path (for testing).
-std::string get_git_branch(const std::string &git_head_path);
+std::string ai_get_git_branch(const std::string &git_head_path);
 
 #endif // TASH_AI_ENABLED
 #endif // TASH_CONTEXTUAL_AI_H

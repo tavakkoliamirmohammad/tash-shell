@@ -163,11 +163,11 @@ std::string detect_project_type(const string &directory) {
 
 // ── Git branch detection ─────────────────────────────────────
 
-std::string get_git_branch() {
-    return get_git_branch(".git/HEAD");
+std::string ai_get_git_branch() {
+    return ai_get_git_branch(".git/HEAD");
 }
 
-std::string get_git_branch(const string &git_head_path) {
+std::string ai_get_git_branch(const string &git_head_path) {
     ifstream f(git_head_path);
     if (!f.is_open())
         return "";
@@ -214,7 +214,7 @@ AiContext build_context(const ShellState &state) {
     }
 
     // Git branch
-    ctx.git_branch = get_git_branch();
+    ctx.git_branch = ai_get_git_branch();
 
     // Project type
     ctx.project_type = detect_project_type(ctx.directory);

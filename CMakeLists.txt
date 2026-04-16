@@ -189,6 +189,7 @@ if(BUILD_TESTS)
         tests/integration/test_comments.cpp
         tests/integration/test_modern_ux.cpp
         tests/integration/test_ai_integration.cpp
+        tests/integration/test_contextual_ai.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
