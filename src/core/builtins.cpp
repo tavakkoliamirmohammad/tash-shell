@@ -1,4 +1,5 @@
 #include "tash/core.h"
+#include "tash/core/config_sync.h"
 #include "tash/core/session.h"
 #include "tash/history.h"
 #include "tash/ui/block_renderer.h"
@@ -461,6 +462,82 @@ static int builtin_linkify(const vector<string> &argv, ShellState &) {
     return 0;
 }
 
+static int builtin_config(const vector<string> &argv, ShellState &) {
+    if (argv.size() < 2) {
+        write_stderr(
+            "config: usage:\n"
+            "  config sync init                   initialize ~/.tash as a git repo\n"
+            "  config sync remote <url>           set the git remote URL\n"
+            "  config sync push                   commit and push changes\n"
+            "  config sync pull                   pull latest changes\n"
+            "  config sync diff                   show pending changes\n"
+            "  config sync status                 is the repo initialized?\n");
+        return 1;
+    }
+    if (argv[1] != "sync") {
+        write_stderr("config: unknown subcommand: " + argv[1] + "\n");
+        return 1;
+    }
+    if (argv.size() < 3) {
+        write_stderr("config: sync requires an action\n");
+        return 1;
+    }
+    std::string dir = tash::config_sync::get_tash_config_dir();
+    const string &action = argv[2];
+
+    if (action == "init") {
+        if (!tash::config_sync::sync_init(dir)) {
+            write_stderr("config: sync init failed\n");
+            return 1;
+        }
+        write_stdout("config: initialized " + dir + "\n");
+        return 0;
+    }
+    if (action == "remote") {
+        if (argv.size() < 4) {
+            write_stderr("config: remote requires a URL\n");
+            return 1;
+        }
+        if (!tash::config_sync::sync_set_remote(dir, argv[3])) {
+            write_stderr("config: setting remote failed\n");
+            return 1;
+        }
+        write_stdout("config: remote set to " + argv[3] + "\n");
+        return 0;
+    }
+    if (action == "push") {
+        if (!tash::config_sync::sync_push(dir)) {
+            write_stderr("config: push failed\n");
+            return 1;
+        }
+        write_stdout("config: push ok\n");
+        return 0;
+    }
+    if (action == "pull") {
+        if (!tash::config_sync::sync_pull(dir)) {
+            write_stderr("config: pull failed\n");
+            return 1;
+        }
+        write_stdout("config: pull ok\n");
+        return 0;
+    }
+    if (action == "diff") {
+        write_stdout(tash::config_sync::sync_diff(dir));
+        return 0;
+    }
+    if (action == "status") {
+        if (tash::config_sync::sync_is_initialized(dir)) {
+            write_stdout("config: initialized at " + dir + "\n");
+            return 0;
+        }
+        write_stdout("config: not initialized (run 'config sync init')\n");
+        return 1;
+    }
+
+    write_stderr("config: unknown sync action: " + action + "\n");
+    return 1;
+}
+
 static int builtin_session(const vector<string> &argv, ShellState &state) {
     if (argv.size() < 2) {
         write_stderr(
@@ -769,6 +846,7 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"table",    builtin_table},
         {"block",    builtin_block},
         {"session",  builtin_session},
+        {"config",   builtin_config},
     };
     return builtins;
 }

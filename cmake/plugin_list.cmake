@@ -154,3 +154,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_session.cpp
     TEST_PREFIX "unit/session/"
 )
+
+tash_register_plugin(
+    NAME config_sync
+    SOURCES src/core/config_sync.cpp
+    TEST_SOURCES tests/unit/test_config_sync.cpp
+    TEST_PREFIX "unit/core/"
+)

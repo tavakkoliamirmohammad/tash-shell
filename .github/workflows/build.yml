@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: dnf install -y gcc-c++ cmake make openssl-devel libcurl-devel sqlite-devel
+        run: dnf install -y gcc-c++ cmake make openssl-devel libcurl-devel sqlite-devel git
       - name: Build and test
         run: |
           cmake -B build -DBUILD_TESTS=ON
@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: apk add --no-cache g++ cmake make linux-headers openssl-dev curl-dev sqlite-dev
+        run: apk add --no-cache g++ cmake make linux-headers openssl-dev curl-dev sqlite-dev git
       - name: Build and test
         run: |
           cmake -B build -DBUILD_TESTS=ON
