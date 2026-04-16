@@ -112,11 +112,16 @@ TEST(RichOutputIntegration, TableTruncatesWideCells) {
     EXPECT_NE(r.output.find("\xe2\x80\xa6"), std::string::npos); // …
 }
 
-// `ps aux | head -5 | table` — smoke test that the pipeline runs and
-// produces box-drawing (real system output; content varies).
-TEST(RichOutputIntegration, TableWorksWithPsAux) {
-    auto r = run_shell("ps aux | head -5 | table\nexit\n");
+// Smoke test for a realistically wide table with variable-length tail
+// column (mimics the `ps aux` shape) — uses printf so it's independent
+// of the container's process list.
+TEST(RichOutputIntegration, TableWorksWithWideVariableTail) {
+    auto r = run_shell(
+        "printf 'USER  PID   %%CPU COMMAND\\n"
+        "alice 1234  5.2  /usr/local/bin/really/long/path --with --many --args\\n"
+        "bob   5678  1.1  short\\n' | table --max-width 20\nexit\n");
     EXPECT_NE(r.output.find("\xe2\x94\x8c"), std::string::npos); // ┌
+    EXPECT_NE(r.output.find("\xe2\x80\xa6"), std::string::npos); // … (truncated)
 }
 
 // Piping through `linkify` inside a multi-stage pipeline.
