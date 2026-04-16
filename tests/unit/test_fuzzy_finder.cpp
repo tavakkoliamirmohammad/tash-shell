@@ -136,3 +136,30 @@ TEST(FuzzyFinder, LargeCandidateSet) {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     EXPECT_LT(ms, 5000);
 }
+
+// ── Completion callback wiring ───────────────────────────────────
+
+#include "tash/ui.h"
+#include "tash/core.h"
+
+// Fuzzy fallback triggers only when the user typed a prefix that yields no
+// direct prefix match and is at least 2 chars. Built-ins like `cd`, `pwd`,
+// `history` must still show up fuzzily for made-up prefixes.
+TEST(FuzzyFinder, CompletionCallbackFuzzyFallback) {
+    int ctx = 0;
+    // "hsty" has no direct prefix match but should fuzzy-rank "history".
+    auto completions = completion_callback("hsty", ctx);
+    bool found_history = false;
+    for (size_t i = 0; i < completions.size(); i++) {
+        if (completions[i].text() == "history") { found_history = true; break; }
+    }
+    EXPECT_TRUE(found_history);
+}
+
+TEST(FuzzyFinder, CompletionCallbackPrefixWins) {
+    int ctx = 0;
+    // "hist" is a real prefix match — we should NOT activate fuzzy fallback.
+    auto completions = completion_callback("hist", ctx);
+    ASSERT_FALSE(completions.empty());
+    EXPECT_EQ(completions[0].text(), "history");
+}
