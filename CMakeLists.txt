@@ -199,6 +199,7 @@ if(BUILD_TESTS)
         tests/integration/test_rich_output.cpp
         tests/integration/test_block_output.cpp
         tests/integration/test_session.cpp
+        tests/integration/test_config_sync.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
