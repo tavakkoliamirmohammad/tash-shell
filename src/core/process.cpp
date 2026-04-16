@@ -157,7 +157,8 @@ void reap_background_processes(unordered_map<pid_t, string> &background_processe
 }
 
 int execute_pipeline(vector<vector<string>> &pipeline_cmds,
-                     const string &filename, bool redirect_flag) {
+                     const string &filename, bool redirect_flag,
+                     ShellState *state) {
     int num_cmds = pipeline_cmds.size();
     vector<int> pipefds(2 * (num_cmds - 1));
     for (int i = 0; i < num_cmds - 1; i++) {
@@ -195,13 +196,16 @@ int execute_pipeline(vector<vector<string>> &pipeline_cmds,
             for (int j = 0; j < 2 * (num_cmds - 1); j++) {
                 close(pipefds[j]);
             }
-            // If the first token is a shell builtin, run it in this forked
-            // child so `echo foo | copy` etc. work inside pipelines.
+            // child so `echo foo | copy`, `history | grep x`, etc. work.
             const auto &builtins = get_builtins();
             auto bit = builtins.find(pipeline_cmds[i][0]);
             if (bit != builtins.end()) {
-                ShellState child_state;
-                exit(bit->second(pipeline_cmds[i], child_state));
+                // Share the parent state by reference via the copied memory
+                // from fork(); fall back to a fresh state when no context
+                // was supplied (e.g. older call sites).
+                ShellState fallback;
+                ShellState &st = state ? *state : fallback;
+                exit(bit->second(pipeline_cmds[i], st));
             }
             execvp(c_args[0], const_cast<char *const *>(c_args.data()));
             string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";

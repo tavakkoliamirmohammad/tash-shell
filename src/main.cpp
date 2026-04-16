@@ -149,13 +149,64 @@ int execute_single_command(string command, ShellState &state) {
             }
             pipeline_cmds.push_back(seg_cmd.argv);
         }
-        return execute_pipeline(pipeline_cmds, redirect_file, redirect_flag);
+        return execute_pipeline(pipeline_cmds, redirect_file, redirect_flag, &state);
     }
 
     const auto &builtins = get_builtins();
     auto it = builtins.find(cmd.argv[0]);
     if (it != builtins.end()) {
-        return it->second(cmd.argv, state);
+        // Apply redirections to the parent process for the duration of the
+        // builtin call so `pwd > file`, `theme list >/tmp/x`, etc. write to
+        // the target file instead of the shell's stdout.
+        int saved_stdin = -1, saved_stdout = -1, saved_stderr = -1;
+        for (const Redirection &r : cmd.redirections) {
+            if (r.dup_to_stdout) {
+                if (saved_stderr == -1) saved_stderr = dup(STDERR_FILENO);
+                dup2(STDOUT_FILENO, STDERR_FILENO);
+                continue;
+            }
+            if (r.fd == 0) {
+                int in = open(r.filename.c_str(), O_RDONLY);
+                if (in < 0) {
+                    write_stderr("tash: " + r.filename + ": " +
+                                 strerror(errno) + "\n");
+                    return 1;
+                }
+                if (saved_stdin == -1) saved_stdin = dup(STDIN_FILENO);
+                dup2(in, STDIN_FILENO);
+                close(in);
+            } else if (r.fd == 1) {
+                int flags = O_WRONLY | O_CREAT |
+                            (r.append ? O_APPEND : O_TRUNC);
+                int out = open(r.filename.c_str(), flags, 0644);
+                if (out < 0) {
+                    write_stderr("tash: " + r.filename + ": " +
+                                 strerror(errno) + "\n");
+                    return 1;
+                }
+                if (saved_stdout == -1) saved_stdout = dup(STDOUT_FILENO);
+                dup2(out, STDOUT_FILENO);
+                close(out);
+            } else if (r.fd == 2) {
+                int err = open(r.filename.c_str(),
+                               O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (err < 0) {
+                    write_stderr("tash: " + r.filename + ": " +
+                                 strerror(errno) + "\n");
+                    return 1;
+                }
+                if (saved_stderr == -1) saved_stderr = dup(STDERR_FILENO);
+                dup2(err, STDERR_FILENO);
+                close(err);
+            }
+        }
+
+        int result = it->second(cmd.argv, state);
+
+        if (saved_stdin  != -1) { dup2(saved_stdin,  STDIN_FILENO);  close(saved_stdin);  }
+        if (saved_stdout != -1) { dup2(saved_stdout, STDOUT_FILENO); close(saved_stdout); }
+        if (saved_stderr != -1) { dup2(saved_stderr, STDERR_FILENO); close(saved_stderr); }
+        return result;
     }
 
     if (cmd.argv[0] == "bg") {

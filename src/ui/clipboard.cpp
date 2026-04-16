@@ -92,20 +92,20 @@ bool copy_to_clipboard(const std::string &text) {
 
     // Fall back to platform-specific clipboard commands
 #ifdef __APPLE__
-    if (popen_write("pbcopy", text) == 0) {
+    if (popen_write("pbcopy 2>/dev/null", text) == 0) {
         return true;
     }
 #else
     // Try xclip first
-    if (popen_write("xclip -selection clipboard", text) == 0) {
+    if (popen_write("xclip -selection clipboard 2>/dev/null", text) == 0) {
         return true;
     }
     // Try xsel
-    if (popen_write("xsel --clipboard --input", text) == 0) {
+    if (popen_write("xsel --clipboard --input 2>/dev/null", text) == 0) {
         return true;
     }
     // Try wl-copy (Wayland)
-    if (popen_write("wl-copy", text) == 0) {
+    if (popen_write("wl-copy 2>/dev/null", text) == 0) {
         return true;
     }
 #endif
@@ -115,20 +115,20 @@ bool copy_to_clipboard(const std::string &text) {
 
 std::string paste_from_clipboard() {
 #ifdef __APPLE__
-    return popen_read("pbpaste");
+    return popen_read("pbpaste 2>/dev/null");
 #else
     // Try xclip first
-    std::string result = popen_read("xclip -selection clipboard -o");
+    std::string result = popen_read("xclip -selection clipboard -o 2>/dev/null");
     if (!result.empty()) {
         return result;
     }
     // Try xsel
-    result = popen_read("xsel --clipboard --output");
+    result = popen_read("xsel --clipboard --output 2>/dev/null");
     if (!result.empty()) {
         return result;
     }
     // Try wl-paste (Wayland)
-    result = popen_read("wl-paste");
+    result = popen_read("wl-paste 2>/dev/null");
     return result;
 #endif
 }
