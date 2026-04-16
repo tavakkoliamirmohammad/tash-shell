@@ -152,4 +152,7 @@ private:
     std::vector<std::unique_ptr<IHookProvider>> hook_providers_;
 };
 
+// Process-wide plugin registry. Populated at startup in main().
+PluginRegistry& global_plugin_registry();
+
 #endif // TASH_PLUGIN_H

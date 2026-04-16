@@ -147,3 +147,10 @@ size_t PluginRegistry::history_provider_count() const {
 size_t PluginRegistry::hook_provider_count() const {
     return hook_providers_.size();
 }
+
+// ── Process-wide singleton registry ───────────────────────────
+
+PluginRegistry& global_plugin_registry() {
+    static PluginRegistry instance;
+    return instance;
+}

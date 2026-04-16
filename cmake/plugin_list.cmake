@@ -91,3 +91,10 @@ tash_register_plugin(
     TEST_PREFIX "unit/ai/"
     TEST_AI_AWARE
 )
+
+tash_register_plugin(
+    NAME safety_hook
+    SOURCES src/plugins/safety_hook_provider.cpp
+    TEST_SOURCES tests/unit/test_safety_hook.cpp
+    TEST_PREFIX "unit/plugins/safety/"
+)
