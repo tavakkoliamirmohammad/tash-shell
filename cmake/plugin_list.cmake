@@ -147,3 +147,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_block_renderer.cpp
     TEST_PREFIX "unit/ui/"
 )
+
+tash_register_plugin(
+    NAME session
+    SOURCES src/core/session.cpp
+    TEST_SOURCES tests/unit/test_session.cpp
+    TEST_PREFIX "unit/session/"
+)
