@@ -97,6 +97,7 @@ if(TASH_AI_ENABLED)
         src/ai/llm_client.cpp
         src/ai/ai_config.cpp
         src/ai/context_suggest.cpp
+        src/plugins/ai_error_hook_provider.cpp
     )
 endif()
 
@@ -212,6 +213,17 @@ if(BUILD_TESTS)
         target_link_libraries(test_sqlite_history GTest::gtest_main ${SQLite3_LIBRARIES})
         gtest_discover_tests(test_sqlite_history TEST_PREFIX "unit/sqlite/")
     endif()
+    # ── AI error hook tests ──────────────────────────────────
+    add_executable(test_ai_error_hook tests/unit/test_ai_error_hook.cpp)
+    target_include_directories(test_ai_error_hook PRIVATE ${TASH_INCLUDE_DIRS})
+    target_link_libraries(test_ai_error_hook GTest::gtest_main shell_lib)
+    if(TASH_AI_ENABLED)
+        target_compile_definitions(test_ai_error_hook PRIVATE TASH_AI_ENABLED)
+        target_include_directories(test_ai_error_hook PRIVATE ${httplib_SOURCE_DIR})
+        target_include_directories(test_ai_error_hook PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
+        target_link_libraries(test_ai_error_hook CURL::libcurl)
+    endif()
+    gtest_discover_tests(test_ai_error_hook TEST_PREFIX "unit/plugins/ai/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
