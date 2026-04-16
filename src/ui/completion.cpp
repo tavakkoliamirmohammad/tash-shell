@@ -1,4 +1,5 @@
 #include "tash/core.h"
+#include "tash/plugin.h"
 #include "tash/ui.h"
 #include "tash/ui/fuzzy_finder.h"
 #include "theme.h"
@@ -99,6 +100,20 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
     size_t cmd_end = cmd_start;
     while (cmd_end < input.size() && input[cmd_end] != ' ' && input[cmd_end] != '\t') cmd_end++;
     cmd = input.substr(cmd_start, cmd_end - cmd_start);
+
+    // Flag completion via plugin registry (manpage provider, etc.)
+    if (!prefix.empty() && prefix[0] == '-') {
+        ShellState dummy;
+        vector<string> args;
+        auto plugin_comps = global_plugin_registry().complete(
+            cmd, prefix, args, dummy);
+        for (const auto &c : plugin_comps) {
+            if (c.text.compare(0, prefix.size(), prefix) == 0) {
+                completions.emplace_back(c.text, comp_subcmd());
+            }
+        }
+        if (!completions.empty()) return completions;
+    }
 
     // Variable completion (colored sky)
     if (!prefix.empty() && prefix[0] == '$') {

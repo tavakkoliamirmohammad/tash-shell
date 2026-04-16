@@ -95,3 +95,35 @@ TEST(ManpageCompletion, PriorityIs5) {
     ManpageCompletionProvider provider;
     EXPECT_EQ(provider.priority(), 5);
 }
+
+// ── End-to-end: completion_callback + ManpageCompletionProvider ──
+//
+// Demonstrates that tab-completing `ls -` surfaces real flags from
+// `ls --help`. Bypasses the normal registry by using the provider's
+// cache setter so the test doesn't depend on popen/system ls behaviour.
+
+#include "tash/plugin.h"
+#include "tash/ui.h"
+
+TEST(Manpage, CompletionCallbackOffersLongFlag) {
+    // Pre-seed the registry's provider with a fake help parse result.
+    auto provider = std::make_unique<ManpageCompletionProvider>();
+    auto &cache_mut = const_cast<
+        std::unordered_map<std::string, std::vector<HelpOption>>&>(
+        provider->cache());
+    HelpOption opt;
+    opt.short_flag = "-v";
+    opt.long_flag  = "--verbose";
+    opt.description = "Increase verbosity";
+    cache_mut["mycmd"] = {opt};
+
+    global_plugin_registry().register_completion_provider(std::move(provider));
+
+    int ctx = 0;
+    auto completions = completion_callback("mycmd --v", ctx);
+    bool found = false;
+    for (size_t i = 0; i < completions.size(); i++) {
+        if (completions[i].text() == "--verbose") { found = true; break; }
+    }
+    EXPECT_TRUE(found);
+}

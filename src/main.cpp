@@ -4,6 +4,7 @@
 #include "tash/plugin.h"
 #include "tash/plugins/safety_hook_provider.h"
 #include "tash/plugins/alias_suggest_provider.h"
+#include "tash/plugins/manpage_completion_provider.h"
 #include "tash/util/benchmark.h"
 #include "theme.h"
 #include <cstring>
@@ -359,6 +360,8 @@ int main(int argc, char *argv[]) {
         std::make_unique<SafetyHookProvider>());
     global_plugin_registry().register_hook_provider(
         std::make_unique<AliasSuggestProvider>());
+    global_plugin_registry().register_completion_provider(
+        std::make_unique<ManpageCompletionProvider>());
 
     if (benchmark_mode) { bench.end(); bench.start("Shell state init"); }
 
