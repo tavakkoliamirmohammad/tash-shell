@@ -195,6 +195,14 @@ int execute_pipeline(vector<vector<string>> &pipeline_cmds,
             for (int j = 0; j < 2 * (num_cmds - 1); j++) {
                 close(pipefds[j]);
             }
+            // If the first token is a shell builtin, run it in this forked
+            // child so `echo foo | copy` etc. work inside pipelines.
+            const auto &builtins = get_builtins();
+            auto bit = builtins.find(pipeline_cmds[i][0]);
+            if (bit != builtins.end()) {
+                ShellState child_state;
+                exit(bit->second(pipeline_cmds[i], child_state));
+            }
             execvp(c_args[0], const_cast<char *const *>(c_args.data()));
             string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
             if (write(STDERR_FILENO, err_msg.c_str(), err_msg.size())) {}

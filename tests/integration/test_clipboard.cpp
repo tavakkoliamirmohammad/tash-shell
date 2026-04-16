@@ -15,3 +15,14 @@ TEST(Clipboard, PasteBuiltinExists) {
     EXPECT_EQ(r.output.find("paste: command not found"), std::string::npos);
     EXPECT_EQ(r.output.find("No such file or directory"), std::string::npos);
 }
+
+// Builtins like `copy` must also work when used as the final stage of a
+// pipeline (`echo foo | copy`). Before the pipeline-builtin fix this
+// reported "copy: No such file or directory".
+TEST(Clipboard, BuiltinWorksInPipeline) {
+    auto r = run_shell("echo amir | copy\nexit\n");
+    EXPECT_EQ(r.output.find("copy: No such file or directory"),
+              std::string::npos);
+    EXPECT_EQ(r.output.find("copy: command not found"),
+              std::string::npos);
+}
