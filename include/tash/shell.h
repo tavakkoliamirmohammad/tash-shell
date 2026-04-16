@@ -66,13 +66,17 @@ struct ShellState {
     std::string last_executed_cmd;
     bool ai_enabled;
 
+    // Safety hook
+    bool skip_execution;
+
     ShellState()
         : last_exit_status(0)
         , colorful_commands({"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"})
         , max_background_processes(5)
         , ctrl_d_count(0)
         , last_cmd_duration(-1)
-        , ai_enabled(true) {}
+        , ai_enabled(true)
+        , skip_execution(false) {}
 };
 
 // ── Signal-related globals (must be global for signal handlers) ─
