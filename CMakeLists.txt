@@ -88,6 +88,7 @@ set(SHELL_SOURCES
     src/plugins/plugin_registry.cpp
     src/plugins/fish_completion_provider.cpp
     src/plugins/fig_completion_provider.cpp
+    src/plugins/theme_provider.cpp
 )
 
 # ── AI source files (conditional) ────────────────────────────
@@ -224,6 +225,14 @@ if(BUILD_TESTS)
         target_link_libraries(test_ai_error_hook CURL::libcurl)
     endif()
     gtest_discover_tests(test_ai_error_hook TEST_PREFIX "unit/plugins/ai/")
+
+    # ── Theme provider tests ─────────────────────────────────
+    add_executable(test_theme tests/unit/test_theme.cpp src/plugins/theme_provider.cpp)
+    target_include_directories(test_theme PRIVATE ${TASH_INCLUDE_DIRS})
+    target_compile_definitions(test_theme PRIVATE
+        TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
+    target_link_libraries(test_theme GTest::gtest_main)
+    gtest_discover_tests(test_theme TEST_PREFIX "unit/theme/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration

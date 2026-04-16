@@ -1,0 +1,30 @@
+[meta]
+name = "Tokyo Night"
+variant = "dark"
+
+[syntax]
+command_valid = "#9ece6a"
+command_builtin = "#2ac3de"
+command_invalid = "#f7768e"
+string_color = "#e0af68"
+variable = "#7dcfff"
+operator = "#bb9af7"
+redirect = "#ff9e64"
+comment = "#565f89"
+
+[prompt]
+success = "#9ece6a"
+error = "#f7768e"
+path = "#7aa2f7"
+git = "#bb9af7"
+duration = "#ff9e64"
+user = "#9ece6a"
+separator = "#565f89"
+
+[completion]
+builtin = "#2ac3de"
+command = "#9ece6a"
+file = "#e0af68"
+directory = "#7aa2f7"
+option = "#ff9e64"
+description = "#a9b1d6"
