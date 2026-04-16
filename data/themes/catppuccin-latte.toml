@@ -1,0 +1,30 @@
+[meta]
+name = "Catppuccin Latte"
+variant = "light"
+
+[syntax]
+command_valid = "#40a02b"
+command_builtin = "#179299"
+command_invalid = "#d20f39"
+string_color = "#df8e1d"
+variable = "#04a5e5"
+operator = "#8839ef"
+redirect = "#fe640b"
+comment = "#9ca0b0"
+
+[prompt]
+success = "#40a02b"
+error = "#d20f39"
+path = "#1e66f5"
+git = "#8839ef"
+duration = "#fe640b"
+user = "#40a02b"
+separator = "#8c8fa1"
+
+[completion]
+builtin = "#179299"
+command = "#40a02b"
+file = "#df8e1d"
+directory = "#1e66f5"
+option = "#fe640b"
+description = "#6c6f85"

@@ -129,7 +129,7 @@ static const char *PROMPT_UNIFIED =
 // ── Output helpers ────────────────────────────────────────────
 
 static void ai_print_label() {
-    write_stdout(AI_LABEL "tash ai" CAT_RESET AI_SEPARATOR " ─ " CAT_RESET);
+    write_stdout(AI_LABEL + "tash ai" CAT_RESET + AI_SEPARATOR + " ─ " CAT_RESET);
 }
 
 static void ai_print_error(const string &msg) {
@@ -368,7 +368,7 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
             if (!isatty(STDIN_FILENO)) return 0;
 
-            write_stdout(AI_PROMPT "Run?" CAT_RESET " [y/n/e] ");
+            write_stdout(AI_PROMPT + "Run?" CAT_RESET " [y/n/e] ");
             char ch = read_single_char();
             write_stdout(string(1, ch) + "\n");
 
@@ -391,7 +391,7 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
             if (!isatty(STDIN_FILENO)) return 0;
 
-            write_stdout(AI_PROMPT "Save to?" CAT_RESET " [" + parsed.script_filename + "/n] ");
+            write_stdout(AI_PROMPT + "Save to?" CAT_RESET " [" + parsed.script_filename + "/n] ");
 
             string filename;
             if (!getline(cin, filename) || filename.empty() || filename[0] == 'n' || filename[0] == 'N') {
@@ -436,7 +436,7 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
             chmod(filename.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
 
             ai_print_label();
-            write_stdout(AI_CMD "saved to " + filename + CAT_RESET "\n");
+            write_stdout(AI_CMD + "saved to " + filename + CAT_RESET "\n");
             return 0;
         }
 
@@ -455,14 +455,14 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
             int last_status = 0;
 
             for (size_t i = 0; i < parsed.steps.size(); i++) {
-                write_stdout(AI_STEP_NUM "  " + to_string(i + 1) + "." CAT_RESET " "
+                write_stdout(AI_STEP_NUM + "  " + to_string(i + 1) + "." CAT_RESET " "
                              + parsed.steps[i].description + "\n");
-                write_stdout("     " AI_CMD + parsed.steps[i].command + CAT_RESET "\n");
+                write_stdout("     " + AI_CMD + parsed.steps[i].command + CAT_RESET "\n");
 
                 if (!isatty(STDIN_FILENO)) continue;
 
                 if (!run_all) {
-                    write_stdout(AI_PROMPT "     Run?" CAT_RESET " [y/n/a(ll)/s(kip)] ");
+                    write_stdout(AI_PROMPT + "     Run?" CAT_RESET " [y/n/a(ll)/s(kip)] ");
                     char ch = read_single_char();
                     write_stdout(string(1, ch) + "\n");
 
@@ -518,13 +518,13 @@ static int handle_status(ShellState &state) {
     string key = ai_load_provider_key(provider);
     bool key_ok = (provider == "ollama") || !key.empty();
 
-    write_stdout("  Provider: " AI_CMD + provider + CAT_RESET "\n");
-    write_stdout("  Model:    " AI_CMD + current_model + CAT_RESET "\n");
-    write_stdout("  Key:      " + string(key_ok ? AI_CMD "configured" : AI_ERROR "not configured") + CAT_RESET "\n");
-    write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
+    write_stdout("  Provider: " + AI_CMD + provider + CAT_RESET "\n");
+    write_stdout("  Model:    " + AI_CMD + current_model + CAT_RESET "\n");
+    write_stdout("  Key:      " + string(key_ok ? AI_CMD + "configured" : AI_ERROR + "not configured") + CAT_RESET "\n");
+    write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD + "enabled" : AI_ERROR + "disabled") + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
-    write_stdout("  Today:    " AI_CMD + to_string(usage) + " requests" CAT_RESET "\n");
+    write_stdout("  Today:    " + AI_CMD + to_string(usage) + " requests" CAT_RESET "\n");
     write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min (enforced)" CAT_RESET "\n\n");
 
     return 0;
@@ -584,18 +584,18 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
 
         ai_print_label();
         write_stdout("Configuration\n\n");
-        write_stdout("  Provider: " AI_CMD + provider + CAT_RESET "  Model: " AI_CMD + current_model + CAT_RESET "\n");
-        write_stdout("  Key:      " + string(key_ok ? AI_CMD "configured" : AI_ERROR "not configured") + CAT_RESET);
-        write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD "enabled" : AI_ERROR "disabled") + CAT_RESET "\n");
-        write_stdout("  Today:    " AI_CMD + to_string(usage) + " requests" CAT_RESET
+        write_stdout("  Provider: " + AI_CMD + provider + CAT_RESET "  Model: " + AI_CMD + current_model + CAT_RESET "\n");
+        write_stdout("  Key:      " + string(key_ok ? AI_CMD + "configured" : AI_ERROR + "not configured") + CAT_RESET);
+        write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD + "enabled" : AI_ERROR + "disabled") + CAT_RESET "\n");
+        write_stdout("  Today:    " + AI_CMD + to_string(usage) + " requests" CAT_RESET
                      "  Rate: " CAT_DIM "10/min (enforced)" CAT_RESET "\n\n");
-        write_stdout(AI_STEP_NUM "  1." CAT_RESET " Switch provider (gemini/openai/ollama)\n");
-        write_stdout(AI_STEP_NUM "  2." CAT_RESET " Change model\n");
-        write_stdout(AI_STEP_NUM "  3." CAT_RESET " Set API key\n");
-        write_stdout(AI_STEP_NUM "  4." CAT_RESET " Set Ollama URL\n");
-        write_stdout(AI_STEP_NUM "  5." CAT_RESET " Test connection\n");
-        write_stdout(AI_STEP_NUM "  q." CAT_RESET " Back\n\n");
-        write_stdout(AI_PROMPT "  Choice" CAT_RESET " [1-5/q]: ");
+        write_stdout(AI_STEP_NUM + "  1." CAT_RESET " Switch provider (gemini/openai/ollama)\n");
+        write_stdout(AI_STEP_NUM + "  2." CAT_RESET " Change model\n");
+        write_stdout(AI_STEP_NUM + "  3." CAT_RESET " Set API key\n");
+        write_stdout(AI_STEP_NUM + "  4." CAT_RESET " Set Ollama URL\n");
+        write_stdout(AI_STEP_NUM + "  5." CAT_RESET " Test connection\n");
+        write_stdout(AI_STEP_NUM + "  q." CAT_RESET " Back\n\n");
+        write_stdout(AI_PROMPT + "  Choice" CAT_RESET " [1-5/q]: ");
 
         char ch = read_single_char();
         write_stdout(string(1, ch) + "\n\n");
@@ -610,7 +610,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
                     ai_set_provider(p);
                     ai_set_model_override("");
                     ai_print_label();
-                    write_stdout(AI_CMD "Provider set to " + p + "." CAT_RESET "\n");
+                    write_stdout(AI_CMD + "Provider set to " + p + "." CAT_RESET "\n");
                 } else {
                     ai_print_error("unknown provider.");
                 }
@@ -624,7 +624,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
                 if (!m.empty()) {
                     ai_set_model_override(m);
                     ai_print_label();
-                    write_stdout(AI_CMD "Model set to " + m + "." CAT_RESET "\n");
+                    write_stdout(AI_CMD + "Model set to " + m + "." CAT_RESET "\n");
                 }
             }
         } else if (ch == '3') {
@@ -638,7 +638,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
                 if (url.empty()) url = "http://localhost:11434";
                 ai_set_ollama_url(url);
                 ai_print_label();
-                write_stdout(AI_CMD "Ollama URL set to " + url + "." CAT_RESET "\n");
+                write_stdout(AI_CMD + "Ollama URL set to " + url + "." CAT_RESET "\n");
             }
         } else if (ch == '5') {
             // Test connection
@@ -658,7 +658,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
             stop_spinner();
             if (test_resp.success) {
                 ai_print_label();
-                write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
+                write_stdout(AI_CMD + "Connection successful!" CAT_RESET "\n");
             } else {
                 ai_print_error("connection failed: " + test_resp.error_message);
             }
@@ -672,14 +672,14 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
     if (rest == "on") {
         state.ai_enabled = true;
         ai_print_label();
-        write_stdout(AI_CMD "AI enabled." CAT_RESET "\n");
+        write_stdout(AI_CMD + "AI enabled." CAT_RESET "\n");
         return 0;
     }
 
     if (rest == "off") {
         state.ai_enabled = false;
         ai_print_label();
-        write_stdout(CAT_YELLOW "AI disabled." CAT_RESET "\n");
+        write_stdout(CAT_YELLOW + "AI disabled." CAT_RESET "\n");
         return 0;
     }
 
@@ -688,7 +688,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
     if (rest == "clear") {
         conversation_history.clear();
         ai_print_label();
-        write_stdout(AI_CMD "Conversation cleared." CAT_RESET "\n");
+        write_stdout(AI_CMD + "Conversation cleared." CAT_RESET "\n");
         return 0;
     }
 
@@ -711,7 +711,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         stop_spinner();
         if (resp.success) {
             ai_print_label();
-            write_stdout(AI_CMD "Connection successful!" CAT_RESET "\n");
+            write_stdout(AI_CMD + "Connection successful!" CAT_RESET "\n");
             return 0;
         }
         ai_print_error("test failed: " + resp.error_message);
@@ -729,7 +729,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         ai_set_provider(provider);
         ai_set_model_override("");
         ai_print_label();
-        write_stdout(AI_CMD "Provider set to " + provider + "." CAT_RESET "\n");
+        write_stdout(AI_CMD + "Provider set to " + provider + "." CAT_RESET "\n");
         return 0;
     }
 
@@ -740,7 +740,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         if (!model.empty()) {
             ai_set_model_override(model);
             ai_print_label();
-            write_stdout(AI_CMD "Model set to " + model + "." CAT_RESET "\n");
+            write_stdout(AI_CMD + "Model set to " + model + "." CAT_RESET "\n");
         }
         return 0;
     }

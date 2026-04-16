@@ -1,0 +1,30 @@
+[meta]
+name = "Catppuccin Mocha"
+variant = "dark"
+
+[syntax]
+command_valid = "#a6e3a1"
+command_builtin = "#94e2d5"
+command_invalid = "#f38ba8"
+string_color = "#f9e2af"
+variable = "#89dceb"
+operator = "#cba6f7"
+redirect = "#fab387"
+comment = "#6c7086"
+
+[prompt]
+success = "#a6e3a1"
+error = "#f38ba8"
+path = "#89b4fa"
+git = "#cba6f7"
+duration = "#fab387"
+user = "#a6e3a1"
+separator = "#7f849c"
+
+[completion]
+builtin = "#94e2d5"
+command = "#a6e3a1"
+file = "#f9e2af"
+directory = "#89b4fa"
+option = "#fab387"
+description = "#bac2de"

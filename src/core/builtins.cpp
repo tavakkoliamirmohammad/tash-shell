@@ -1,5 +1,6 @@
 #include "tash/core.h"
 #include "tash/history.h"
+#include "theme.h"
 #include <cstring>
 
 using namespace std;
@@ -393,6 +394,105 @@ static int builtin_z(const vector<string> &argv, ShellState &state) {
     return 0;
 }
 
+static string hex6(const RGB &c) {
+    char buf[8];
+    snprintf(buf, sizeof(buf), "#%02x%02x%02x", c.r, c.g, c.b);
+    return buf;
+}
+
+static void theme_print_swatch(const string &label, const RGB &c) {
+    write_stdout("  " + ansi_fg(c) + "██████" + CAT_RESET + "  " +
+                 label + "  " + hex6(c) + "\n");
+}
+
+static int builtin_theme(const vector<string> &argv, ShellState &) {
+    if (argv.size() < 2) {
+        write_stderr(
+            "theme: usage:\n"
+            "  theme list          list available themes\n"
+            "  theme current       print the active theme name\n"
+            "  theme set <name>    switch to a theme (persists)\n"
+            "  theme preview [<name>]  show color swatches\n");
+        return 1;
+    }
+    const string &sub = argv[1];
+
+    if (sub == "list") {
+        auto names = list_available_themes();
+        if (names.empty()) {
+            write_stdout("(no themes found)\n");
+            return 0;
+        }
+        for (const auto &n : names) {
+            bool active = (n == g_current_theme_name);
+            write_stdout((active ? string("* ") : string("  ")) + n + "\n");
+        }
+        return 0;
+    }
+
+    if (sub == "current") {
+        write_stdout(g_current_theme_name + "\n");
+        return 0;
+    }
+
+    if (sub == "set") {
+        if (argv.size() < 3) {
+            write_stderr("theme: set requires a theme name\n");
+            return 1;
+        }
+        string err;
+        if (!set_active_theme(argv[2], err)) {
+            write_stderr("theme: " + err + "\n");
+            return 1;
+        }
+        write_stdout("theme: switched to " + argv[2] + "\n");
+        return 0;
+    }
+
+    if (sub == "preview") {
+        Theme t = g_current_theme;
+        if (argv.size() >= 3) {
+            string path = find_theme_file(argv[2]);
+            if (path.empty()) {
+                write_stderr("theme: not found: " + argv[2] + "\n");
+                return 1;
+            }
+            t = Theme::load_from_file(path);
+        }
+        write_stdout("\n" + string(CAT_BOLD) + t.name + CAT_RESET +
+                     " (" + t.variant + ")\n\n");
+        write_stdout(string(CAT_BOLD) + "syntax" + CAT_RESET + "\n");
+        theme_print_swatch("command_valid  ", t.command_valid);
+        theme_print_swatch("command_builtin", t.command_builtin);
+        theme_print_swatch("command_invalid", t.command_invalid);
+        theme_print_swatch("string         ", t.string_color);
+        theme_print_swatch("variable       ", t.variable);
+        theme_print_swatch("operator       ", t.op);
+        theme_print_swatch("redirect       ", t.redirect);
+        theme_print_swatch("comment        ", t.comment);
+        write_stdout("\n" + string(CAT_BOLD) + "prompt" + CAT_RESET + "\n");
+        theme_print_swatch("success        ", t.prompt_success);
+        theme_print_swatch("error          ", t.prompt_error);
+        theme_print_swatch("path           ", t.prompt_path);
+        theme_print_swatch("git            ", t.prompt_git);
+        theme_print_swatch("duration       ", t.prompt_duration);
+        theme_print_swatch("user           ", t.prompt_user);
+        theme_print_swatch("separator      ", t.prompt_separator);
+        write_stdout("\n" + string(CAT_BOLD) + "completion" + CAT_RESET + "\n");
+        theme_print_swatch("builtin        ", t.comp_builtin);
+        theme_print_swatch("command        ", t.comp_command);
+        theme_print_swatch("file           ", t.comp_file);
+        theme_print_swatch("directory      ", t.comp_directory);
+        theme_print_swatch("option         ", t.comp_option);
+        theme_print_swatch("description    ", t.comp_description);
+        write_stdout("\n");
+        return 0;
+    }
+
+    write_stderr("theme: unknown subcommand: " + sub + "\n");
+    return 1;
+}
+
 // ── Dispatch table ─────────────────────────────────────────────
 
 const unordered_map<string, BuiltinFn>& get_builtins() {
@@ -419,6 +519,7 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"source",   builtin_source},
         {".",        builtin_source},
         {"z",        builtin_z},
+        {"theme",    builtin_theme},
     };
     return builtins;
 }

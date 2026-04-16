@@ -1,0 +1,30 @@
+[meta]
+name = "Dracula"
+variant = "dark"
+
+[syntax]
+command_valid = "#50fa7b"
+command_builtin = "#8be9fd"
+command_invalid = "#ff5555"
+string_color = "#f1fa8c"
+variable = "#8be9fd"
+operator = "#ff79c6"
+redirect = "#ffb86c"
+comment = "#6272a4"
+
+[prompt]
+success = "#50fa7b"
+error = "#ff5555"
+path = "#bd93f9"
+git = "#ff79c6"
+duration = "#ffb86c"
+user = "#50fa7b"
+separator = "#6272a4"
+
+[completion]
+builtin = "#8be9fd"
+command = "#50fa7b"
+file = "#f1fa8c"
+directory = "#bd93f9"
+option = "#ffb86c"
+description = "#f8f8f2"

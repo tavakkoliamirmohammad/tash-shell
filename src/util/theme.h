@@ -1,97 +1,93 @@
 #ifndef THEME_H
 #define THEME_H
 
-// ── Catppuccin Mocha Color Palette ─────────────────────────────
-// A warm, classy dark theme. Uses 24-bit true color (RGB).
-// https://catppuccin.com
-//
-// Format: \033[38;2;R;G;Bm  (foreground)
-//         \033[48;2;R;G;Bm  (background)
-//         \033[1m            (bold)
-//         \033[2m            (dim)
-//         \033[3m            (italic)
-//         \033[0m            (reset)
+#include <string>
+#include <vector>
+#include "tash/plugins/theme_provider.h"
 
-// ── Accent colors ──────────────────────────────────────────────
-#define CAT_ROSEWATER "\033[38;2;245;224;220m"
-#define CAT_FLAMINGO  "\033[38;2;242;205;205m"
-#define CAT_PINK      "\033[38;2;245;194;231m"
-#define CAT_MAUVE     "\033[38;2;203;166;247m"
-#define CAT_RED       "\033[38;2;243;139;168m"
-#define CAT_MAROON    "\033[38;2;235;160;172m"
-#define CAT_PEACH     "\033[38;2;250;179;135m"
-#define CAT_YELLOW    "\033[38;2;249;226;175m"
-#define CAT_GREEN     "\033[38;2;166;227;161m"
-#define CAT_TEAL      "\033[38;2;148;226;213m"
-#define CAT_SKY       "\033[38;2;137;220;235m"
-#define CAT_SAPPHIRE  "\033[38;2;116;199;236m"
-#define CAT_BLUE      "\033[38;2;137;180;250m"
-#define CAT_LAVENDER  "\033[38;2;180;190;254m"
+// Theme-independent text modifiers (safe as string literals).
+#define CAT_BOLD   "\033[1m"
+#define CAT_DIM    "\033[2m"
+#define CAT_ITALIC "\033[3m"
+#define CAT_RESET  "\033[0m"
 
-// ── Text colors ────────────────────────────────────────────────
-#define CAT_TEXT      "\033[38;2;205;214;244m"
-#define CAT_SUBTEXT1  "\033[38;2;186;194;222m"
-#define CAT_SUBTEXT0  "\033[38;2;166;173;200m"
-#define CAT_OVERLAY2  "\033[38;2;147;153;178m"
-#define CAT_OVERLAY1  "\033[38;2;127;132;156m"
-#define CAT_OVERLAY0  "\033[38;2;108;112;134m"
-#define CAT_SURFACE2  "\033[38;2;88;91;112m"
-#define CAT_SURFACE1  "\033[38;2;69;71;90m"
-#define CAT_SURFACE0  "\033[38;2;49;50;68m"
+// ── Global runtime theme ──────────────────────────────────────
+extern Theme g_current_theme;
+extern std::string g_current_theme_name;
 
-// ── Base colors ────────────────────────────────────────────────
-#define CAT_BASE      "\033[38;2;30;30;46m"
-#define CAT_MANTLE    "\033[38;2;24;24;37m"
-#define CAT_CRUST     "\033[38;2;17;17;27m"
+// Build an ANSI 24-bit SGR escape from an RGB triplet.
+std::string ansi_fg(const RGB &c);
+std::string ansi_bg(const RGB &c);
 
-// ── Bold variants ──────────────────────────────────────────────
-#define CAT_BOLD      "\033[1m"
-#define CAT_DIM       "\033[2m"
-#define CAT_ITALIC    "\033[3m"
-#define CAT_RESET     "\033[0m"
+// Rebuild the semantic-role strings below from the given theme.
+void apply_theme(const Theme &t, const std::string &name = "");
 
-// ── Semantic color roles for the shell ─────────────────────────
+// Load ~/.config/tash/theme.toml (if present) and apply it. Falls back to default.
+void load_user_theme();
+
+// Persist the named bundled theme as the active theme (copies the TOML file to
+// ~/.config/tash/theme.toml and applies it in-process). Returns true on success.
+bool set_active_theme(const std::string &name, std::string &error_out);
+
+// Resolved directories containing *.toml theme files. Order: user dir first.
+std::vector<std::string> theme_search_dirs();
+
+// Enumerate all available theme basenames (without .toml), deduplicated.
+std::vector<std::string> list_available_themes();
+
+// Find the TOML file path for a theme name, or empty string if not found.
+std::string find_theme_file(const std::string &name);
+
+// ── Semantic roles (rebuilt by apply_theme) ────────────────────
+// These contain ANSI escape sequences; concatenate with + when mixing with
+// adjacent string literals (e.g., PROMPT_USER + "user" + CAT_RESET).
+
 // Prompt
-#define PROMPT_USER       CAT_BOLD CAT_GREEN       // username
-#define PROMPT_PATH       CAT_BOLD CAT_BLUE        // current directory
-#define PROMPT_BRANCH     CAT_BOLD CAT_MAUVE       // git branch
-#define PROMPT_GIT_DIRTY  CAT_YELLOW               // git status indicators
-#define PROMPT_SEPARATOR  CAT_OVERLAY1              // box-drawing chars
-#define PROMPT_TEXT       CAT_SUBTEXT1              // "in", "on" text
-#define PROMPT_ARROW_OK   CAT_GREEN                 // ❯ on success
-#define PROMPT_ARROW_ERR  CAT_RED                   // ❯ on failure
-#define PROMPT_DURATION   CAT_DIM CAT_PEACH         // "took 3.2s"
+extern std::string PROMPT_USER;
+extern std::string PROMPT_PATH;
+extern std::string PROMPT_BRANCH;
+extern std::string PROMPT_GIT_DIRTY;
+extern std::string PROMPT_SEPARATOR;
+extern std::string PROMPT_TEXT;
+extern std::string PROMPT_ARROW_OK;
+extern std::string PROMPT_ARROW_ERR;
+extern std::string PROMPT_DURATION;
 
 // Syntax highlighting
-#define SYN_CMD_VALID     CAT_GREEN                 // valid command
-#define SYN_CMD_BUILTIN   CAT_BOLD CAT_TEAL         // builtin command
-#define SYN_CMD_INVALID   CAT_RED                   // unknown command
-#define SYN_STRING        CAT_YELLOW                // quoted strings
-#define SYN_VARIABLE      CAT_SKY                   // $VAR, ${VAR}
-#define SYN_OPERATOR      CAT_MAUVE                 // |, &&, ||, ;
-#define SYN_REDIRECT      CAT_PEACH                 // >, >>, <, 2>
-#define SYN_COMMENT       CAT_OVERLAY0              // # comments
+extern std::string SYN_CMD_VALID;
+extern std::string SYN_CMD_BUILTIN;
+extern std::string SYN_CMD_INVALID;
+extern std::string SYN_STRING;
+extern std::string SYN_VARIABLE;
+extern std::string SYN_OPERATOR;
+extern std::string SYN_REDIRECT;
+extern std::string SYN_COMMENT;
 
 // Banner
-#define BANNER_FRAME      CAT_BOLD CAT_SAPPHIRE      // ╔══╗ frame
-#define BANNER_LOGO       CAT_BOLD CAT_LAVENDER      // TASH ascii art
-#define BANNER_TITLE      CAT_BOLD CAT_TEXT           // "Tavakkoli's Shell"
-#define BANNER_VERSION    CAT_PEACH                   // version from CMake
-#define BANNER_HINT       CAT_GREEN                   // "exit", "history"
-#define BANNER_TEXT       CAT_SUBTEXT0                // hint text
-#define BANNER_FEATURE    CAT_GREEN                   // feature bullets
+extern std::string BANNER_FRAME;
+extern std::string BANNER_LOGO;
+extern std::string BANNER_TITLE;
+extern std::string BANNER_VERSION;
+extern std::string BANNER_HINT;
+extern std::string BANNER_TEXT;
+extern std::string BANNER_FEATURE;
 
 // Suggestions
-#define SUGGEST_TEXT      CAT_DIM CAT_YELLOW         // "did you mean"
-#define SUGGEST_CMD       CAT_BOLD CAT_PEACH         // suggested command
+extern std::string SUGGEST_TEXT;
+extern std::string SUGGEST_CMD;
 
 // AI output
-#define AI_LABEL          CAT_BOLD CAT_TEAL          // "tash ai"
-#define AI_SEPARATOR      CAT_DIM                    // "─"
-#define AI_CMD            CAT_GREEN                   // generated commands
-#define AI_ERROR          CAT_RED                     // error messages
-#define AI_PROMPT         CAT_MAUVE                   // "Run?" / "Save to?"
-#define AI_STEP_NUM       CAT_MAUVE                   // step numbers
-#define AI_FLAG           CAT_YELLOW                  // command flags
+extern std::string AI_LABEL;
+extern std::string AI_SEPARATOR;
+extern std::string AI_CMD;
+extern std::string AI_ERROR;
+extern std::string AI_PROMPT;
+extern std::string AI_STEP_NUM;
+extern std::string AI_FLAG;
+
+// Direct Catppuccin color aliases (mapped to semantic theme fields).
+extern std::string CAT_GREEN;
+extern std::string CAT_YELLOW;
+extern std::string CAT_RED;
 
 #endif // THEME_H

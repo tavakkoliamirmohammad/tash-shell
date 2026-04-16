@@ -1,0 +1,30 @@
+[meta]
+name = "Nord"
+variant = "dark"
+
+[syntax]
+command_valid = "#a3be8c"
+command_builtin = "#88c0d0"
+command_invalid = "#bf616a"
+string_color = "#ebcb8b"
+variable = "#81a1c1"
+operator = "#b48ead"
+redirect = "#d08770"
+comment = "#4c566a"
+
+[prompt]
+success = "#a3be8c"
+error = "#bf616a"
+path = "#81a1c1"
+git = "#b48ead"
+duration = "#d08770"
+user = "#a3be8c"
+separator = "#4c566a"
+
+[completion]
+builtin = "#88c0d0"
+command = "#a3be8c"
+file = "#ebcb8b"
+directory = "#81a1c1"
+option = "#d08770"
+description = "#e5e9f0"
