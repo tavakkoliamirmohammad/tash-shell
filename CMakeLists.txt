@@ -126,7 +126,8 @@ endif()
 
 if(TASH_SQLITE_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_SQLITE_ENABLED)
-    target_link_libraries(tash.out PRIVATE SQLite3::SQLite3)
+    target_include_directories(tash.out PRIVATE ${SQLite3_INCLUDE_DIRS})
+    target_link_libraries(tash.out PRIVATE ${SQLite3_LIBRARIES})
 endif()
 
 # ── Testing ───────────────────────────────────────────────────
@@ -159,7 +160,8 @@ if(BUILD_TESTS)
 
     if(TASH_SQLITE_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_SQLITE_ENABLED)
-        target_link_libraries(shell_lib PRIVATE SQLite3::SQLite3)
+        target_include_directories(shell_lib PRIVATE ${SQLite3_INCLUDE_DIRS})
+        target_link_libraries(shell_lib PRIVATE ${SQLite3_LIBRARIES})
     endif()
 
     add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
@@ -206,8 +208,8 @@ if(BUILD_TESTS)
     if(TASH_SQLITE_ENABLED)
         add_executable(test_sqlite_history tests/unit/test_sqlite_history.cpp
             src/plugins/sqlite_history_provider.cpp)
-        target_include_directories(test_sqlite_history PRIVATE ${TASH_INCLUDE_DIRS})
-        target_link_libraries(test_sqlite_history GTest::gtest_main SQLite3::SQLite3)
+        target_include_directories(test_sqlite_history PRIVATE ${TASH_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS})
+        target_link_libraries(test_sqlite_history GTest::gtest_main ${SQLite3_LIBRARIES})
         gtest_discover_tests(test_sqlite_history TEST_PREFIX "unit/sqlite/")
     endif()
 
