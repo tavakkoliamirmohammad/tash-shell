@@ -82,3 +82,12 @@ tash_register_plugin(
     TEST_PREFIX "unit/sqlite/"
     TEST_STANDALONE
 )
+
+tash_register_plugin(
+    NAME contextual_ai
+    SOURCES src/ai/contextual_ai.cpp
+    REQUIRES TASH_AI_ENABLED
+    TEST_SOURCES tests/unit/test_contextual_ai.cpp
+    TEST_PREFIX "unit/ai/"
+    TEST_AI_AWARE
+)
