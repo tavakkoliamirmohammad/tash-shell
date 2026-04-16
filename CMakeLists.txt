@@ -90,6 +90,7 @@ set(SHELL_SOURCES
     src/plugins/fish_completion_provider.cpp
     src/plugins/fig_completion_provider.cpp
     src/plugins/theme_provider.cpp
+    src/plugins/starship_prompt_provider.cpp
 )
 
 # ── AI source files (conditional) ────────────────────────────
@@ -239,6 +240,12 @@ if(BUILD_TESTS)
         TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
     target_link_libraries(test_theme GTest::gtest_main)
     gtest_discover_tests(test_theme TEST_PREFIX "unit/theme/")
+
+    # ── Starship prompt provider tests ───────────────────────
+    add_executable(test_starship tests/unit/test_starship.cpp)
+    target_include_directories(test_starship PRIVATE ${TASH_INCLUDE_DIRS})
+    target_link_libraries(test_starship GTest::gtest_main shell_lib)
+    gtest_discover_tests(test_starship TEST_PREFIX "unit/starship/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
