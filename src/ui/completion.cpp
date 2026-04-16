@@ -1,7 +1,9 @@
 #include "tash/core.h"
 #include "tash/ui.h"
+#include "tash/ui/fuzzy_finder.h"
 #include "theme.h"
 
+#include <algorithm>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -49,21 +51,38 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
 
         // Builtins (colored teal)
         const auto &builtins = get_builtins();
-        for (const auto &pair : builtins) {
-            if (pair.first.compare(0, prefix.size(), prefix) == 0) {
-                completions.emplace_back(pair.first, comp_builtin());
+        vector<string> builtin_names;
+        for (const auto &pair : builtins) builtin_names.push_back(pair.first);
+        builtin_names.push_back("bg");
+        builtin_names.push_back("z");
+
+        for (const string &name : builtin_names) {
+            if (name.compare(0, prefix.size(), prefix) == 0) {
+                completions.emplace_back(name, comp_builtin());
             }
         }
-        if (string("bg").compare(0, prefix.size(), prefix) == 0)
-            completions.emplace_back("bg", comp_builtin());
-        if (string("z").compare(0, prefix.size(), prefix) == 0)
-            completions.emplace_back("z", comp_builtin());
 
         // PATH executables (colored green)
         build_command_cache();
-        for (const string &cmd_name : get_path_commands()) {
+        const auto &path_cmds = get_path_commands();
+        for (const string &cmd_name : path_cmds) {
             if (cmd_name.compare(0, prefix.size(), prefix) == 0) {
                 completions.emplace_back(cmd_name, comp_command());
+            }
+        }
+
+        // Fuzzy fallback: if no prefix matches and the user typed ≥2 chars,
+        // rank builtins + PATH commands by fuzzy score.
+        if (completions.empty() && prefix.size() >= 2) {
+            vector<string> candidates = builtin_names;
+            candidates.insert(candidates.end(), path_cmds.begin(), path_cmds.end());
+            auto ranked = tash::fuzzy_filter(prefix, candidates, 20);
+            for (const auto &r : ranked) {
+                bool is_builtin_name =
+                    std::find(builtin_names.begin(), builtin_names.end(), r.text) !=
+                    builtin_names.end();
+                completions.emplace_back(r.text,
+                    is_builtin_name ? comp_builtin() : comp_command());
             }
         }
 

@@ -91,6 +91,7 @@ set(SHELL_SOURCES
     src/plugins/fig_completion_provider.cpp
     src/plugins/theme_provider.cpp
     src/plugins/starship_prompt_provider.cpp
+    src/ui/fuzzy_finder.cpp
 )
 
 # ── AI source files (conditional) ────────────────────────────
@@ -246,6 +247,12 @@ if(BUILD_TESTS)
     target_include_directories(test_starship PRIVATE ${TASH_INCLUDE_DIRS})
     target_link_libraries(test_starship GTest::gtest_main shell_lib)
     gtest_discover_tests(test_starship TEST_PREFIX "unit/starship/")
+
+    # ── Fuzzy finder tests ──────────────────────────────────
+    add_executable(test_fuzzy_finder tests/unit/test_fuzzy_finder.cpp)
+    target_include_directories(test_fuzzy_finder PRIVATE ${TASH_INCLUDE_DIRS})
+    target_link_libraries(test_fuzzy_finder GTest::gtest_main shell_lib)
+    gtest_discover_tests(test_fuzzy_finder TEST_PREFIX "unit/ui/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
