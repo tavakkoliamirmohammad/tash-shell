@@ -1,5 +1,6 @@
 #include "tash/core.h"
 #include "tash/history.h"
+#include "tash/ui/inline_docs.h"
 #include "theme.h"
 #include <cstring>
 
@@ -394,6 +395,31 @@ static int builtin_z(const vector<string> &argv, ShellState &state) {
     return 0;
 }
 
+static int builtin_explain(const vector<string> &argv, ShellState &) {
+    if (argv.size() < 2) {
+        write_stderr("explain: usage: explain <command> [args...]\n");
+        return 1;
+    }
+    const string &cmd = argv[1];
+    vector<string> rest(argv.begin() + 2, argv.end());
+
+    string hint = get_command_hint(cmd);
+    if (hint.empty()) {
+        write_stderr("explain: no entry for '" + cmd + "'\n");
+        return 1;
+    }
+    write_stdout("  " + cmd + string(cmd.size() < 6 ? 6 - cmd.size() : 0, ' ') +
+                 "  " + hint + "\n");
+
+    auto flags = explain_command(cmd, rest);
+    for (const auto &f : flags) {
+        if (f.description.empty()) continue;
+        string pad(f.flag.size() < 6 ? 6 - f.flag.size() : 0, ' ');
+        write_stdout("  " + f.flag + pad + "  " + f.description + "\n");
+    }
+    return 0;
+}
+
 static string hex6(const RGB &c) {
     char buf[8];
     snprintf(buf, sizeof(buf), "#%02x%02x%02x", c.r, c.g, c.b);
@@ -520,6 +546,7 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {".",        builtin_source},
         {"z",        builtin_z},
         {"theme",    builtin_theme},
+        {"explain",  builtin_explain},
     };
     return builtins;
 }

@@ -98,3 +98,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_safety_hook.cpp
     TEST_PREFIX "unit/plugins/safety/"
 )
+
+tash_register_plugin(
+    NAME inline_docs
+    SOURCES src/ui/inline_docs.cpp
+    TEST_SOURCES tests/unit/test_inline_docs.cpp
+    TEST_PREFIX "unit/ui/"
+)
