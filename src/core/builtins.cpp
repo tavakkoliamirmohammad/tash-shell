@@ -2,6 +2,7 @@
 #include "tash/history.h"
 #include "tash/ui/clipboard.h"
 #include "tash/ui/inline_docs.h"
+#include "tash/ui/rich_output.h"
 #include "theme.h"
 #include <cstring>
 
@@ -430,6 +431,49 @@ static int builtin_paste(const vector<string> &, ShellState &) {
     return 0;
 }
 
+// Read stdin fully.
+static string read_stdin_to_string() {
+    string text;
+    char buf[4096];
+    while (true) {
+        ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
+        if (n <= 0) break;
+        text.append(buf, n);
+    }
+    return text;
+}
+
+static int builtin_linkify(const vector<string> &argv, ShellState &) {
+    string text;
+    if (argv.size() > 1) {
+        for (size_t i = 1; i < argv.size(); i++) {
+            if (i > 1) text += " ";
+            text += argv[i];
+        }
+        text += "\n";
+    } else {
+        text = read_stdin_to_string();
+    }
+    write_stdout(tash::ui::linkify_urls(text));
+    return 0;
+}
+
+static int builtin_table(const vector<string> &, ShellState &) {
+    string text = read_stdin_to_string();
+    if (text.empty()) {
+        write_stderr("table: no input on stdin\n");
+        return 1;
+    }
+    if (!tash::ui::looks_like_table(text)) {
+        // Pass through unchanged when heuristic says it isn't tabular.
+        write_stdout(text);
+        return 0;
+    }
+    auto data = tash::ui::parse_table_output(text);
+    write_stdout(tash::ui::render_table(data));
+    return 0;
+}
+
 static int builtin_explain(const vector<string> &argv, ShellState &) {
     if (argv.size() < 2) {
         write_stderr("explain: usage: explain <command> [args...]\n");
@@ -584,6 +628,8 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"explain",  builtin_explain},
         {"copy",     builtin_copy},
         {"paste",    builtin_paste},
+        {"linkify",  builtin_linkify},
+        {"table",    builtin_table},
     };
     return builtins;
 }
