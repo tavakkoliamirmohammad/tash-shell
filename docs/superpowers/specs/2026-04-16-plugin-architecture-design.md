@@ -608,6 +608,13 @@ hints = true           # inline documentation hints
 
 [aliases]
 you_should_use = true  # remind about existing aliases
+
+[clipboard]
+osc52 = true           # use OSC 52 for cross-session clipboard
+paste_protection = true # warn on multiline paste
+
+[sync]
+remote = ""            # git remote URL for config sync
 ```
 
 Created with sensible defaults on first run.
@@ -1236,15 +1243,262 @@ Add a GitHub Actions step that measures startup time on each push and fails if i
 
 ---
 
-## 20. Build System Changes
+## 20. Feature: Clipboard Integration (OSC 52)
+
+**Branch:** feature/clipboard
+**Files:** src/ui/clipboard.cpp, include/tash/ui/clipboard.h
+**Estimated LOC:** ~150
+**Dependencies:** None (terminal escape sequences)
+
+### 20.1 Problem
+
+75 people in Julia Evans' survey cited clipboard as a major frustration. Copying over SSH fails. Multiple competing clipboard systems (system, tmux, X11). Random spaces appear when copying.
+
+### 20.2 OSC 52 Protocol
+
+OSC 52 is the terminal escape sequence for clipboard access. Works over SSH, inside tmux, inside screen -- anywhere the terminal supports it.
+
+Write to clipboard:
+```
+\e]52;c;<base64-encoded-text>\a
+```
+
+Read from clipboard (if terminal allows):
+```
+\e]52;c;?\a
+```
+
+Supported by: iTerm2, Kitty, WezTerm, Ghostty, Alacritty, tmux (with `set -g set-clipboard on`), Windows Terminal, foot, GNOME Terminal (VTE 0.76+).
+
+### 20.3 Shell Integration
+
+**New builtins:**
+- `copy` -- copy text to clipboard via OSC 52
+  ```bash
+  echo "hello" | copy          # pipe to clipboard
+  copy "literal text"          # copy literal string
+  copy --file path.txt         # copy file contents
+  ```
+- `paste` -- paste from clipboard (where supported by terminal)
+  ```bash
+  paste                        # print clipboard contents
+  paste | grep pattern         # pipe clipboard into command
+  ```
+
+**Block integration:** Alt+C in block mode copies the selected block's output via OSC 52.
+
+**History integration:** `history copy <id>` copies a specific history entry to clipboard.
+
+### 20.4 Bracketed Paste Protection
+
+Replxx already supports bracketed paste mode. Enhance with:
+- Visual indicator when multiline paste is detected: "Pasting 5 lines. Execute? [y/N/e]"
+- [e] opens the pasted content in replxx for editing before execution
+- Configurable: `[safety] paste_protection = true`
+
+### 20.5 Fallback
+
+If terminal doesn't support OSC 52, fall back to:
+- macOS: `pbcopy`/`pbpaste`
+- Linux: `xclip` or `xsel` or `wl-copy`/`wl-paste`
+- If none available: print error with install instructions
+
+---
+
+## 21. Feature: Man Page Completion Generation
+
+**Branch:** feature/manpage-completions
+**Files:** src/plugins/manpage_completion_provider.cpp, include/tash/plugins/manpage_completion_provider.h, scripts/generate_manpage_completions.py
+**Estimated LOC:** ~250 (C++) + ~200 (Python)
+**Dependencies:** Python 3 (for generation script), man pages installed
+
+### 21.1 Why
+
+Fish's 1,056 completion files don't cover every command. Man pages exist for nearly every installed command. Parsing man pages fills the gaps that Fish and Fig don't cover.
+
+### 21.2 Two-Stage Approach
+
+**Stage 1: Reuse Fish's Python script (fast path)**
+Fish ships `create_manpage_completions.py` (~1,600 lines). Bundle a modified version that:
+1. Scans `/usr/share/man/man1/*.gz` and `/usr/local/share/man/man1/*.gz`
+2. Parses groff/troff formatting (deroffer)
+3. Extracts options from OPTIONS/DESCRIPTION sections
+4. Outputs completion data as JSON (instead of Fish `complete` format)
+5. Writes to `~/.tash/completions/manpage/<command>.json`
+
+Run via: `tash completions generate` (one-time, takes 30-60s for all man pages)
+
+**Stage 2: --help parsing (lightweight fallback)**
+For commands without man pages, parse `<command> --help` output:
+1. Run `<command> --help 2>&1` with 2s timeout
+2. Regex extract lines matching `-X, --long-flag  Description text`
+3. Common patterns: `-f, --file FILE`, `--verbose`, `-n NUM`
+4. Cache results to `~/.tash/completions/help/<command>.json`
+
+Run lazily: first time user tabs on an unknown command, try `--help` parse.
+
+### 21.3 Integration
+
+Registers as an `ICompletionProvider` with priority 5 (lowest -- Fish and Fig take precedence when available). Only consulted when neither Fish nor Fig has completions for a command.
+
+### 21.4 Cache Invalidation
+
+- Man page completions regenerated via `tash completions generate --force`
+- Help-based completions invalidated after 30 days (check file mtime)
+- `tash completions status` shows coverage: "1,056 Fish + 715 Fig + 342 manpage + 89 help = 2,202 commands"
+
+---
+
+## 22. Feature: Config Sync
+
+**Branch:** feature/config-sync
+**Files:** src/core/config_sync.cpp, include/tash/core/config_sync.h
+**Estimated LOC:** ~300
+**Dependencies:** Git (for sync mechanism)
+
+### 22.1 Problem
+
+Developers use multiple machines. Shell config drifts between them. Tools like chezmoi exist but add another layer of complexity.
+
+### 22.2 Git-Based Sync
+
+Tash's `~/.tash/` directory is the config home. Make it sync-able via git:
+
+```bash
+# Initialize sync (one-time setup)
+$ tash sync init
+Initialized git repo at ~/.tash/
+Add a remote: tash sync remote <url>
+
+# Set remote
+$ tash sync remote git@github.com:user/tash-config.git
+
+# Push config
+$ tash sync push
+Committed and pushed: config.toml, themes/, alias-packs/, completions/fig/
+
+# Pull on another machine
+$ tash sync pull
+Updated config from remote. Restart tash to apply.
+```
+
+### 22.3 What Syncs
+
+| Path | Syncs | Why |
+|------|-------|-----|
+| `config.toml` | Yes | Theme, provider choices, feature flags |
+| `themes/*.toml` | Yes | Custom themes |
+| `alias-packs/*.toml` | Yes | Custom alias packs |
+| `completions/fig/*.json` | Optional | Large, can be regenerated |
+| `history.db` | No | Too large, use Atuin for history sync |
+| `sessions/` | No | Machine-local |
+| `trash/` | No | Machine-local |
+| `cache/` | No | Machine-local, regenerated |
+
+### 22.4 Conflict Resolution
+
+- TOML files: pull warns on conflicts, user resolves manually
+- Auto-merge for additive changes (new aliases, new theme files)
+- `tash sync diff` shows what would change before pulling
+
+### 22.5 .tashrc Sync
+
+The existing `~/.tashrc` is separate from `~/.tash/`. Option to symlink: `tash sync link-tashrc` creates `~/.tashrc -> ~/.tash/tashrc` so the rc file syncs too.
+
+---
+
+## 23. Feature: Light/Dark Auto-Detection
+
+**Branch:** feature/configurable-themes (extend existing theme branch)
+**Files:** Addition to src/plugins/theme_provider.cpp
+**Estimated LOC:** ~50 (addition to theme provider)
+
+### 23.1 Detection Protocol
+
+Query the terminal's background color via OSC 11:
+```
+Send:    \e]11;?\a
+Receive: \e]11;rgb:RRRR/GGGG/BBBB\a
+```
+
+Parse the RGB response. If luminance > 0.5, it's a light background. If <= 0.5, it's a dark background.
+
+Supported by: iTerm2, Kitty, WezTerm, Ghostty, xterm, GNOME Terminal, foot, Windows Terminal.
+
+### 23.2 Auto Theme Selection
+
+In config.toml:
+```toml
+[theme]
+name = "auto"  # special value: auto-detect
+dark = "catppuccin-mocha"
+light = "catppuccin-latte"
+```
+
+When `name = "auto"`:
+1. Query terminal background via OSC 11
+2. If response received within 100ms, select dark or light theme
+3. If no response (terminal doesn't support), default to dark
+
+### 23.3 Runtime Switching
+
+If the user changes their terminal theme (e.g., macOS auto dark mode), tash can re-detect on the next prompt render. Check once per minute (not every prompt -- too expensive).
+
+---
+
+## 24. Feature: Output Sharing
+
+**Branch:** feature/rich-output (extend existing branch)
+**Files:** Addition to block renderer
+**Estimated LOC:** ~100 (addition to block output)
+
+### 24.1 Export Block as Text
+
+```bash
+$ tash export last          # copy last block's output
+$ tash export last --ansi   # include colors (for sharing to another terminal)
+$ tash export last --html   # render as HTML with syntax colors
+$ tash export last --md     # render as markdown code block
+```
+
+### 24.2 Share via Gist
+
+If `gh` CLI is available:
+```bash
+$ tash export last --gist
+Created gist: https://gist.github.com/user/abc123
+(URL copied to clipboard)
+```
+
+### 24.3 Save Session Log
+
+```bash
+$ tash log start           # start recording all commands + output
+$ tash log stop            # stop recording
+$ tash log save session.md # export as markdown with command blocks
+```
+
+Useful for creating documentation, bug reports, or tutorials from real terminal sessions.
+
+---
+
+## 25. Build System Changes
 
 ### CMakeLists.txt Additions
 
 - SQLite3: find_package, conditional compile with TASH_SQLITE_ENABLED
 - toml11: FetchContent from GitHub (header-only, v4.2.0)
-- Plugin source files always compiled (fish, fig, theme, starship, registry)
+- Plugin source files always compiled (fish, fig, theme, starship, registry, clipboard, manpage)
 - SQLite-dependent sources conditional (sqlite_history, atuin_hook, alias_suggest)
 - AI-dependent sources conditional (ai_error_hook, contextual_ai)
+
+### New Dependencies
+
+| Dependency | Method | Required? |
+|-----------|--------|-----------|
+| SQLite3 | find_package | Optional (history, aliases) |
+| toml11 v4.2.0 | FetchContent | Required (config, themes) |
+| Python 3 | System | Optional (man page generation, Fig compile) |
 
 ### Graceful Degradation
 
@@ -1253,115 +1507,640 @@ Add a GitHub Actions step that measures startup time on each push and fails if i
 | SQLite3 | Not found | Fall back to plain-text history, no alias suggest |
 | Fish completions dir | Not found | Skip, use built-in only |
 | Fig JSON cache | Not found | Skip Fig completions |
+| Man pages | Not found | Skip manpage completions |
+| Python 3 | Not found | Cannot generate manpage completions or compile Fig specs |
 | Starship binary | Not found | Use built-in prompt |
 | Atuin binary | Not found | Skip Atuin bridge |
-| OpenSSL (AI) | Not found | Skip AI error recovery, contextual AI, explain builtin AI fallback |
+| OpenSSL (AI) | Not found | Skip AI error recovery, contextual AI, explain AI fallback |
 | tldr binary | Not found | Skip tldr hints, use Fish/Fig descriptions only |
+| gh CLI | Not found | Skip gist export |
+| OSC 52 support | Not supported | Fall back to pbcopy/xclip |
+| OSC 11 support | Not supported | Default to dark theme |
+| Kitty/Sixel | Not supported | Skip inline images |
 
 Tash always works. Ecosystem integrations enhance when available.
 
 ---
 
-## 21. Testing Strategy
+## 26. Comprehensive Testing Strategy
 
-### Unit Tests (per feature)
+Tests integrate with the existing GoogleTest (v1.14.0) framework. Currently 275 tests across 2 unit binaries (test_tokenizer, test_ai) and 1 integration binary (test_integration with 15 source files). New tests follow the same patterns: `EXPECT_*`/`ASSERT_*` assertions, `ShellResult run_shell()` for integration tests, fixtures for state isolation.
 
-- Plugin Registry: register/dispatch, priority ordering, multiple providers
-- Fish Parser: parse complete lines, handle quotes, flags, malformed input
-- Fig Loader: load JSON spec, traverse subcommands, option matching
-- SQLite History: record/search/filter, migration, dedup
-- AI Error Hook: trigger conditions, rate limiting, JSON response parsing
-- Theme Parser: load TOML, hex parsing, fallback on missing fields
-- Starship Provider: argument construction, env var setup
-- Fuzzy Finder: scoring algorithm, boundary matching, ranking
-- Safety Hook: pattern detection, trash mv/restore, manifest tracking
-- Contextual AI: ? suffix detection, valid-command vs natural-language heuristic
-- Structured Pipe: |> parsing, JSON auto-detection, operator execution, table rendering
-- Block Renderer: block boundary tracking, fold/unfold state
-- Alias Suggest: frequency counting, pack loading, "you-should-use" matching
-- Inline Docs: hint text source priority, explain flag breakdown
-- Rich Output: URL regex, OSC 8 wrapping, table heuristic detection
-- Session: socket lifecycle, state serialization/deserialization
-- Startup Benchmark: timing accuracy, lazy-load verification
+### 26.1 Plugin Core Tests
 
-### Integration Tests
+**File:** `tests/unit/test_plugin_registry.cpp`
+**Binary:** `test_plugin_registry` (new, links shell_lib + GTest)
 
-- git TAB with Fish completions -> returns subcommands with descriptions
-- grep --TAB with Fig specs -> returns long options
-- Command fails -> AI suggests fix
-- history --here -> only shows commands from current directory
-- theme set dracula -> colors change immediately
-- Starship prompt rendering -> contains Starship output
-- Ctrl+T opens file finder, selecting inserts path
-- Ctrl+G shows git branches, selecting inserts branch name
-- rm -rf with safety hook -> warning prompt appears
-- `find large files?` -> AI generates find command
-- `ps |> where cpu > 1.0` -> filtered table output
-- Block output shows command header with duration and status
-- Typing aliased command -> "you should use" reminder appears
-- `explain tar -xzf` -> flag breakdown displayed
-- URLs in output are clickable (OSC 8)
-- `tash --persist` + `tash --attach` -> session restored
+| Test | What It Verifies |
+|------|-----------------|
+| RegisterCompletionProvider | Provider added, retrievable |
+| RegisterMultipleProviders | Multiple providers coexist |
+| CompletionPriorityOrdering | Higher priority provider's results come first |
+| CompletionMergeNoDuplicates | Same completion from 2 providers deduped by priority |
+| CompletionCanCompleteFilter | Only providers returning can_complete=true are queried |
+| PromptHighestPriorityWins | Highest-priority prompt provider renders |
+| PromptFallbackOnFailure | If primary fails, next provider renders |
+| HistoryRecordToAll | Recording goes to all registered history providers |
+| HistorySearchPrimary | Search uses first registered provider |
+| HookFiresAllBeforeCommand | All hook providers fire on_before_command |
+| HookFiresAllAfterCommand | All hook providers fire on_after_command |
+| HookOrderPreserved | Hooks fire in registration order |
+| EmptyRegistryNoError | Dispatch methods work with no providers registered |
+
+### 26.2 Fish Completion Provider Tests
+
+**File:** `tests/unit/test_fish_completion.cpp`
+**Binary:** `test_fish_completion` (new)
+
+| Test | What It Verifies |
+|------|-----------------|
+| ParseSimpleComplete | `complete -c git -s b -l branch -d "desc"` parsed correctly |
+| ParseShortOption | `-s f` produces Completion{"-f", ..., OPTION_SHORT} |
+| ParseLongOption | `-l verbose` produces Completion{"--verbose", ..., OPTION_LONG} |
+| ParseOldStyleOption | `-o foo` produces Completion{"-foo", ..., OPTION_LONG} |
+| ParseDescription | `-d "some text"` extracts description |
+| ParseSingleQuotedDesc | `-d 'some text'` handles single quotes |
+| ParseArguments | `-a "start stop restart"` produces 3 argument completions |
+| ParseNoFileFlag | `-f` sets suppress_files flag |
+| ParseRequiresArgFlag | `-r` sets requires_argument flag |
+| ParseMultipleFlagsOneLine | `complete -c git -s b -l branch -d "desc" -r` all extracted |
+| IgnoreConditionFlag | `-n '__fish_seen_command'` silently ignored |
+| IgnoreWrapFlag | `-w other_cmd` silently ignored |
+| ParseEmptyLine | Empty or whitespace-only lines skipped |
+| ParseCommentLine | Lines starting with # skipped |
+| ParseMalformedLine | Missing -c flag -> line skipped, no crash |
+| ParseUnterminatedQuote | `-d "unterminated` -> handled gracefully |
+| LazyLoadOnFirstTab | Completion file parsed only on first can_complete/complete call |
+| CacheHitOnSecondTab | Second call returns cached results without re-parsing |
+| DiscoveryFindsSystemDir | Finds /usr/share/fish/completions/ |
+| DiscoveryFindsHomeDir | Finds ~/.config/fish/completions/ |
+| DiscoveryMissingDirNoError | Non-existent directory silently skipped |
+| CompletesGitSubcommands | `git <TAB>` returns checkout, commit, push, etc. with descriptions |
+| CompletesGrepFlags | `grep --<TAB>` returns --color, --count, etc. |
+
+**File:** `tests/integration/test_fish_completion.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| TabCompletionShowsDescription | git TAB in shell shows subcommands with description text |
+| CompletionColoredCorrectly | Subcommand completions use correct theme color |
+| FallsBackToBuiltinWhenNoFish | Without Fish dir, git completions still work (built-in) |
+
+### 26.3 Fig Completion Provider Tests
+
+**File:** `tests/unit/test_fig_completion.cpp`
+**Binary:** `test_fig_completion` (new)
+
+| Test | What It Verifies |
+|------|-----------------|
+| LoadValidJson | Parses a valid Fig spec JSON correctly |
+| ExtractSubcommands | Top-level subcommands extracted with names + descriptions |
+| ExtractSubcommandAliases | `name: ["checkout", "co"]` both registered |
+| ExtractOptions | Options at command level extracted |
+| ExtractOptionAliases | `name: ["-b", "--branch"]` both registered |
+| ExtractOptionDescription | Description field preserved |
+| ExtractOptionArgs | Options with args have arg metadata |
+| TraverseSubcommandTree | `git checkout -<TAB>` finds options under checkout |
+| TraverseNestedSubcommands | `docker compose up -<TAB>` traverses 3 levels |
+| MissingFieldsNoError | Spec with missing optional fields loads without crash |
+| InvalidJsonNoError | Malformed JSON -> skip file, log warning |
+| EmptySpecNoError | Valid JSON but empty spec -> no completions |
+| PriorityOverFish | Fig completion overrides Fish for same command |
+
+### 26.4 Smart History Tests
+
+**File:** `tests/unit/test_sqlite_history.cpp`
+**Binary:** `test_sqlite_history` (new, links SQLite3 + shell_lib + GTest)
+**Fixture:** `SqliteHistoryFixture` -- creates temp db, cleans up after
+
+| Test | What It Verifies |
+|------|-----------------|
+| RecordAndRetrieve | Record entry, search by command text, find it |
+| RecordAllFields | timestamp, directory, exit_code, duration, hostname, session_id all stored |
+| SearchByText | `search("git")` finds `git status`, `git push` |
+| SearchFuzzy | `search("gtp")` matches `git push` via LIKE |
+| FilterByDirectory | SearchFilter{directory="/project"} only returns commands from /project |
+| FilterByExitCode | SearchFilter{exit_code=1} only returns failures |
+| FilterBySince | SearchFilter{since=timestamp} only returns recent commands |
+| FilterCombined | Multiple filters AND together |
+| RecentReturnsOrdered | recent(5) returns last 5 commands by timestamp DESC |
+| DedupConsecutive | Same command twice in a row -> only stored once |
+| DedupAllowsNonConsecutive | Same command with different command between -> both stored |
+| IgnoreLeadingSpace | " secret command" not recorded (privacy) |
+| MigrationFromPlainText | Existing ~/.tash_history imported correctly |
+| MigrationPreservesOrder | Imported commands maintain their order |
+| MigrationBacksUpOldFile | Old file renamed to .bak |
+| LargeHistory | 100,000 entries: insert + search completes in <1s |
+| ConcurrentAccess | Two sessions writing simultaneously don't corrupt db |
+| HistoryBuiltinHere | `history --here` filters by cwd |
+| HistoryBuiltinFailed | `history --failed` filters by non-zero exit |
+| HistoryBuiltinStats | `history stats` shows command frequency |
+
+**File:** `tests/integration/test_smart_history.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| CommandRecordedToSqlite | Run a command, check it exists in db |
+| ExitCodeRecorded | Failed command has correct exit_code |
+| DurationRecorded | Command with sleep has non-zero duration |
+| HistoryCommandShowsTimestamp | `history` output includes time information |
+| HistoryHereFilters | `history --here` in /tmp only shows /tmp commands |
+
+### 26.5 Atuin Bridge Tests
+
+**File:** `tests/unit/test_atuin_hook.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| DetectsAtuinInPath | Returns true when mock atuin exists |
+| DetectsAtuinMissing | Returns false when atuin not in PATH |
+| BeforeCommandCallsStart | on_before_command invokes `atuin history start` |
+| AfterCommandCallsEnd | on_after_command invokes `atuin history end` with correct exit/duration |
+| AfterCommandRunsAsync | on_after_command doesn't block (fire-and-forget) |
+
+### 26.6 AI Error Recovery Tests
+
+**File:** `tests/unit/test_ai_error_hook.cpp`
+**Fixture:** `AiErrorFixture` -- mock LLM client that returns canned responses
+
+| Test | What It Verifies |
+|------|-----------------|
+| TriggersOnNonZeroExit | exit_code=1 with stderr -> AI called |
+| SkipsOnExitZero | exit_code=0 -> AI not called |
+| SkipsOnCtrlC | exit_code=130 -> AI not called |
+| SkipsOnCommandNotFound | exit_code=127 -> AI not called (handled by "did you mean?") |
+| SkipsOnEmptyStderr | Non-zero exit but empty stderr -> AI not called |
+| SkipsWhenAiDisabled | state.ai_enabled=false -> AI not called |
+| RateLimiterBlocks | Two failures within 5s -> second one skipped |
+| RateLimiterAllowsAfterCooldown | Failure after 5s -> AI called |
+| ParsesJsonResponse | `{"explanation":"...", "fix":"..."}` parsed correctly |
+| ParsesExplanationOnly | `{"explanation":"...", "fix":""}` -> no fix offered |
+| HandlesMalformedResponse | Non-JSON response -> falls back to raw text display |
+| ContextIncludesCommand | Sent JSON includes the failed command |
+| ContextIncludesStderr | Sent JSON includes stderr output |
+| ContextIncludesDirectory | Sent JSON includes cwd |
+| ContextIncludesRecentCommands | Sent JSON includes last 3 commands |
+
+**File:** `tests/integration/test_ai_error_recovery.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| FailedCommandShowsExplanation | `false_command` shows AI explanation inline |
+| AiErrorsOffDisables | After `@ai errors off`, failures don't trigger AI |
+| AiErrorsOnReenables | After `@ai errors on`, failures trigger AI again |
+
+### 26.7 Theme Tests
+
+**File:** `tests/unit/test_theme.cpp`
+**Binary:** `test_theme` (new)
+
+| Test | What It Verifies |
+|------|-----------------|
+| ParseHexColor | "#a6e3a1" -> RGB{166, 227, 161} |
+| ParseHexUppercase | "#A6E3A1" -> same result |
+| ParseInvalidHex | "not-a-color" -> fallback to default |
+| ParseShortHex | "#fff" -> RGB{255, 255, 255} |
+| LoadValidToml | Full theme file loads all fields |
+| LoadMissingFieldUsesDefault | Missing `[completion]` section -> uses Catppuccin Mocha defaults |
+| LoadMissingFileReturnsFallback | Non-existent theme file -> returns Catppuccin Mocha |
+| BundledThemesMochaValid | catppuccin-mocha.toml loads without errors |
+| BundledThemesLatteValid | catppuccin-latte.toml loads without errors |
+| BundledThemesTokyoNightValid | tokyo-night.toml loads without errors |
+| BundledThemesDraculaValid | dracula.toml loads without errors |
+| BundledThemesNordValid | nord.toml loads without errors |
+| ThemeListFindsAll | `theme list` finds all 5 bundled themes |
+| ThemeSetPersistsToConfig | `theme set dracula` writes to config.toml |
+| LightDarkAutoDetectDark | OSC 11 response with low luminance -> selects dark theme |
+| LightDarkAutoDetectLight | OSC 11 response with high luminance -> selects light theme |
+| LightDarkTimeoutDefaultsDark | No OSC 11 response -> defaults to dark |
+
+**File:** `tests/integration/test_themes.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| ThemeSetChangesColors | `theme set` changes prompt/highlight colors |
+| ThemeListOutput | `theme list` shows all available themes |
+| CustomThemeLoads | User-created theme in ~/.tash/themes/ loads |
+
+### 26.8 Starship Tests
+
+**File:** `tests/unit/test_starship.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| DetectsStarshipInPath | Returns true when starship exists |
+| DetectsStarshipMissing | Returns false when not in PATH |
+| RendersWithCorrectArgs | Calls starship prompt with --status, --cmd-duration, --jobs |
+| PassesExitStatus | Last exit code forwarded correctly |
+| PassesDuration | Command duration converted to ms correctly |
+| PassesJobCount | Background process count forwarded |
+| SetsShellEnvVar | STARSHIP_SHELL=bash set before call |
+
+### 26.9 Fuzzy Finder Tests
+
+**File:** `tests/unit/test_fuzzy_finder.cpp`
+**Binary:** `test_fuzzy_finder` (new)
+
+| Test | What It Verifies |
+|------|-----------------|
+| ExactMatchHighestScore | "git" scores highest against "git" |
+| PrefixMatchScoresHigh | "gi" scores well against "git" |
+| BoundaryMatchScoresHigh | "gco" scores well against "git checkout" |
+| SubsequenceMatches | "gchk" matches "git checkout" |
+| NoMatchReturnsZero | "xyz" scores 0 against "git" |
+| CaseSensitive | "Git" scores lower than "git" against "git" |
+| ShorterCandidatePreferred | Equal match quality -> shorter candidate wins |
+| RankingCorrect | Top result for "gco" is "git checkout" not "gcc -o" |
+| EmptyQueryMatchesAll | "" matches everything with equal score |
+| SpecialCharacters | Query with spaces/dots handled |
+| LargeCandidateSet | 10,000 candidates: scoring completes in <50ms |
+| GitBranchListParsed | `git branch` output parsed into candidates |
+| GitLogParsed | `git log --oneline` output parsed into candidates |
+| FileListRespectsGitignore | Files in .gitignore excluded from Ctrl+T results |
+
+### 26.10 Command Safety Tests
+
+**File:** `tests/unit/test_safety_hook.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| DetectsRmRfSlash | `rm -rf /` flagged as CRITICAL |
+| DetectsRmRfWildcard | `rm -rf /*` flagged as CRITICAL |
+| DetectsRmRfPath | `rm -rf /important` flagged as HIGH |
+| DetectsRmRecursive | `rm -r dir/` flagged as MEDIUM |
+| DetectsChmodRecursive777 | `chmod -R 777 /` flagged as HIGH |
+| DetectsGitForceePush | `git push --force` flagged as HIGH |
+| DetectsGitResetHard | `git reset --hard` flagged as HIGH |
+| DetectsDd | `dd if=/dev/zero of=/dev/sda` flagged as HIGH |
+| DetectsMkfs | `mkfs.ext4 /dev/sda1` flagged as CRITICAL |
+| DetectsTruncation | `> existing_file` flagged as MEDIUM |
+| AllowsSafeCommands | `ls`, `echo`, `cat` -> no warning |
+| AllowsRmSingleFile | `rm file.txt` -> no warning (not recursive) |
+| BackslashEscapeBypassesHook | `\rm -rf dir/` bypasses safety check |
+| TrashMvCreatesTrashDir | trash_rm=true: rm creates ~/.tash/trash/ |
+| TrashMvPreservesFile | File exists in trash after rm |
+| TrashManifestRecordsPath | Original path written to .manifest |
+| TrashRestoreWorks | `trash restore` puts file back |
+| TrashListShowsItems | `trash list` shows trashed items with timestamps |
+| TrashEmptyDeletesAll | `trash empty` removes all trash contents |
+| TrashEmptyOlderThan | `trash empty --older 30d` only deletes old items |
+| DryRunSuggested | rsync --delete suggests --dry-run |
+| DryRunNotSuggestedForUnknown | Unknown command -> no dry-run suggestion |
+
+**File:** `tests/integration/test_safety.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| RmRfShowsWarningInShell | Interactive rm -rf prompts user |
+| TrashRmMovesFile | rm with trash_rm creates file in trash dir |
+| TrashRestoreIntegration | Full trash -> restore cycle works |
+
+### 26.11 Contextual AI Tests
+
+**File:** `tests/unit/test_contextual_ai.cpp`
+**Fixture:** `ContextualAiFixture` -- mock LLM
+
+| Test | What It Verifies |
+|------|-----------------|
+| DetectsQuestionSuffix | "find large files?" detected as AI query |
+| IgnoresValidCommandWithQuestion | `test -f file?` NOT treated as AI query (valid command) |
+| IgnoresTrailingQuestionInString | `echo "what?"` NOT treated as AI query |
+| ContextIncludesCwd | Sent prompt includes current directory |
+| ContextIncludesRecentCommands | Last 5 commands included |
+| ContextIncludesGitBranch | Current branch included when in git repo |
+| ContextIncludesProjectType | CMakeLists.txt detected -> "C++ project" |
+| ContextDetectsNodeProject | package.json -> "Node.js project" |
+| ContextDetectsRustProject | Cargo.toml -> "Rust project" |
+| ContextDetectsPythonProject | requirements.txt/pyproject.toml -> "Python project" |
+| AiCompletionCached | Same prefix returns cached result without new LLM call |
+| AiCompletionRateLimited | Rapid typing doesn't spam LLM |
+| AiCompletionDelayConfigurable | completion_delay setting respected |
+
+### 26.12 Pipeline Builder Tests
+
+**File:** `tests/unit/test_pipeline.cpp`
+**Binary:** `test_pipeline` (new)
+
+| Test | What It Verifies |
+|------|-----------------|
+| ParsePipeOperator | `cmd1 \|> cmd2` parsed as structured pipe |
+| TraditionalPipeUnchanged | `cmd1 \| cmd2` still works as text pipe |
+| MixedPipes | `cmd1 \| cmd2 \|> where x > 1` works |
+| AutoDetectJson | `[{"a":1}]` detected as JSON |
+| AutoDetectText | Plain text converted to array of line objects |
+| WhereFilterNumeric | `where size > 100` filters correctly |
+| WhereFilterString | `where name == "test"` filters correctly |
+| SortByColumn | `sort-by size` sorts ascending |
+| SortByColumnDesc | `sort-by size --desc` sorts descending |
+| SelectColumns | `select name size` keeps only specified columns |
+| RejectColumns | `reject permissions` removes specified column |
+| FirstN | `first 5` returns top 5 rows |
+| LastN | `last 3` returns bottom 3 rows |
+| CountRows | `count` returns row count |
+| UniqDeduplicates | `uniq` removes duplicate rows |
+| GroupByColumn | `group-by type` groups correctly |
+| ToJson | `to-json` outputs valid JSON |
+| ToCsv | `to-csv` outputs valid CSV with headers |
+| ToTable | `to-table` outputs Unicode box-drawing table |
+| TableFallbackAscii | Non-unicode terminal gets ASCII table |
+| ChainedOperators | `where x > 1 \|> sort-by x \|> first 3` chains correctly |
+| EmptyInput | Empty data through operators -> no crash |
+| LsWrapper | `ls \|>` produces structured output with name, size, type |
+| PsWrapper | `ps \|>` produces structured output with pid, cpu, mem |
+| JsonFromCurl | `curl ... \|> where active == true` parses API response |
+
+**File:** `tests/integration/test_pipeline.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| StructuredPipeEndToEnd | `ls \|> where type == "file" \|> count` returns number |
+| TraditionalPipeStillWorks | `ls \| grep .cpp \| wc -l` works unchanged |
+| TableRendered | `ps \|> first 3 \|> to-table` shows box-drawing output |
+
+### 26.13 Block Output Tests
+
+**File:** `tests/unit/test_block_renderer.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| BlockHeaderFormat | Header contains command, duration, status icon |
+| SuccessBlockGreenIcon | exit_code=0 shows green checkmark |
+| FailedBlockRedIcon | exit_code!=0 shows red X |
+| BlockSeparatorDrawn | Blocks separated by horizontal line |
+| FoldReducesOutput | Folded block shows header only |
+| UnfoldRestoresOutput | Unfolded block shows full output |
+| AutoFoldLongOutput | Output > block_fold_long lines auto-folded |
+| DisabledByDefault | blocks=false -> normal output rendering |
+
+### 26.14 Smart Alias Tests
+
+**File:** `tests/unit/test_alias_suggest.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| YouShouldUseExactMatch | `git checkout` with alias `gco='git checkout'` -> reminder |
+| YouShouldUsePrefixMatch | `git checkout main` with alias `gco='git checkout'` -> reminder |
+| NoReminderForUnaliased | Command without alias -> no reminder |
+| OncePerSession | Same alias reminder shown max once per session |
+| AliasSuggestFromHistory | Frequent `git status` in history -> suggests `alias gst='git status'` |
+| AliasSuggestSkipsExisting | Already aliased commands not suggested |
+| AliasPackListShowsPacks | `alias pack list` shows git, docker, kubectl, npm |
+| AliasPackEnableAddsAliases | `alias pack enable git` adds all git aliases |
+| AliasPackDisableRemoves | `alias pack disable git` removes pack aliases |
+
+### 26.15 Inline Documentation Tests
+
+**File:** `tests/unit/test_inline_docs.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| HintFromFigSpec | `tar` shows Fig description as hint |
+| HintFromFishCompletion | Unknown-to-Fig command shows Fish description |
+| HintFallbackToTldr | No Fig/Fish -> tries tldr summary |
+| HintFallbackToNothing | No source available -> no hint shown |
+| ExplainBreaksDownFlags | `explain tar -xzf` shows -x, -z, -f descriptions |
+| ExplainUnknownFlagFallback | Unknown flag -> shows "unknown" or defers to AI |
+| FlagDescriptionsInCompletion | Tab completion shows description alongside flag |
+
+### 26.16 Rich Output Tests
+
+**File:** `tests/unit/test_rich_output.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| DetectsHttpUrl | "https://example.com" detected |
+| DetectsHttpsUrl | "https://example.com/path?q=1" detected |
+| IgnoresNonUrl | "not a url" not detected |
+| IgnoresPartialUrl | "http://" alone not detected |
+| Osc8WrapCorrect | URL wrapped with correct OSC 8 escape sequences |
+| DisabledWhenPiped | No OSC 8 wrapping when stdout is a pipe |
+| TableHeuristicDetectsHeader | "PID CPU MEM COMMAND" detected as table header |
+| TableHeuristicColumnsAligned | Consistent column positions detected |
+| TableHeuristicRejectsMismatch | Unaligned text not detected as table |
+| TableRenderBoxDrawing | Detected table rendered with Unicode borders |
+| TableDisabledWhenPiped | No table enhancement when piped |
+| ImageDetectsKittySupport | Kitty protocol query response parsed |
+| ImageDetectsSixelSupport | Sixel support detected |
+| ImageFallbackShowsInfo | No graphics support -> shows file dimensions/size |
+
+### 26.17 Clipboard Tests
+
+**File:** `tests/unit/test_clipboard.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| Osc52EncodeCorrect | Text encoded to correct OSC 52 escape sequence |
+| Osc52Base64Correct | Base64 encoding matches expected output |
+| FallbackToMacOs | OSC 52 unsupported + macOS -> uses pbcopy |
+| FallbackToLinux | OSC 52 unsupported + Linux -> tries xclip/xsel/wl-copy |
+| CopyBuiltinPipe | `echo hello \| copy` sets clipboard |
+| CopyBuiltinLiteral | `copy "text"` sets clipboard |
+| PasteProtectionMultiline | 5-line paste detected and prompted |
+| PasteProtectionSingleLine | 1-line paste executed normally |
+
+### 26.18 Man Page Completion Tests
+
+**File:** `tests/unit/test_manpage_completion.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| ParseShortOption | `-f` extracted from man page |
+| ParseLongOption | `--file` extracted from man page |
+| ParseOptionWithDescription | `-f, --file FILE  Read from file` parsed |
+| ParseHelpOutput | `--help` output regex extraction works |
+| HelpTimeoutHandled | Command that hangs -> 2s timeout, no crash |
+| CacheMissTriggersGeneration | Unknown command + no cache -> generates |
+| CacheHitReturnsQuickly | Cached command completes in <10ms |
+| PriorityBelowFishAndFig | Man page completions only used when Fish/Fig don't cover |
+| CompletionStatusCount | `tash completions status` shows correct counts |
+
+### 26.19 Config Sync Tests
+
+**File:** `tests/unit/test_config_sync.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| SyncInitCreatesGitRepo | `tash sync init` creates .git in ~/.tash/ |
+| SyncRemoteSetsOrigin | `tash sync remote <url>` configures git remote |
+| SyncPushCommitsAndPushes | `tash sync push` creates commit and pushes |
+| SyncPullUpdatesConfig | `tash sync pull` updates local config |
+| SyncExcludesHistoryDb | history.db not included in sync |
+| SyncExcludesTrash | trash/ directory not included |
+| SyncExcludesSessions | sessions/ directory not included |
+| SyncDiffShowsChanges | `tash sync diff` shows pending changes |
+| LinkTashrcCreatesSymlink | `tash sync link-tashrc` creates correct symlink |
+
+### 26.20 Session Persistence Tests
+
+**File:** `tests/unit/test_session.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| SessionCreateSocket | `--persist name` creates Unix socket |
+| SessionAttachConnects | `--attach name` connects to socket |
+| SessionListShowsActive | `--sessions` lists active sessions |
+| SessionDetachKeepsDaemon | Socket close doesn't kill daemon |
+| SessionReattachRestoresCwd | After reattach, cwd matches detach point |
+| SessionReattachRestoresEnv | After reattach, exported vars restored |
+| SessionReattachRestoresAliases | After reattach, aliases restored |
+| SessionKillTerminatesDaemon | `--kill name` stops session |
+| SessionAutoCleanup | Inactive session cleaned after timeout |
+| SessionGcRemovesStale | `--sessions --gc` cleans dead sockets |
+
+### 26.21 Startup Optimization Tests
+
+**File:** `tests/unit/test_startup.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| BenchmarkFlagProducesOutput | `tash --benchmark` shows timing breakdown |
+| BenchmarkAllStagesMeasured | All stages (config, history, plugins, prompt) have timings |
+| LazyCompletionNotLoadedAtStart | Fish files not parsed until first TAB |
+| LazyHistoryNotQueriedAtStart | SQLite not queried until first history access |
+| ConfigCacheFasterThanParse | Binary cache load < TOML parse time |
+| ConfigCacheInvalidatedOnMtime | Changed config.toml triggers re-parse |
+| ColdStartUnder100ms | Full startup completes in <100ms |
+| WarmStartUnder50ms | Cached startup completes in <50ms |
+
+### 26.22 Regression Tests
+
+**File:** `tests/integration/test_regression.cpp`
+
+| Test | What It Verifies |
+|------|-----------------|
+| AllExistingTestsPass | 275 existing tests still green |
+| PipesStillWork | `echo hello \| cat` unchanged behavior |
+| RedirectsStillWork | `echo hello > file` unchanged |
+| AliasesStillWork | `alias ll='ls -la'` then `ll` works |
+| AutoCdStillWorks | Typing directory name changes to it |
+| ZJumpStillWorks | `z` frecency navigation unchanged |
+| HistoryBangStillWorks | `!!` and `!n` still expand |
+| AiCommandStillWorks | `@ai how do I...` still routes to AI |
+| GlobsStillWork | `*.cpp` still expands |
+| BackgroundJobsStillWork | `sleep 1 &` runs in background |
+| CtrlDStillExits | Double Ctrl+D exits shell |
+| TashrcStillSourced | ~/.tashrc commands executed on startup |
+| NoSegfaultOnAnyFeature | Run all new features, check exit != 139 |
+
+### 26.23 Test Infrastructure Changes
+
+**CMakeLists.txt additions:**
+```
+# New unit test binaries
+add_executable(test_plugin_registry tests/unit/test_plugin_registry.cpp)
+add_executable(test_fish_completion tests/unit/test_fish_completion.cpp)
+add_executable(test_fig_completion tests/unit/test_fig_completion.cpp)
+add_executable(test_sqlite_history tests/unit/test_sqlite_history.cpp)
+add_executable(test_theme tests/unit/test_theme.cpp)
+add_executable(test_fuzzy_finder tests/unit/test_fuzzy_finder.cpp)
+add_executable(test_pipeline tests/unit/test_pipeline.cpp)
+
+# New integration test files added to test_integration binary
+# tests/integration/test_fish_completion.cpp
+# tests/integration/test_smart_history.cpp
+# tests/integration/test_ai_error_recovery.cpp
+# tests/integration/test_themes.cpp
+# tests/integration/test_safety.cpp
+# tests/integration/test_pipeline.cpp
+# tests/integration/test_regression.cpp
+```
+
+**Test data directory:** `tests/data/` containing:
+- `fish_completions/` -- sample Fish completion files for parsing tests
+- `fig_specs/` -- sample Fig JSON specs for loading tests
+- `themes/` -- sample TOML theme files for theme tests
+- `manpages/` -- sample man page files for parsing tests
+- `alias_packs/` -- sample alias pack TOML files
+
+**Mock classes:**
+- `MockLLMClient` -- returns canned responses, tracks call count
+- `MockCompletionProvider` -- returns configurable completions
+- `MockHistoryProvider` -- in-memory history for testing
+- `MockHookProvider` -- records calls for verification
+
+### 26.24 Test Count Estimate
+
+| Category | Existing | New | Total |
+|----------|---------|-----|-------|
+| Unit Tests | ~130 | ~270 | ~400 |
+| Integration Tests | ~145 | ~45 | ~190 |
+| **Total** | **~275** | **~315** | **~590** |
 
 ---
 
-## 22. Branch Plan
+## 27. Branch Plan
 
 ### Phase 1: Foundation (merge first)
 
-| Branch | Features | Est. LOC |
-|--------|----------|----------|
-| feature/plugin-core | Interfaces, registry, config system, TOML | ~400 |
+| Branch | Features | Est. LOC | Est. Tests |
+|--------|----------|----------|-----------|
+| feature/plugin-core | Interfaces, registry, config system, TOML | ~400 | ~13 |
 
 ### Phase 2: Core Features (all independent, merge after core)
 
-| Branch | Features | Est. LOC |
-|--------|----------|----------|
-| feature/fish-completions | Fish + Fig completion providers | ~800 |
-| feature/smart-history | SQLite history, Atuin bridge | ~480 |
-| feature/ai-error-recovery | AI error hook provider | ~200 |
-| feature/configurable-themes | Theme system, 5 bundled themes | ~350 |
-| feature/starship-support | Starship prompt provider | ~50 |
+| Branch | Features | Est. LOC | Est. Tests |
+|--------|----------|----------|-----------|
+| feature/fish-completions | Fish + Fig completion providers | ~800 | ~36 |
+| feature/smart-history | SQLite history, Atuin bridge | ~480 | ~29 |
+| feature/ai-error-recovery | AI error hook provider | ~200 | ~18 |
+| feature/configurable-themes | Theme system, 5 themes, light/dark detect | ~400 | ~20 |
+| feature/starship-support | Starship prompt provider | ~50 | ~7 |
 
 ### Phase 3: Advanced Features (all independent, merge after core)
 
-| Branch | Features | Est. LOC |
-|--------|----------|----------|
-| feature/fuzzy-finder | Ctrl+R/T/G/P fuzzy interfaces | ~500 |
-| feature/command-safety | Destructive warnings, trash rm, dry-run | ~250 |
-| feature/contextual-ai | ? suffix, AI completions, context accumulation | ~350 |
-| feature/pipeline-builder | |> operator, structured operators, table render | ~600 |
-| feature/block-output | Warp-style block rendering, fold/nav | ~400 |
-| feature/smart-aliases | "You should use", AI suggest, alias packs | ~200 |
-| feature/inline-docs | Hint text, explain builtin, flag descriptions | ~300 |
-| feature/rich-output | Clickable URLs, inline images, auto-tables | ~350 |
-| feature/session-persistence | Persistent sessions via Unix sockets | ~400 |
-| feature/startup-optimization | Benchmarking, lazy loading, CI perf gate | ~150 |
+| Branch | Features | Est. LOC | Est. Tests |
+|--------|----------|----------|-----------|
+| feature/fuzzy-finder | Ctrl+R/T/G/P fuzzy interfaces | ~500 | ~14 |
+| feature/command-safety | Destructive warnings, trash rm, dry-run | ~250 | ~25 |
+| feature/contextual-ai | ? suffix, AI completions, context accumulation | ~350 | ~13 |
+| feature/pipeline-builder | \|> operator, structured operators, table render | ~600 | ~28 |
+| feature/block-output | Warp-style block rendering, fold/nav | ~400 | ~8 |
+| feature/smart-aliases | "You should use", AI suggest, alias packs | ~200 | ~9 |
+| feature/inline-docs | Hint text, explain builtin, flag descriptions | ~300 | ~7 |
+| feature/rich-output | Clickable URLs, inline images, auto-tables, output sharing | ~450 | ~14 |
+| feature/session-persistence | Persistent sessions via Unix sockets | ~400 | ~10 |
+| feature/startup-optimization | Benchmarking, lazy loading, CI perf gate | ~150 | ~8 |
+| feature/clipboard | OSC 52, copy/paste builtins, paste protection | ~150 | ~8 |
+| feature/manpage-completions | Man page parser, --help parser, cache | ~450 | ~9 |
+| feature/config-sync | Git-based config sync | ~300 | ~9 |
 
-**Total estimated new code: ~5,780 LOC**
+**Total estimated: ~6,830 LOC new code + ~315 new tests = ~590 total tests**
 
 plugin-core merges first. All Phase 2 and Phase 3 branches are independent of each other and can merge in any order after core.
 
 ---
 
-## 23. Success Criteria
+## 28. Success Criteria
 
+### Functional
 - tash starts in <50ms warm / <100ms cold with all plugins loaded
-- git TAB shows subcommands with descriptions from Fish/Fig
+- git TAB shows subcommands with descriptions from Fish/Fig/manpages
 - grep --col TAB completes to --color with description
+- `tash completions status` reports 2,000+ commands covered
 - Failed commands show AI explanation + fix suggestion
 - history --here filters by current directory
 - theme set tokyo-night changes all colors immediately
+- Auto light/dark theme detection works in supported terminals
 - prompt set starship switches to Starship rendering
 - Ctrl+T opens fuzzy file finder, Ctrl+G shows git branches
 - `rm -rf important/` shows safety warning before executing
+- `trash list` / `trash restore` work correctly
 - `compress all logs?` generates the right find+tar command
 - `ps |> where cpu > 1.0 |> sort-by cpu` renders a filtered table
 - Command output shows in collapsible blocks with duration
 - Typing `git checkout` when alias `gco` exists shows reminder
 - `explain tar -xzf archive.tar.gz` breaks down each flag
 - URLs in output are clickable in supported terminals
+- `echo text | copy` puts text on clipboard via OSC 52
+- Multiline paste shows protection prompt
 - `tash --persist` creates recoverable session
+- `tash sync push` / `tash sync pull` sync config across machines
+- `tash export last --gist` creates a GitHub gist
+
+### Quality
 - All existing 275 tests continue to pass
+- ~315 new tests pass (total ~590)
 - No functionality regression when ecosystem tools are not installed
+- No segfaults on any feature (AddressSanitizer clean)
 - Startup time tracked in CI, fails on regression beyond 150ms
+- Code coverage >= 80% on new code
