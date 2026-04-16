@@ -112,3 +112,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_alias_suggest.cpp
     TEST_PREFIX "unit/plugins/"
 )
+
+tash_register_plugin(
+    NAME clipboard
+    SOURCES src/ui/clipboard.cpp
+    TEST_SOURCES tests/unit/test_clipboard.cpp
+    TEST_PREFIX "unit/ui/"
+)

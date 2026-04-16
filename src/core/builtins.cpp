@@ -1,5 +1,6 @@
 #include "tash/core.h"
 #include "tash/history.h"
+#include "tash/ui/clipboard.h"
 #include "tash/ui/inline_docs.h"
 #include "theme.h"
 #include <cstring>
@@ -395,6 +396,40 @@ static int builtin_z(const vector<string> &argv, ShellState &state) {
     return 0;
 }
 
+static int builtin_copy(const vector<string> &argv, ShellState &) {
+    string text;
+    if (argv.size() > 1) {
+        for (size_t i = 1; i < argv.size(); i++) {
+            if (i > 1) text += " ";
+            text += argv[i];
+        }
+    } else {
+        // Read from stdin until EOF (allows `echo foo | copy`).
+        char buf[4096];
+        while (true) {
+            ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
+            if (n <= 0) break;
+            text.append(buf, n);
+        }
+    }
+    if (!copy_to_clipboard(text)) {
+        write_stderr("copy: failed to write to clipboard\n");
+        return 1;
+    }
+    return 0;
+}
+
+static int builtin_paste(const vector<string> &, ShellState &) {
+    string text = paste_from_clipboard();
+    if (text.empty()) {
+        write_stderr("paste: clipboard is empty or unavailable\n");
+        return 1;
+    }
+    if (!text.empty() && text.back() != '\n') text += '\n';
+    write_stdout(text);
+    return 0;
+}
+
 static int builtin_explain(const vector<string> &argv, ShellState &) {
     if (argv.size() < 2) {
         write_stderr("explain: usage: explain <command> [args...]\n");
@@ -547,6 +582,8 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"z",        builtin_z},
         {"theme",    builtin_theme},
         {"explain",  builtin_explain},
+        {"copy",     builtin_copy},
+        {"paste",    builtin_paste},
     };
     return builtins;
 }

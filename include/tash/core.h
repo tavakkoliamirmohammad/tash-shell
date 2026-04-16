@@ -48,7 +48,8 @@ void background_process(const std::vector<std::string> &argv,
 void check_background_process_finished(std::unordered_map<pid_t, std::string> &background_processes);
 void reap_background_processes(std::unordered_map<pid_t, std::string> &background_processes);
 int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
-                     const std::string &filename, bool redirect_flag);
+                     const std::string &filename, bool redirect_flag,
+                     ShellState *state = nullptr);
 
 // ── main.cpp ───────────────────────────────────────────────────
 
