@@ -1,4 +1,5 @@
 #include "tash/core.h"
+#include "tash/core/session.h"
 #include "tash/history.h"
 #include "tash/ui/block_renderer.h"
 #include "tash/ui/clipboard.h"
@@ -460,6 +461,84 @@ static int builtin_linkify(const vector<string> &argv, ShellState &) {
     return 0;
 }
 
+static int builtin_session(const vector<string> &argv, ShellState &state) {
+    if (argv.size() < 2) {
+        write_stderr(
+            "session: usage:\n"
+            "  session list             list saved sessions\n"
+            "  session save <name>      capture current state as <name>\n"
+            "  session load <name>      restore state from <name>\n"
+            "  session rm <name>        delete saved <name>\n");
+        return 1;
+    }
+
+    const string &sub = argv[1];
+
+    if (sub == "list") {
+        auto sessions = list_sessions();
+        if (sessions.empty()) {
+            write_stdout("(no saved sessions)\n");
+            return 0;
+        }
+        for (const auto &s : sessions) {
+            write_stdout("  " + s.name + "  " +
+                         s.working_directory + "\n");
+        }
+        return 0;
+    }
+
+    if (sub == "save") {
+        if (argv.size() < 3) {
+            write_stderr("session: save requires a name\n");
+            return 1;
+        }
+        const string &name = argv[2];
+        SessionInfo info = capture_current_state(name, state);
+        string dir = get_sessions_dir();
+        string path = dir + "/" + name + ".json";
+        if (!save_session(path, info)) {
+            write_stderr("session: failed to write " + path + "\n");
+            return 1;
+        }
+        write_stdout("session: saved '" + name + "' to " + path + "\n");
+        return 0;
+    }
+
+    if (sub == "load") {
+        if (argv.size() < 3) {
+            write_stderr("session: load requires a name\n");
+            return 1;
+        }
+        const string &name = argv[2];
+        if (!session_exists(name)) {
+            write_stderr("session: no such session: " + name + "\n");
+            return 1;
+        }
+        string path = get_sessions_dir() + "/" + name + ".json";
+        SessionInfo info = load_session(path);
+        restore_session(info, state);
+        write_stdout("session: loaded '" + name + "'\n");
+        return 0;
+    }
+
+    if (sub == "rm") {
+        if (argv.size() < 3) {
+            write_stderr("session: rm requires a name\n");
+            return 1;
+        }
+        const string &name = argv[2];
+        if (!delete_session(name)) {
+            write_stderr("session: no such session: " + name + "\n");
+            return 1;
+        }
+        write_stdout("session: removed '" + name + "'\n");
+        return 0;
+    }
+
+    write_stderr("session: unknown subcommand: " + sub + "\n");
+    return 1;
+}
+
 // `block <command...>` runs the command and wraps its output with a
 // header line (command + duration + ✓/✗) and a footer separator.
 static int builtin_block(const vector<string> &argv, ShellState &state) {
@@ -689,6 +768,7 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"linkify",  builtin_linkify},
         {"table",    builtin_table},
         {"block",    builtin_block},
+        {"session",  builtin_session},
     };
     return builtins;
 }
