@@ -72,7 +72,7 @@ set(TASH_INCLUDE_DIRS
     ${replxx_SOURCE_DIR}/include
 )
 
-# ── Source files shared by shell binary and test library ─────────
+# ── Core shell sources (non-plugin) ────────────────────────────
 set(SHELL_SOURCES
     src/main.cpp
     src/core/parser.cpp
@@ -86,58 +86,9 @@ set(SHELL_SOURCES
     src/history/frecency.cpp
     src/util/colors.cpp
     src/util/theme.cpp
-    src/plugins/plugin_registry.cpp
-    src/plugins/fish_completion_provider.cpp
-    src/plugins/fig_completion_provider.cpp
-    src/plugins/theme_provider.cpp
-    src/plugins/starship_prompt_provider.cpp
-    src/ui/fuzzy_finder.cpp
 )
 
-# ── AI source files (conditional) ────────────────────────────
-if(TASH_AI_ENABLED)
-    list(APPEND SHELL_SOURCES
-        src/ai/ai_handler.cpp
-        src/ai/llm_client.cpp
-        src/ai/ai_config.cpp
-        src/ai/context_suggest.cpp
-        src/plugins/ai_error_hook_provider.cpp
-    )
-endif()
-
-# ── SQLite history source files (conditional) ────────────────
-if(TASH_SQLITE_ENABLED)
-    list(APPEND SHELL_SOURCES
-        src/plugins/sqlite_history_provider.cpp
-    )
-endif()
-
-# ── Generate man page with version ────────────────────────────
-configure_file(tash.1.in tash.1 @ONLY)
-
-# ── Main shell binary ─────────────────────────────────────────
-add_executable(tash.out ${SHELL_SOURCES})
-target_link_libraries(tash.out PRIVATE replxx)
-target_include_directories(tash.out PRIVATE ${TASH_INCLUDE_DIRS})
-target_include_directories(tash.out PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
-target_compile_options(tash.out PRIVATE -Wall -Wextra)
-target_compile_definitions(tash.out PRIVATE
-    TASH_VERSION_STRING="${PROJECT_VERSION}"
-    TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
-
-if(TASH_AI_ENABLED)
-    target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
-    target_link_libraries(tash.out PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
-    target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
-endif()
-
-if(TASH_SQLITE_ENABLED)
-    target_compile_definitions(tash.out PRIVATE TASH_SQLITE_ENABLED)
-    target_include_directories(tash.out PRIVATE ${SQLite3_INCLUDE_DIRS})
-    target_link_libraries(tash.out PRIVATE ${SQLite3_LIBRARIES})
-endif()
-
-# ── Testing ───────────────────────────────────────────────────
+# ── Testing option ────────────────────────────────────────────
 option(BUILD_TESTS "Build test suite" ON)
 
 if(BUILD_TESTS)
@@ -151,12 +102,49 @@ if(BUILD_TESTS)
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
+endif()
 
-    # ── Unit tests (tokenizer, trim, etc.) ────────────────────
+# ── Plugin registry + list ────────────────────────────────────
+# Each plugin registers itself in cmake/plugin_list.cmake. Adding a new
+# plugin means appending one tash_register_plugin(...) call at the bottom
+# of that file, which avoids per-PR merge conflicts.
+include(${CMAKE_SOURCE_DIR}/cmake/plugins.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/plugin_list.cmake)
+
+# ── Generate man page with version ────────────────────────────
+configure_file(tash.1.in tash.1 @ONLY)
+
+# ── Main shell binary ─────────────────────────────────────────
+add_executable(tash.out ${SHELL_SOURCES})
+target_link_libraries(tash.out PRIVATE replxx)
+target_include_directories(tash.out PRIVATE
+    ${TASH_INCLUDE_DIRS}
+    ${nlohmann_json_SOURCE_DIR}/include)
+target_compile_options(tash.out PRIVATE -Wall -Wextra)
+target_compile_definitions(tash.out PRIVATE
+    TASH_VERSION_STRING="${PROJECT_VERSION}"
+    TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
+
+if(TASH_AI_ENABLED)
+    target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
+    target_link_libraries(tash.out PRIVATE
+        OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
+    target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
+endif()
+
+if(TASH_SQLITE_ENABLED)
+    target_compile_definitions(tash.out PRIVATE TASH_SQLITE_ENABLED)
+    target_include_directories(tash.out PRIVATE ${SQLite3_INCLUDE_DIRS})
+    target_link_libraries(tash.out PRIVATE ${SQLite3_LIBRARIES})
+endif()
+
+# ── Test library and plugin tests ─────────────────────────────
+if(BUILD_TESTS)
     add_library(shell_lib STATIC ${SHELL_SOURCES})
     target_link_libraries(shell_lib PRIVATE replxx)
-    target_include_directories(shell_lib PRIVATE ${TASH_INCLUDE_DIRS})
-    target_include_directories(shell_lib PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
+    target_include_directories(shell_lib PRIVATE
+        ${TASH_INCLUDE_DIRS}
+        ${nlohmann_json_SOURCE_DIR}/include)
     target_compile_definitions(shell_lib PRIVATE
         TESTING_BUILD
         TASH_VERSION_STRING="${PROJECT_VERSION}"
@@ -164,7 +152,8 @@ if(BUILD_TESTS)
 
     if(TASH_AI_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
-        target_link_libraries(shell_lib PRIVATE OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
+        target_link_libraries(shell_lib PRIVATE
+            OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
         target_include_directories(shell_lib PRIVATE ${httplib_SOURCE_DIR})
     endif()
 
@@ -179,80 +168,8 @@ if(BUILD_TESTS)
     target_link_libraries(test_tokenizer GTest::gtest_main shell_lib)
     gtest_discover_tests(test_tokenizer TEST_PREFIX "unit/")
 
-    add_executable(test_ai tests/unit/test_ai.cpp)
-    target_include_directories(test_ai PRIVATE ${TASH_INCLUDE_DIRS})
-    target_link_libraries(test_ai GTest::gtest_main shell_lib)
-    if(TASH_AI_ENABLED)
-        target_compile_definitions(test_ai PRIVATE TASH_AI_ENABLED)
-        target_include_directories(test_ai PRIVATE ${httplib_SOURCE_DIR})
-        target_include_directories(test_ai PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
-        target_link_libraries(test_ai CURL::libcurl)
-    endif()
-    gtest_discover_tests(test_ai TEST_PREFIX "unit/ai/")
-
-    # ── Plugin registry tests ────────────────────────────────
-    add_executable(test_plugin_registry tests/unit/test_plugin_registry.cpp)
-    target_include_directories(test_plugin_registry PRIVATE ${TASH_INCLUDE_DIRS})
-    target_link_libraries(test_plugin_registry GTest::gtest_main shell_lib)
-    gtest_discover_tests(test_plugin_registry TEST_PREFIX "unit/plugins/")
-
-    # ── Fish completion provider tests ────────────────────────
-    add_executable(test_fish_completion tests/unit/test_fish_completion.cpp)
-    target_include_directories(test_fish_completion PRIVATE ${TASH_INCLUDE_DIRS})
-    target_include_directories(test_fish_completion PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
-    target_link_libraries(test_fish_completion GTest::gtest_main shell_lib)
-    gtest_discover_tests(test_fish_completion TEST_PREFIX "unit/fish/")
-
-    # ── Fig completion provider tests ─────────────────────────
-    add_executable(test_fig_completion tests/unit/test_fig_completion.cpp)
-    target_include_directories(test_fig_completion PRIVATE ${TASH_INCLUDE_DIRS})
-    target_include_directories(test_fig_completion PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
-    target_link_libraries(test_fig_completion GTest::gtest_main shell_lib)
-    if(TASH_AI_ENABLED)
-        target_compile_definitions(test_fig_completion PRIVATE TASH_AI_ENABLED)
-        target_include_directories(test_fig_completion PRIVATE ${httplib_SOURCE_DIR})
-    endif()
-    gtest_discover_tests(test_fig_completion TEST_PREFIX "unit/fig/")
-
-    # ── SQLite history tests (conditional) ────────────────────
-    if(TASH_SQLITE_ENABLED)
-        add_executable(test_sqlite_history tests/unit/test_sqlite_history.cpp
-            src/plugins/sqlite_history_provider.cpp)
-        target_include_directories(test_sqlite_history PRIVATE ${TASH_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS})
-        target_link_libraries(test_sqlite_history GTest::gtest_main ${SQLite3_LIBRARIES})
-        gtest_discover_tests(test_sqlite_history TEST_PREFIX "unit/sqlite/")
-    endif()
-    # ── AI error hook tests ──────────────────────────────────
-    add_executable(test_ai_error_hook tests/unit/test_ai_error_hook.cpp)
-    target_include_directories(test_ai_error_hook PRIVATE ${TASH_INCLUDE_DIRS})
-    target_link_libraries(test_ai_error_hook GTest::gtest_main shell_lib)
-    if(TASH_AI_ENABLED)
-        target_compile_definitions(test_ai_error_hook PRIVATE TASH_AI_ENABLED)
-        target_include_directories(test_ai_error_hook PRIVATE ${httplib_SOURCE_DIR})
-        target_include_directories(test_ai_error_hook PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
-        target_link_libraries(test_ai_error_hook CURL::libcurl)
-    endif()
-    gtest_discover_tests(test_ai_error_hook TEST_PREFIX "unit/plugins/ai/")
-
-    # ── Theme provider tests ─────────────────────────────────
-    add_executable(test_theme tests/unit/test_theme.cpp src/plugins/theme_provider.cpp)
-    target_include_directories(test_theme PRIVATE ${TASH_INCLUDE_DIRS})
-    target_compile_definitions(test_theme PRIVATE
-        TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
-    target_link_libraries(test_theme GTest::gtest_main)
-    gtest_discover_tests(test_theme TEST_PREFIX "unit/theme/")
-
-    # ── Starship prompt provider tests ───────────────────────
-    add_executable(test_starship tests/unit/test_starship.cpp)
-    target_include_directories(test_starship PRIVATE ${TASH_INCLUDE_DIRS})
-    target_link_libraries(test_starship GTest::gtest_main shell_lib)
-    gtest_discover_tests(test_starship TEST_PREFIX "unit/starship/")
-
-    # ── Fuzzy finder tests ──────────────────────────────────
-    add_executable(test_fuzzy_finder tests/unit/test_fuzzy_finder.cpp)
-    target_include_directories(test_fuzzy_finder PRIVATE ${TASH_INCLUDE_DIRS})
-    target_link_libraries(test_fuzzy_finder GTest::gtest_main shell_lib)
-    gtest_discover_tests(test_fuzzy_finder TEST_PREFIX "unit/ui/")
+    # Create all plugin tests declared via tash_register_plugin(TEST_SOURCES ...)
+    tash_finalize_plugin_tests()
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
