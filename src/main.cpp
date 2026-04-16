@@ -1,6 +1,8 @@
 #include "tash/core.h"
 #include "tash/ui.h"
 #include "tash/history.h"
+#include "tash/plugin.h"
+#include "tash/plugins/safety_hook_provider.h"
 #include "theme.h"
 #include <cstring>
 #include <sys/stat.h>
@@ -68,6 +70,25 @@ static bool try_auto_cd(const string &token, ShellState &state) {
 
 int execute_single_command(string command, ShellState &state) {
     if (command.empty() || command.find_first_not_of(" \t") == string::npos) return 0;
+
+    // Backslash prefix bypasses safety/hook checks (e.g. "\rm -rf dir/").
+    bool bypass_hooks = false;
+    {
+        size_t first = command.find_first_not_of(" \t");
+        if (first != string::npos && command[first] == '\\') {
+            bypass_hooks = true;
+            command.erase(first, 1);
+        }
+    }
+
+    if (!bypass_hooks) {
+        global_plugin_registry().fire_before_command(command, state);
+        if (state.skip_execution) {
+            state.skip_execution = false;
+            state.last_exit_status = 1;
+            return 1;
+        }
+    }
 
     command = expand_variables(command, state.last_exit_status);
     command = expand_command_substitution(command);
@@ -270,6 +291,10 @@ int main(int argc, char *argv[]) {
 
     // Load theme strings (reads ~/.config/tash/theme.toml if present).
     load_user_theme();
+
+    // Register built-in hook providers.
+    global_plugin_registry().register_hook_provider(
+        std::make_unique<SafetyHookProvider>());
 
     ShellState state;
 

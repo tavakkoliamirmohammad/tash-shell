@@ -84,6 +84,15 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME contextual_ai
+    SOURCES src/ai/contextual_ai.cpp
+    REQUIRES TASH_AI_ENABLED
+    TEST_SOURCES tests/unit/test_contextual_ai.cpp
+    TEST_PREFIX "unit/ai/"
+    TEST_AI_AWARE
+)
+
+tash_register_plugin(
     NAME safety_hook
     SOURCES src/plugins/safety_hook_provider.cpp
     TEST_SOURCES tests/unit/test_safety_hook.cpp
