@@ -105,3 +105,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_inline_docs.cpp
     TEST_PREFIX "unit/ui/"
 )
+
+tash_register_plugin(
+    NAME alias_suggest
+    SOURCES src/plugins/alias_suggest_provider.cpp
+    TEST_SOURCES tests/unit/test_alias_suggest.cpp
+    TEST_PREFIX "unit/plugins/"
+)
