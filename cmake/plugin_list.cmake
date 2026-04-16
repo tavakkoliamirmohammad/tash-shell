@@ -126,3 +126,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_startup_benchmark.cpp
     TEST_PREFIX "unit/util/"
 )
+
+tash_register_plugin(
+    NAME manpage_completion
+    SOURCES src/plugins/manpage_completion_provider.cpp
+    TEST_SOURCES tests/unit/test_manpage_completion.cpp
+    TEST_PREFIX "unit/plugins/"
+)
