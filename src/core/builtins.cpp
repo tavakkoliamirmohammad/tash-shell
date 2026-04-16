@@ -1,9 +1,11 @@
 #include "tash/core.h"
 #include "tash/history.h"
+#include "tash/ui/block_renderer.h"
 #include "tash/ui/clipboard.h"
 #include "tash/ui/inline_docs.h"
 #include "tash/ui/rich_output.h"
 #include "theme.h"
+#include <chrono>
 #include <cstring>
 
 using namespace std;
@@ -458,6 +460,35 @@ static int builtin_linkify(const vector<string> &argv, ShellState &) {
     return 0;
 }
 
+// `block <command...>` runs the command and wraps its output with a
+// header line (command + duration + ✓/✗) and a footer separator.
+static int builtin_block(const vector<string> &argv, ShellState &state) {
+    if (argv.size() < 2) {
+        write_stderr("block: usage: block <command> [args...]\n");
+        return 1;
+    }
+
+    // Rebuild the command line for display and for re-dispatch.
+    string cmd_display;
+    for (size_t i = 1; i < argv.size(); i++) {
+        if (i > 1) cmd_display += " ";
+        cmd_display += argv[i];
+    }
+
+    auto t0 = std::chrono::steady_clock::now();
+    int result = execute_single_command(cmd_display, state);
+    auto t1 = std::chrono::steady_clock::now();
+    double duration = std::chrono::duration<double>(t1 - t0).count();
+
+    Block b;
+    b.command = cmd_display;
+    b.exit_code = result;
+    b.duration_seconds = duration;
+    write_stdout(render_block_header(b) + "\n");
+    write_stdout(render_block_separator() + "\n");
+    return result;
+}
+
 static int builtin_table(const vector<string> &argv, ShellState &) {
     // Optional: --max-width N  (default 60) caps long cell contents.
     size_t max_width = 60;
@@ -657,6 +688,7 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"paste",    builtin_paste},
         {"linkify",  builtin_linkify},
         {"table",    builtin_table},
+        {"block",    builtin_block},
     };
     return builtins;
 }

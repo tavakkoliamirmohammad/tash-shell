@@ -140,3 +140,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_rich_output.cpp
     TEST_PREFIX "unit/ui/"
 )
+
+tash_register_plugin(
+    NAME block_renderer
+    SOURCES src/ui/block_renderer.cpp
+    TEST_SOURCES tests/unit/test_block_renderer.cpp
+    TEST_PREFIX "unit/ui/"
+)
