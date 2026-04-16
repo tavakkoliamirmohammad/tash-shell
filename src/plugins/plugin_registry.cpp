@@ -1,0 +1,149 @@
+#include "tash/plugin.h"
+#include <algorithm>
+#include <unordered_map>
+
+// ── Registration ──────────────────────────────────────────────
+
+void PluginRegistry::register_completion_provider(
+    std::unique_ptr<ICompletionProvider> provider) {
+    completion_providers_.push_back(std::move(provider));
+}
+
+void PluginRegistry::register_prompt_provider(
+    std::unique_ptr<IPromptProvider> provider) {
+    prompt_providers_.push_back(std::move(provider));
+}
+
+void PluginRegistry::register_history_provider(
+    std::unique_ptr<IHistoryProvider> provider) {
+    history_providers_.push_back(std::move(provider));
+}
+
+void PluginRegistry::register_hook_provider(
+    std::unique_ptr<IHookProvider> provider) {
+    hook_providers_.push_back(std::move(provider));
+}
+
+// ── Completion dispatch ───────────────────────────────────────
+
+std::vector<Completion> PluginRegistry::complete(
+    const std::string &command,
+    const std::string &current_word,
+    const std::vector<std::string> &args,
+    const ShellState &state) const {
+
+    // Collect results from all providers that can handle this command,
+    // ordered by priority (highest first)
+    struct ProviderResult {
+        int priority;
+        std::vector<Completion> completions;
+    };
+    std::vector<ProviderResult> results;
+
+    for (const auto &provider : completion_providers_) {
+        if (provider->can_complete(command)) {
+            auto comps = provider->complete(command, current_word, args, state);
+            if (!comps.empty()) {
+                results.push_back({provider->priority(), std::move(comps)});
+            }
+        }
+    }
+
+    // Sort by priority descending
+    std::sort(results.begin(), results.end(),
+        [](const ProviderResult &a, const ProviderResult &b) {
+            return a.priority > b.priority;
+        });
+
+    // Merge: higher-priority completions first, dedup by text
+    std::vector<Completion> merged;
+    std::unordered_map<std::string, bool> seen;
+
+    for (const auto &pr : results) {
+        for (const auto &c : pr.completions) {
+            if (seen.find(c.text) == seen.end()) {
+                seen[c.text] = true;
+                merged.push_back(c);
+            }
+        }
+    }
+
+    return merged;
+}
+
+// ── Prompt dispatch ───────────────────────────────────────────
+
+std::string PluginRegistry::render_prompt(const ShellState &state) {
+    if (prompt_providers_.empty()) {
+        return "$ ";
+    }
+
+    // Find highest-priority provider
+    IPromptProvider *best = nullptr;
+    int best_priority = -1;
+
+    for (const auto &provider : prompt_providers_) {
+        if (provider->priority() > best_priority) {
+            best_priority = provider->priority();
+            best = provider.get();
+        }
+    }
+
+    if (best) {
+        return best->render(state);
+    }
+    return "$ ";
+}
+
+// ── History dispatch ──────────────────────────────────────────
+
+void PluginRegistry::record_history(const HistoryEntry &entry) {
+    for (const auto &provider : history_providers_) {
+        provider->record(entry);
+    }
+}
+
+std::vector<HistoryEntry> PluginRegistry::search_history(
+    const std::string &query,
+    const SearchFilter &filter) const {
+    if (history_providers_.empty()) {
+        return {};
+    }
+    // Search primary (first) provider
+    return history_providers_.front()->search(query, filter);
+}
+
+// ── Hook dispatch ─────────────────────────────────────────────
+
+void PluginRegistry::fire_before_command(
+    const std::string &command, ShellState &state) {
+    for (const auto &provider : hook_providers_) {
+        provider->on_before_command(command, state);
+    }
+}
+
+void PluginRegistry::fire_after_command(
+    const std::string &command, int exit_code,
+    const std::string &stderr_output, ShellState &state) {
+    for (const auto &provider : hook_providers_) {
+        provider->on_after_command(command, exit_code, stderr_output, state);
+    }
+}
+
+// ── Introspection ─────────────────────────────────────────────
+
+size_t PluginRegistry::completion_provider_count() const {
+    return completion_providers_.size();
+}
+
+size_t PluginRegistry::prompt_provider_count() const {
+    return prompt_providers_.size();
+}
+
+size_t PluginRegistry::history_provider_count() const {
+    return history_providers_.size();
+}
+
+size_t PluginRegistry::hook_provider_count() const {
+    return hook_providers_.size();
+}
