@@ -49,7 +49,7 @@ std::string osc52_encode(const std::string &text) {
 // popen helpers
 // ═══════════════════════════════════════════════════════════════
 
-std::string popen_read(const std::string &cmd) {
+static std::string popen_read(const std::string &cmd) {
     FILE *pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         return "";
@@ -65,7 +65,7 @@ std::string popen_read(const std::string &cmd) {
     return result;
 }
 
-int popen_write(const std::string &cmd, const std::string &input) {
+static int popen_write(const std::string &cmd, const std::string &input) {
     FILE *pipe = popen(cmd.c_str(), "w");
     if (!pipe) {
         return -1;

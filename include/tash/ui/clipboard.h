@@ -20,9 +20,4 @@ std::string paste_from_clipboard();
 
 bool is_multiline(const std::string &text);
 
-// ── Helpers ─────────────────────────────────────────────────────
-
-std::string popen_read(const std::string &cmd);
-int popen_write(const std::string &cmd, const std::string &input);
-
 #endif // TASH_UI_CLIPBOARD_H
