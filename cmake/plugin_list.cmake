@@ -119,3 +119,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_clipboard.cpp
     TEST_PREFIX "unit/ui/"
 )
+
+tash_register_plugin(
+    NAME benchmark
+    SOURCES src/util/benchmark.cpp
+    TEST_SOURCES tests/unit/test_startup_benchmark.cpp
+    TEST_PREFIX "unit/util/"
+)
