@@ -74,6 +74,7 @@ set(SHELL_SOURCES
     src/history/history.cpp
     src/history/frecency.cpp
     src/util/colors.cpp
+    src/plugins/plugin_registry.cpp
 )
 
 # ── AI source files (conditional) ────────────────────────────
@@ -146,6 +147,12 @@ if(BUILD_TESTS)
         target_link_libraries(test_ai CURL::libcurl)
     endif()
     gtest_discover_tests(test_ai TEST_PREFIX "unit/ai/")
+
+    # ── Plugin registry tests ────────────────────────────────
+    add_executable(test_plugin_registry tests/unit/test_plugin_registry.cpp)
+    target_include_directories(test_plugin_registry PRIVATE ${TASH_INCLUDE_DIRS})
+    target_link_libraries(test_plugin_registry GTest::gtest_main shell_lib)
+    gtest_discover_tests(test_plugin_registry TEST_PREFIX "unit/plugins/")
 
     # ── Integration tests ─────────────────────────────────────
     add_executable(test_integration
