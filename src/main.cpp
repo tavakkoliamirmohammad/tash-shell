@@ -4,6 +4,7 @@
 #include "tash/plugin.h"
 #include "tash/plugins/safety_hook_provider.h"
 #include "tash/plugins/alias_suggest_provider.h"
+#include "tash/util/benchmark.h"
 #include "theme.h"
 #include <cstring>
 #include <sys/stat.h>
@@ -337,12 +338,21 @@ static Replxx::hints_t history_hint_callback(const string &input, int &context_l
 
 #ifndef TESTING_BUILD
 int main(int argc, char *argv[]) {
+    // --benchmark prints a startup-stage breakdown and exits. Parsed before
+    // argc > 2 check so `tash --benchmark` always wins.
+    bool benchmark_mode = (argc == 2 && string(argv[1]) == "--benchmark");
+
     if (argc > 2) {
         exit_with_message("An error has occurred\n", 1);
     }
 
+    StartupBenchmark bench;
+    if (benchmark_mode) bench.start("Theme load");
+
     // Load theme strings (reads ~/.config/tash/theme.toml if present).
     load_user_theme();
+
+    if (benchmark_mode) { bench.end(); bench.start("Plugin registration"); }
 
     // Register built-in hook providers.
     global_plugin_registry().register_hook_provider(
@@ -350,7 +360,21 @@ int main(int argc, char *argv[]) {
     global_plugin_registry().register_hook_provider(
         std::make_unique<AliasSuggestProvider>());
 
+    if (benchmark_mode) { bench.end(); bench.start("Shell state init"); }
+
     ShellState state;
+
+    if (benchmark_mode) {
+        bench.end();
+        bench.start("Command cache");
+        build_command_cache();
+        bench.end();
+        bench.start("History load");
+        (void)history_file_path();
+        bench.end();
+        write_stdout(bench.report());
+        return 0;
+    }
 
     struct sigaction sa_int;
     sa_int.sa_handler = sigint_handler;
