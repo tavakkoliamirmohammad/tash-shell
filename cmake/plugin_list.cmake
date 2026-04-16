@@ -133,3 +133,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_manpage_completion.cpp
     TEST_PREFIX "unit/plugins/"
 )
+
+tash_register_plugin(
+    NAME rich_output
+    SOURCES src/ui/rich_output.cpp
+    TEST_SOURCES tests/unit/test_rich_output.cpp
+    TEST_PREFIX "unit/ui/"
+)

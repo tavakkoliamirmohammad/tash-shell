@@ -196,6 +196,7 @@ if(BUILD_TESTS)
         tests/integration/test_clipboard.cpp
         tests/integration/test_builtin_matrix.cpp
         tests/integration/test_benchmark.cpp
+        tests/integration/test_rich_output.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
