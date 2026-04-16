@@ -1,4 +1,6 @@
 #include "test_helpers.h"
+#include <cstdlib>
+#include <fstream>
 
 // The `linkify` builtin should wrap URLs in OSC 8 escape sequences so
 // terminals that support hyperlink reporting (iTerm2, WezTerm, Kitty,
@@ -34,4 +36,35 @@ TEST(RichOutputIntegration, TablePassesThroughUnstructured) {
     auto r = run_shell("echo one line only | table\nexit\n");
     EXPECT_NE(r.output.find("one line only"), std::string::npos);
     EXPECT_EQ(r.output.find("\xe2\x94\x8c"), std::string::npos);
+}
+
+// TASH_AUTO_LINKIFY=1 makes every external command's stdout get its URLs
+// wrapped in OSC 8 automatically, without piping through `linkify`.
+TEST(RichOutputIntegration, AutoLinkifyWrapsExternalCommandOutput) {
+    setenv("TASH_AUTO_LINKIFY", "1", 1);
+    std::string path = "/tmp/tash_autolinkify_" + std::to_string(getpid());
+    {
+        std::ofstream f(path);
+        f << "visit https://example.com today\n";
+    }
+    auto r = run_shell("cat " + path + "\nexit\n");
+    unsetenv("TASH_AUTO_LINKIFY");
+    unlink(path.c_str());
+    EXPECT_NE(r.output.find("\x1b]8;;https://example.com\x1b\\"),
+              std::string::npos);
+}
+
+// With the env var OFF, external command output is untouched.
+TEST(RichOutputIntegration, NoAutoLinkifyByDefault) {
+    unsetenv("TASH_AUTO_LINKIFY");
+    std::string path = "/tmp/tash_autolinkify_off_" + std::to_string(getpid());
+    {
+        std::ofstream f(path);
+        f << "visit https://example.com today\n";
+    }
+    auto r = run_shell("cat " + path + "\nexit\n");
+    unlink(path.c_str());
+    EXPECT_NE(r.output.find("visit https://example.com today"),
+              std::string::npos);
+    EXPECT_EQ(r.output.find("\x1b]8"), std::string::npos);
 }

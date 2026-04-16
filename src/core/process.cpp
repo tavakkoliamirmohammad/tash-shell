@@ -1,5 +1,8 @@
 #include "tash/core.h"
+#include "tash/ui/rich_output.h"
+#include <cstdlib>
 #include <cstring>
+#include <unordered_set>
 
 using namespace std;
 
@@ -42,6 +45,26 @@ void setup_child_io(const vector<Redirection> &redirections) {
     }
 }
 
+// Commands we never intercept stdout for — they rely on a real TTY
+// (cursor addressing, alternate screen, raw input) and a buffering wrapper
+// breaks them.
+static bool is_interactive_cmd(const std::string &cmd) {
+    static const std::unordered_set<std::string> interactive = {
+        "vim", "vi", "nvim", "emacs", "nano", "less", "more",
+        "man", "top", "htop", "btop", "tmux", "screen", "ssh",
+        "fzf", "watch", "mc", "ranger", "tig",
+    };
+    // Basename only (strip path).
+    size_t slash = cmd.find_last_of('/');
+    std::string base = (slash == std::string::npos) ? cmd : cmd.substr(slash + 1);
+    return interactive.count(base) > 0;
+}
+
+static bool auto_linkify_enabled() {
+    const char *v = getenv("TASH_AUTO_LINKIFY");
+    return v && *v && string(v) != "0";
+}
+
 int foreground_process(const vector<string> &argv,
                        const vector<Redirection> &redirections,
                        string *captured_stderr) {
@@ -59,6 +82,18 @@ int foreground_process(const vector<string> &argv,
         }
     }
 
+    // Optional stdout interception for URL linkification.
+    int stdout_pipe[2] = {-1, -1};
+    bool intercept_stdout = !argv.empty() &&
+                            auto_linkify_enabled() &&
+                            !is_interactive_cmd(argv[0]) &&
+                            redirections.empty();
+    if (intercept_stdout) {
+        if (pipe(stdout_pipe) < 0) {
+            intercept_stdout = false;
+        }
+    }
+
     int status;
     pid_t pid = fork();
     if (pid < 0) {
@@ -70,6 +105,11 @@ int foreground_process(const vector<string> &argv,
             dup2(stderr_pipe[1], STDERR_FILENO);
             close(stderr_pipe[1]);
         }
+        if (intercept_stdout) {
+            close(stdout_pipe[0]);
+            dup2(stdout_pipe[1], STDOUT_FILENO);
+            close(stdout_pipe[1]);
+        }
         setup_child_io(redirections);
         execvp(c_args[0], const_cast<char *const *>(c_args.data()));
         string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
@@ -78,8 +118,35 @@ int foreground_process(const vector<string> &argv,
     } else {
         // Parent
         if (stderr_pipe[1] >= 0) close(stderr_pipe[1]); // close write end
+        if (intercept_stdout) close(stdout_pipe[1]);
 
         fg_child_pid = pid;
+
+        // Drain stdout first (line-buffered linkify) so stderr capture below
+        // doesn't deadlock on a child that writes a lot of stdout.
+        if (intercept_stdout) {
+            char buf[4096];
+            std::string carry;
+            ssize_t n;
+            while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0) {
+                carry.append(buf, static_cast<size_t>(n));
+                size_t start = 0;
+                while (true) {
+                    size_t nl = carry.find('\n', start);
+                    if (nl == std::string::npos) break;
+                    std::string line = carry.substr(start, nl - start + 1);
+                    std::string linked = tash::ui::linkify_urls(line);
+                    write(STDOUT_FILENO, linked.data(), linked.size());
+                    start = nl + 1;
+                }
+                carry.erase(0, start);
+            }
+            if (!carry.empty()) {
+                std::string linked = tash::ui::linkify_urls(carry);
+                write(STDOUT_FILENO, linked.data(), linked.size());
+            }
+            close(stdout_pipe[0]);
+        }
 
         // Read stderr BEFORE waitpid to prevent deadlock on large output
         if (captured_stderr && stderr_pipe[0] >= 0) {
