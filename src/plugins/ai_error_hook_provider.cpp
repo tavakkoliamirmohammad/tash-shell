@@ -85,11 +85,11 @@ void AiErrorHookProvider::on_after_command(
     }
 
     // Display explanation in yellow
-    write_stdout("\n" CAT_YELLOW "  " + recovery.explanation + CAT_RESET "\n");
+    write_stdout("\n" + CAT_YELLOW + "  " + recovery.explanation + CAT_RESET "\n");
 
     // Display fix command in green if present
     if (!recovery.fix.empty()) {
-        write_stdout(CAT_GREEN "  $ " + recovery.fix + CAT_RESET "\n\n");
+        write_stdout(CAT_GREEN + "  $ " + recovery.fix + CAT_RESET "\n\n");
         write_stdout(CAT_DIM "  [Enter] run fix  [Esc] dismiss" CAT_RESET "\n");
 
         if (!isatty(STDIN_FILENO)) {

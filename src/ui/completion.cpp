@@ -21,13 +21,19 @@ static const vector<string> docker_subcommands = {
     "run", "start", "stop", "volume"
 };
 
-// Catppuccin colors for different completion types
-static Replxx::Color comp_builtin() { return replxx::color::rgb666(2, 5, 4); }  // teal
-static Replxx::Color comp_command() { return replxx::color::rgb666(3, 5, 3); }  // green
-static Replxx::Color comp_subcmd()  { return replxx::color::rgb666(4, 3, 5); }  // mauve
-static Replxx::Color comp_envvar()  { return replxx::color::rgb666(2, 4, 5); }  // sky
-static Replxx::Color comp_file()    { return replxx::color::rgb666(5, 4, 3); }  // peach
-static Replxx::Color comp_dir()     { return replxx::color::rgb666(2, 3, 5); }  // blue
+static Replxx::Color to_replxx(const RGB &c) {
+    int r = (c.r * 5 + 127) / 255;
+    int g = (c.g * 5 + 127) / 255;
+    int b = (c.b * 5 + 127) / 255;
+    return replxx::color::rgb666(r, g, b);
+}
+
+static Replxx::Color comp_builtin() { return to_replxx(g_current_theme.comp_builtin); }
+static Replxx::Color comp_command() { return to_replxx(g_current_theme.comp_command); }
+static Replxx::Color comp_subcmd()  { return to_replxx(g_current_theme.op); }
+static Replxx::Color comp_envvar()  { return to_replxx(g_current_theme.variable); }
+static Replxx::Color comp_file()    { return to_replxx(g_current_theme.comp_file); }
+static Replxx::Color comp_dir()     { return to_replxx(g_current_theme.comp_directory); }
 
 Replxx::completions_t completion_callback(const string &input, int &context_len) {
     Replxx::completions_t completions;

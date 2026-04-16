@@ -170,31 +170,31 @@ bool ai_run_setup_wizard() {
     string provider = ai_get_provider();
 
     write_stdout("\n");
-    write_stdout(AI_LABEL "tash ai" CAT_RESET AI_SEPARATOR " ─ " CAT_RESET
+    write_stdout(AI_LABEL + "tash ai" CAT_RESET + AI_SEPARATOR + " ─ " CAT_RESET
                  "AI features configuration\n\n");
 
     if (provider == "gemini") {
-        write_stdout("  Current provider: " AI_CMD "Gemini" CAT_RESET "\n\n");
+        write_stdout("  Current provider: " + AI_CMD + "Gemini" CAT_RESET "\n\n");
         write_stdout("  How to get a free API key:\n");
-        write_stdout(AI_STEP_NUM "  1." CAT_RESET " Go to: " AI_CMD "https://aistudio.google.com/apikey" CAT_RESET "\n");
-        write_stdout(AI_STEP_NUM "  2." CAT_RESET " Sign in with your Google account\n");
-        write_stdout(AI_STEP_NUM "  3." CAT_RESET " Click \"Create API Key\"\n");
-        write_stdout(AI_STEP_NUM "  4." CAT_RESET " Copy the key\n\n");
+        write_stdout(AI_STEP_NUM + "  1." CAT_RESET " Go to: " + AI_CMD + "https://aistudio.google.com/apikey" CAT_RESET "\n");
+        write_stdout(AI_STEP_NUM + "  2." CAT_RESET " Sign in with your Google account\n");
+        write_stdout(AI_STEP_NUM + "  3." CAT_RESET " Click \"Create API Key\"\n");
+        write_stdout(AI_STEP_NUM + "  4." CAT_RESET " Copy the key\n\n");
     } else if (provider == "openai") {
-        write_stdout("  Current provider: " AI_CMD "OpenAI" CAT_RESET "\n\n");
+        write_stdout("  Current provider: " + AI_CMD + "OpenAI" CAT_RESET "\n\n");
         write_stdout("  How to get an API key:\n");
-        write_stdout(AI_STEP_NUM "  1." CAT_RESET " Go to: " AI_CMD "https://platform.openai.com/api-keys" CAT_RESET "\n");
-        write_stdout(AI_STEP_NUM "  2." CAT_RESET " Sign in to your OpenAI account\n");
-        write_stdout(AI_STEP_NUM "  3." CAT_RESET " Create a new API key\n");
-        write_stdout(AI_STEP_NUM "  4." CAT_RESET " Copy the key\n\n");
+        write_stdout(AI_STEP_NUM + "  1." CAT_RESET " Go to: " + AI_CMD + "https://platform.openai.com/api-keys" CAT_RESET "\n");
+        write_stdout(AI_STEP_NUM + "  2." CAT_RESET " Sign in to your OpenAI account\n");
+        write_stdout(AI_STEP_NUM + "  3." CAT_RESET " Create a new API key\n");
+        write_stdout(AI_STEP_NUM + "  4." CAT_RESET " Copy the key\n\n");
     } else if (provider == "ollama") {
-        write_stdout("  Current provider: " AI_CMD "Ollama (local)" CAT_RESET "\n\n");
+        write_stdout("  Current provider: " + AI_CMD + "Ollama (local)" CAT_RESET "\n\n");
         write_stdout("  Ollama runs locally — no API key needed.\n");
-        write_stdout("  Make sure Ollama is running: " AI_CMD "ollama serve" CAT_RESET "\n\n");
-        write_stdout(AI_CMD "  Configuration saved." CAT_RESET "\n\n");
+        write_stdout("  Make sure Ollama is running: " + AI_CMD + "ollama serve" CAT_RESET "\n\n");
+        write_stdout(AI_CMD + "  Configuration saved." CAT_RESET "\n\n");
         return true;
     } else {
-        write_stdout("  Current provider: " AI_CMD + provider + CAT_RESET "\n\n");
+        write_stdout("  Current provider: " + AI_CMD + provider + CAT_RESET "\n\n");
     }
 
     write_stdout("  Paste your API key here: ");
@@ -219,7 +219,7 @@ bool ai_run_setup_wizard() {
     }
 
     if (!got_input || key.empty()) {
-        write_stdout("\n" AI_ERROR "  Setup cancelled." CAT_RESET "\n\n");
+        write_stdout("\n" + AI_ERROR + "  Setup cancelled." CAT_RESET "\n\n");
         return false;
     }
 
@@ -238,7 +238,7 @@ bool ai_run_setup_wizard() {
         key.erase(key.begin());
 
     if (key.empty()) {
-        write_stdout("\n" AI_ERROR "  No key provided." CAT_RESET "\n\n");
+        write_stdout("\n" + AI_ERROR + "  No key provided." CAT_RESET "\n\n");
         return false;
     }
 
@@ -253,12 +253,12 @@ bool ai_run_setup_wizard() {
 
     // Save to provider-specific key file
     if (!ai_save_provider_key(provider, key)) {
-        write_stdout(AI_ERROR "  Failed to save API key." CAT_RESET "\n\n");
+        write_stdout(AI_ERROR + "  Failed to save API key." CAT_RESET "\n\n");
         return false;
     }
 
-    write_stdout("\n" AI_CMD "  API key saved." CAT_RESET
-                 " Try: " AI_LABEL "@ai \"list all files modified today\"" CAT_RESET "\n\n");
+    write_stdout("\n" + AI_CMD + "  API key saved." CAT_RESET
+                 " Try: " + AI_LABEL + "@ai \"list all files modified today\"" CAT_RESET "\n\n");
     return true;
 }
 

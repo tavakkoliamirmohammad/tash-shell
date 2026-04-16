@@ -85,6 +85,7 @@ set(SHELL_SOURCES
     src/history/history.cpp
     src/history/frecency.cpp
     src/util/colors.cpp
+    src/util/theme.cpp
     src/plugins/plugin_registry.cpp
     src/plugins/fish_completion_provider.cpp
     src/plugins/fig_completion_provider.cpp
@@ -118,7 +119,9 @@ target_link_libraries(tash.out PRIVATE replxx)
 target_include_directories(tash.out PRIVATE ${TASH_INCLUDE_DIRS})
 target_include_directories(tash.out PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
 target_compile_options(tash.out PRIVATE -Wall -Wextra)
-target_compile_definitions(tash.out PRIVATE TASH_VERSION_STRING="${PROJECT_VERSION}")
+target_compile_definitions(tash.out PRIVATE
+    TASH_VERSION_STRING="${PROJECT_VERSION}"
+    TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
 
 if(TASH_AI_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
@@ -152,7 +155,10 @@ if(BUILD_TESTS)
     target_link_libraries(shell_lib PRIVATE replxx)
     target_include_directories(shell_lib PRIVATE ${TASH_INCLUDE_DIRS})
     target_include_directories(shell_lib PRIVATE ${nlohmann_json_SOURCE_DIR}/include)
-    target_compile_definitions(shell_lib PRIVATE TESTING_BUILD TASH_VERSION_STRING="${PROJECT_VERSION}")
+    target_compile_definitions(shell_lib PRIVATE
+        TESTING_BUILD
+        TASH_VERSION_STRING="${PROJECT_VERSION}"
+        TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
 
     if(TASH_AI_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)

@@ -6,17 +6,22 @@
 using namespace std;
 using namespace replxx;
 
-// ── Catppuccin Mocha colors mapped to replxx rgb666 ────────────
-// rgb666 uses 6x6x6 color cube (0-5 per channel)
+// Convert an RGB (0-255 per channel) to a replxx rgb666 Color.
+static Replxx::Color to_replxx(const RGB &c) {
+    int r = (c.r * 5 + 127) / 255;
+    int g = (c.g * 5 + 127) / 255;
+    int b = (c.b * 5 + 127) / 255;
+    return replxx::color::rgb666(r, g, b);
+}
 
-static Replxx::Color cat_green()    { return replxx::color::rgb666(3, 5, 3); }  // #a6e3a1
-static Replxx::Color cat_teal()     { return replxx::color::rgb666(2, 5, 4); }  // #94e2d5
-static Replxx::Color cat_red()      { return replxx::color::rgb666(5, 2, 3); }  // #f38ba8
-static Replxx::Color cat_yellow()   { return replxx::color::rgb666(5, 4, 3); }  // #f9e2af
-static Replxx::Color cat_sky()      { return replxx::color::rgb666(2, 4, 5); }  // #89dceb
-static Replxx::Color cat_mauve()    { return replxx::color::rgb666(4, 3, 5); }  // #cba6f7
-static Replxx::Color cat_peach()    { return replxx::color::rgb666(5, 3, 2); }  // #fab387
-static Replxx::Color cat_overlay()  { return replxx::color::rgb666(2, 2, 2); }  // #6c7086
+static Replxx::Color cat_green()   { return to_replxx(g_current_theme.command_valid); }
+static Replxx::Color cat_teal()    { return to_replxx(g_current_theme.command_builtin); }
+static Replxx::Color cat_red()     { return to_replxx(g_current_theme.command_invalid); }
+static Replxx::Color cat_yellow()  { return to_replxx(g_current_theme.string_color); }
+static Replxx::Color cat_sky()     { return to_replxx(g_current_theme.variable); }
+static Replxx::Color cat_mauve()   { return to_replxx(g_current_theme.op); }
+static Replxx::Color cat_peach()   { return to_replxx(g_current_theme.redirect); }
+static Replxx::Color cat_overlay() { return to_replxx(g_current_theme.comment); }
 
 // ── Syntax highlighting callback ───────────────────────────────
 

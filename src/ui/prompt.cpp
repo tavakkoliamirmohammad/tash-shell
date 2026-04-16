@@ -96,22 +96,22 @@ string write_shell_prefix(const ShellState &state) {
     if (isatty(STDOUT_FILENO)) {
         // Catppuccin Mocha colored prompt — first line written to stdout
         string line1;
-        line1 += PROMPT_SEPARATOR "\u256d\u2500 " CAT_RESET;
+        line1 += PROMPT_SEPARATOR + "\u256d\u2500 " CAT_RESET;
         line1 += PROMPT_USER + user + CAT_RESET;
-        line1 += PROMPT_TEXT " in " CAT_RESET;
+        line1 += PROMPT_TEXT + " in " CAT_RESET;
         line1 += PROMPT_PATH + cwd_display + CAT_RESET;
         if (!branch.empty()) {
-            line1 += PROMPT_TEXT " on " CAT_RESET;
-            line1 += PROMPT_BRANCH "\ue0a0 " + branch + CAT_RESET;
+            line1 += PROMPT_TEXT + " on " CAT_RESET;
+            line1 += PROMPT_BRANCH + "\ue0a0 " + branch + CAT_RESET;
 
             string git_indicators = get_git_status_indicators();
             if (!git_indicators.empty()) {
-                line1 += PROMPT_GIT_DIRTY " [" + git_indicators + "]" CAT_RESET;
+                line1 += PROMPT_GIT_DIRTY + " [" + git_indicators + "]" CAT_RESET;
             }
         }
 
         if (state.last_cmd_duration >= 0.5) {
-            line1 += PROMPT_DURATION " took " + format_duration(state.last_cmd_duration) + CAT_RESET;
+            line1 += PROMPT_DURATION + " took " + format_duration(state.last_cmd_duration) + CAT_RESET;
         }
 
         line1 += "\n";
@@ -119,7 +119,7 @@ string write_shell_prefix(const ShellState &state) {
 
         // Second line — the actual prompt passed to replxx
         string arrow_color = (state.last_exit_status == 0) ? PROMPT_ARROW_OK : PROMPT_ARROW_ERR;
-        return PROMPT_SEPARATOR "\u2570\u2500" CAT_RESET
+        return PROMPT_SEPARATOR + "\u2570\u2500" CAT_RESET
                + arrow_color + "\u276f " CAT_RESET;
     } else {
         stringstream ss;

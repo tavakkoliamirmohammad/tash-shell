@@ -154,8 +154,8 @@ int execute_single_command(string command, ShellState &state) {
     if (result == 127) {
         string suggestion = suggest_command(cmd.argv[0]);
         if (!suggestion.empty()) {
-            write_stderr(SUGGEST_TEXT "tash: did you mean '" CAT_RESET SUGGEST_CMD +
-                        suggestion + CAT_RESET SUGGEST_TEXT "'?" CAT_RESET "\n");
+            write_stderr(SUGGEST_TEXT + "tash: did you mean '" CAT_RESET + SUGGEST_CMD +
+                        suggestion + CAT_RESET + SUGGEST_TEXT + "'?" CAT_RESET "\n");
         }
     }
 
@@ -267,6 +267,9 @@ int main(int argc, char *argv[]) {
         exit_with_message("An error has occurred\n", 1);
     }
 
+    // Load theme strings (reads ~/.config/tash/theme.toml if present).
+    load_user_theme();
+
     ShellState state;
 
     struct sigaction sa_int;
@@ -319,23 +322,23 @@ int main(int argc, char *argv[]) {
     // Interactive mode banner — Option A with Catppuccin Mocha palette
     if (isatty(STDIN_FILENO)) {
         write_stdout("\n");
-        write_stdout(BANNER_FRAME "   ╔══════════════════════════════════════════════╗" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "████████╗ █████╗ ███████╗██╗  ██╗" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "╚══██╔══╝██╔══██╗██╔════╝██║  ██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ███████║███████╗███████║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ██╔══██║╚════██║██╔══██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ██║   ██║  ██║███████║██║  ██║" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_LOGO "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "          " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_TITLE "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " BANNER_VERSION "v" TASH_VERSION_STRING CAT_RESET "               " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ syntax highlighting  ▸ autosuggestions" CAT_RESET "   " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ smart completions    ▸ catppuccin theme" CAT_RESET "  " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ╔══════════════════════════════════════════════╗" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "                                              " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_LOGO + "████████╗ █████╗ ███████╗██╗  ██╗" CAT_RESET "          " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_LOGO + "╚══██╔══╝██╔══██╗██╔════╝██║  ██║" CAT_RESET "          " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_LOGO + "   ██║   ███████║███████╗███████║" CAT_RESET "          " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_LOGO + "   ██║   ██╔══██║╚════██║██╔══██║" CAT_RESET "          " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_LOGO + "   ██║   ██║  ██║███████║██║  ██║" CAT_RESET "          " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_LOGO + "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "          " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "                                              " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_TITLE + "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " + BANNER_VERSION + "v" TASH_VERSION_STRING CAT_RESET "               " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "▸ syntax highlighting  ▸ autosuggestions" CAT_RESET "   " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "▸ smart completions    ▸ catppuccin theme" CAT_RESET "  " + BANNER_FRAME + "║" CAT_RESET "\n");
 #ifdef TASH_AI_ENABLED
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "   " BANNER_FEATURE "▸ AI powered          ▸ @ai to get started" CAT_RESET " " BANNER_FRAME "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "▸ AI powered          ▸ @ai to get started" CAT_RESET " " + BANNER_FRAME + "║" CAT_RESET "\n");
 #endif
-        write_stdout(BANNER_FRAME "   ║" CAT_RESET "                                              " BANNER_FRAME "║" CAT_RESET "\n");
-        write_stdout(BANNER_FRAME "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ║" CAT_RESET "                                              " + BANNER_FRAME + "║" CAT_RESET "\n");
+        write_stdout(BANNER_FRAME + "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
         write_stdout("\n");
 
 #ifdef TASH_AI_ENABLED
@@ -344,7 +347,7 @@ int main(int argc, char *argv[]) {
             string provider = ai_get_provider();
             string key = ai_load_provider_key(provider);
             if (key.empty() && provider != "ollama") {
-                write_stdout(AI_LABEL "tash ai" CAT_RESET AI_SEPARATOR " ─ " CAT_RESET
+                write_stdout(AI_LABEL + "tash ai" CAT_RESET + AI_SEPARATOR + " ─ " CAT_RESET
                              "AI features available! Set up now? [y/n] ");
                 char setup_ch = 0;
                 struct termios old_t, new_t;
