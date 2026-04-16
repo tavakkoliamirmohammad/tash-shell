@@ -161,3 +161,12 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_config_sync.cpp
     TEST_PREFIX "unit/core/"
 )
+
+tash_register_plugin(
+    NAME structured_pipe
+    SOURCES src/core/structured_pipe.cpp
+    REQUIRES TASH_AI_ENABLED
+    TEST_SOURCES tests/unit/test_pipeline.cpp
+    TEST_PREFIX "unit/core/"
+    TEST_AI_AWARE
+)
