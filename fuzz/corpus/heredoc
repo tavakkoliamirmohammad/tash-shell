@@ -1,0 +1,4 @@
+cat <<END
+first line
+second line
+END

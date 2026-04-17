@@ -78,5 +78,8 @@ fabric.properties
 
 cmake-build-debug/
 build/
+build-fuzz/
+build-release/
+Testing/
 *.out
 .claude/
