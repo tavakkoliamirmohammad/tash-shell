@@ -54,6 +54,33 @@ TEST(ConfigDirMigration, TightensLooseModeOnKeyWrite) {
     rm_rf(tmp);
 }
 
+TEST(ConfigDirMigration, RefusesSymlinkedConfigDir) {
+    // Create: /tmp/tash_sym_real_<pid>  (real dir)
+    //         /tmp/tash_sym_link_<pid>  -> real dir  (symlink)
+    // Point TASH_AI_CONFIG_DIR at the symlink; expect save to fail.
+    std::string tag = std::to_string(::getpid());
+    std::string real_dir = "/tmp/tash_sym_real_" + tag;
+    std::string link_path = "/tmp/tash_sym_link_" + tag;
+
+    ::mkdir(real_dir.c_str(), 0700);
+    ::unlink(link_path.c_str());
+    ASSERT_EQ(::symlink(real_dir.c_str(), link_path.c_str()), 0);
+
+    setenv("TASH_AI_CONFIG_DIR", link_path.c_str(), 1);
+
+    bool saved = ai_save_provider_key("gemini", "x");
+    EXPECT_FALSE(saved) << "Should refuse to write key through a symlinked config dir";
+
+    // Verify no key file was created in the target directory.
+    std::string key_path = real_dir + "/gemini_key";
+    struct stat st{};
+    EXPECT_NE(::stat(key_path.c_str(), &st), 0);
+
+    unsetenv("TASH_AI_CONFIG_DIR");
+    ::unlink(link_path.c_str());
+    ::rmdir(real_dir.c_str());
+}
+
 #else
 
 TEST(ConfigDirMigrationDisabled, AiDisabled) {

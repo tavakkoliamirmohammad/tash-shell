@@ -11,20 +11,11 @@
 #include <sys/types.h>
 
 // Globals the handlers touch. Defined here (not main.cpp) so anything
-// linking the shell library sees them.
+// linking the shell library sees them. The lock-free static_asserts for
+// std::atomic<pid_t> live in include/tash/shell.h so every TU that reads
+// this atomic from a signal-adjacent path inherits the check.
 volatile sig_atomic_t sigchld_received = 0;
 std::atomic<pid_t> fg_child_pid{0};
-
-// fg_child_pid is read from an async signal handler; that's only safe if
-// the atomic never takes a lock. pid_t is int on every supported target,
-// so std::atomic<pid_t> is always lock-free — enforce that at build time.
-// We target C++14, where std::atomic<T>::is_always_lock_free (C++17) isn't
-// available yet; use the C++11 ATOMIC_INT_LOCK_FREE macro instead (value
-// 2 means "always lock-free").
-static_assert(sizeof(pid_t) == sizeof(int),
-              "fg_child_pid static_assert assumes pid_t is int");
-static_assert(ATOMIC_INT_LOCK_FREE == 2,
-              "fg_child_pid must be lock-free for async-signal-safety");
 
 // Pending-trap flags: one slot per signum up to TASH_MAX_SIGNAL. The
 // signal handler writes 1 here (async-signal-safe); the main loop drains

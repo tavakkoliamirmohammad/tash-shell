@@ -35,7 +35,19 @@ static bool ensure_config_dir() {
     if (!tash::config::ensure_dir(dir)) return false;
 
     struct stat st{};
-    if (stat(dir.c_str(), &st) == 0) {
+    if (lstat(dir.c_str(), &st) == 0) {
+        if (S_ISLNK(st.st_mode)) {
+            static bool warned = false;
+            if (!warned) {
+                write_stderr("tash: refusing to operate on " + dir
+                             + " — it is a symbolic link; key files would be exposed\n");
+                warned = true;
+            }
+            return false;  // Refuse to write keys through a symlink.
+        }
+        if (!S_ISDIR(st.st_mode)) {
+            return false;  // Not a directory; ensure_dir should have caught this, but defensive.
+        }
         mode_t current = st.st_mode & 0777;
         if (current != 0700) {
             if (chmod(dir.c_str(), 0700) == 0) {
@@ -72,6 +84,12 @@ static bool write_secure_file(const string &path, const string &content) {
         }
         off += static_cast<size_t>(w);
     }
+    // Durability: fsync before close so a crash between `close` and the
+    // filesystem journal flush does not leave a truncated/zero-length key.
+    // fsync failure is logged but not fatal — data is already written.
+    if (::fsync(fd) != 0) {
+        write_stderr("tash: fsync warning on " + path + ": " + strerror(errno) + "\n");
+    }
     bool ok = (::close(fd) == 0);
     return ok;
 }
@@ -93,7 +111,7 @@ static string read_file_line(const string &path) {
 
 static bool write_file_line(const string &path, const string &content) {
     if (path.empty()) return false;
-    ensure_config_dir();
+    if (!ensure_config_dir()) return false;
     return write_secure_file(path, content + "\n");
 }
 
@@ -116,7 +134,7 @@ string ai_load_key() {
 bool ai_save_key(const string &key) {
     string path = ai_get_key_path();
     if (path.empty()) return false;
-    ensure_config_dir();
+    if (!ensure_config_dir()) return false;
     return write_secure_file(path, key + "\n");
 }
 
@@ -159,7 +177,7 @@ bool ai_save_provider_key(const string &provider, const string &key) {
     string dir = ai_get_config_dir();
     if (dir.empty()) return false;
     string path = dir + "/" + provider + "_key";
-    ensure_config_dir();
+    if (!ensure_config_dir()) return false;
     return write_secure_file(path, key + "\n");
 }
 
