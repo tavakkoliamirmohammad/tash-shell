@@ -58,6 +58,10 @@ void AiErrorHookProvider::on_after_command(
     const string &command, int exit_code,
     const string &stderr_output, ShellState &state) {
 
+    // The hook may be registered with a null client when the AI
+    // infrastructure isn't configured yet; become dormant in that case.
+    if (!client_) return;
+
     if (!should_trigger(exit_code, stderr_output, state)) {
         return;
     }

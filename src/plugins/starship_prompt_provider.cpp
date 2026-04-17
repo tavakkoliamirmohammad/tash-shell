@@ -51,8 +51,11 @@ std::string build_starship_command(const ShellState &state) {
 // ── render() ─────────────────────────────────────────────────
 
 std::string StarshipPromptProvider::render(const ShellState &state) {
+    // Fall through to the builtin prompt when starship isn't installed /
+    // configured; empty return signals "no override".
+    if (!is_available()) return "";
     setenv("STARSHIP_SHELL", "bash", 1);
-    std::string cmd = build_starship_command(state);
+    std::string cmd = build_starship_command(state) + " 2>/dev/null";
     return popen_read(cmd);
 }
 

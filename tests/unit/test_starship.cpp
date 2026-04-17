@@ -60,17 +60,14 @@ TEST_F(StarshipTest, PassesJobCount) {
     EXPECT_NE(cmd.find("--jobs=3"), std::string::npos);
 }
 
-TEST_F(StarshipTest, SetsShellEnvVar) {
-    // render() sets STARSHIP_SHELL; we can verify it stays set after a
-    // call to render (which will fail to exec starship, but the env var
-    // is set before the exec).
+TEST_F(StarshipTest, RenderIsEmptyWhenUnavailable) {
+    // render() now short-circuits when starship isn't installed /
+    // configured so the builtin prompt stays clean (no leaked
+    // "starship: command not found" on stderr). Empty return means
+    // "fall through to the builtin prompt".
     StarshipPromptProvider provider;
-    // Even if starship is not installed, the env var should be set
-    provider.render(state);
-
-    const char *val = getenv("STARSHIP_SHELL");
-    ASSERT_NE(val, nullptr);
-    EXPECT_STREQ(val, "bash");
+    // In CI the starship binary is absent, so render should return "".
+    EXPECT_EQ(provider.render(state), "");
 }
 
 TEST_F(StarshipTest, PriorityIs20) {

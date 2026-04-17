@@ -2,11 +2,22 @@
 #include "tash/ui.h"
 #include "tash/history.h"
 #include "tash/plugin.h"
-#include "tash/plugins/safety_hook_provider.h"
 #include "tash/plugins/alias_suggest_provider.h"
+#include "tash/plugins/fig_completion_provider.h"
+#include "tash/plugins/fish_completion_provider.h"
 #include "tash/plugins/manpage_completion_provider.h"
+#include "tash/plugins/safety_hook_provider.h"
+#include "tash/plugins/starship_prompt_provider.h"
 #include "tash/util/benchmark.h"
 #include "theme.h"
+
+#ifdef TASH_SQLITE_ENABLED
+#include "tash/plugins/sqlite_history_provider.h"
+#endif
+
+#ifdef TASH_AI_ENABLED
+#include "tash/plugins/ai_error_hook_provider.h"
+#endif
 #include <cstring>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -263,6 +274,18 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
         if (should_run) {
             last_exit = execute_single_command(segments[i].command, state);
             state.last_exit_status = last_exit;
+            global_plugin_registry().fire_after_command(
+                segments[i].command, last_exit,
+                state.last_stderr_output, state);
+            // Record the finished command into every registered history
+            // provider (SqliteHistoryProvider when compiled in).
+            HistoryEntry entry;
+            entry.command = segments[i].command;
+            entry.exit_code = last_exit;
+            entry.timestamp = static_cast<int64_t>(time(nullptr));
+            char cwd[MAX_SIZE];
+            if (getcwd(cwd, MAX_SIZE)) entry.directory = cwd;
+            global_plugin_registry().record_history(entry);
         }
     }
 }
@@ -372,8 +395,39 @@ int main(int argc, char *argv[]) {
         std::make_unique<SafetyHookProvider>());
     global_plugin_registry().register_hook_provider(
         std::make_unique<AliasSuggestProvider>());
+#ifdef TASH_AI_ENABLED
+    // LLMClient is created on demand by the AI handler; pass nullptr and
+    // let the hook become a no-op until AI is configured.
+    global_plugin_registry().register_hook_provider(
+        std::make_unique<AiErrorHookProvider>(nullptr));
+#endif
+
+    // Completion providers (priority decides order; manpage is the generic
+    // fallback, fish & fig override it when specs exist).
     global_plugin_registry().register_completion_provider(
         std::make_unique<ManpageCompletionProvider>());
+    global_plugin_registry().register_completion_provider(
+        std::make_unique<FishCompletionProvider>());
+    global_plugin_registry().register_completion_provider(
+        std::make_unique<FigCompletionProvider>());
+
+    // Prompt: Starship overrides the builtin prompt only when the binary
+    // is on PATH and the user has a config. When it isn't we still register
+    // the provider so tests can exercise the code path; render_prompt
+    // returns "" and the builtin prompt runs.
+    global_plugin_registry().register_prompt_provider(
+        std::make_unique<StarshipPromptProvider>());
+
+    // History: SQLite-backed provider writes every executed command into
+    // ~/.tash/history.db so `history` sees entries across sessions.
+#ifdef TASH_SQLITE_ENABLED
+    try {
+        global_plugin_registry().register_history_provider(
+            std::make_unique<SqliteHistoryProvider>());
+    } catch (const std::exception &e) {
+        write_stderr(string("tash: sqlite history disabled: ") + e.what() + "\n");
+    }
+#endif
 
     if (benchmark_mode) { bench.end(); bench.start("Shell state init"); }
 

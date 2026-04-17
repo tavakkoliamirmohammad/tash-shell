@@ -201,6 +201,7 @@ if(BUILD_TESTS)
         tests/integration/test_session.cpp
         tests/integration/test_config_sync.cpp
         tests/integration/test_pipeline.cpp
+        tests/integration/test_live_providers.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
