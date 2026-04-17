@@ -61,6 +61,11 @@ struct ShellState {
     std::vector<std::string> dir_stack;
     std::unordered_map<pid_t, std::string> background_processes;
     int max_background_processes;
+
+    // POSIX `trap` table: signum → command string. Signum 0 is the
+    // EXIT pseudo-signal (run when the shell exits). Empty string is
+    // "ignore" (SIG_IGN); absence is "default" (SIG_DFL).
+    std::unordered_map<int, std::string> traps;
     int ctrl_d_count;
     double last_cmd_duration;
 

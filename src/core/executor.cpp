@@ -258,6 +258,11 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
             char cwd[MAX_SIZE];
             if (getcwd(cwd, MAX_SIZE)) entry.directory = cwd;
             global_plugin_registry().record_history(entry);
+
+            // Run any trap commands queued by signals received during
+            // the command. Fires at a safe point (between commands)
+            // rather than from the signal handler itself.
+            check_and_fire_traps(state);
         }
     }
 }

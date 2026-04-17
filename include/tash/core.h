@@ -83,4 +83,12 @@ int execute_script_file(const std::string &path, ShellState &state);
 // process lifetime (main/startup does this).
 void install_signal_handlers();
 
+// ── trap plumbing (signals.cpp) ────────────────────────────────
+
+void install_trap_handler(int signum);
+void uninstall_trap_handler(int signum);
+void ignore_signal(int signum);
+void check_and_fire_traps(ShellState &state);
+void fire_exit_trap(ShellState &state);
+
 #endif // TASH_CORE_H
