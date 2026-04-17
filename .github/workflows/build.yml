@@ -131,8 +131,56 @@ jobs:
           lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
           lcov --remove coverage.info '/usr/*' '*/build/_deps/*' '*/tests/*' --output-file coverage.info --ignore-errors unused
           lcov --list coverage.info
+      - name: Enforce coverage threshold
+        # Fail the job when line coverage drops below the floor. Start
+        # conservative — the bar is "don't backslide from where we are
+        # today", not "achieve 95%". Raise this over time.
+        env:
+          COVERAGE_FLOOR: 60
+        run: |
+          # `lcov --list` prints a Total line at the end; pull its
+          # line-coverage percentage (column ending with %).
+          PCT=$(lcov --list coverage.info 2>/dev/null \
+                | awk '/Total:/ {for (i=1;i<=NF;i++) if ($i ~ /%$/) {gsub("%","",$i); print $i; exit}}')
+          if [ -z "$PCT" ]; then
+            echo "WARNING: could not parse coverage summary — skipping threshold check"
+            lcov --list coverage.info | tail -20
+            exit 0
+          fi
+          echo "Line coverage: ${PCT}% (floor: ${COVERAGE_FLOOR}%)"
+          awk -v p="$PCT" -v f="$COVERAGE_FLOOR" \
+            'BEGIN { if (p+0 < f+0) { print "coverage dropped below floor"; exit 1 } }'
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.info
+
+  fuzz:
+    # Parser fuzzing with libFuzzer + ASan + UBSan. Each PR run fuzzes
+    # for 60 seconds — long enough to catch crashes that a bug-planting
+    # commit introduces, short enough not to dominate CI time. A
+    # scheduled longer run is a candidate for the nightly workflow.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libcurl4-openssl-dev libsqlite3-dev clang
+      - name: Build fuzzer
+        run: |
+          cmake -B build-fuzz -DTASH_ENABLE_FUZZER=ON \
+            -DCMAKE_CXX_COMPILER=clang++ -DBUILD_TESTS=OFF
+          cmake --build build-fuzz --target tash_parser_fuzzer
+      - name: Run fuzzer (60s)
+        run: |
+          ./build-fuzz/tash_parser_fuzzer fuzz/corpus \
+            -max_total_time=60 -print_final_stats=1
+      - name: Upload any crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            crash-*
+            leak-*
+            oom-*
