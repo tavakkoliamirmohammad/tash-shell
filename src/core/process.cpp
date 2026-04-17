@@ -163,14 +163,17 @@ int foreground_process(const vector<string> &argv,
                     if (nl == std::string::npos) break;
                     std::string line = carry.substr(start, nl - start + 1);
                     std::string linked = tash::ui::linkify_urls(line);
-                    write(STDOUT_FILENO, linked.data(), linked.size());
+                    // Short write to STDOUT at shell exit is survivable;
+                    // suppressing -Wunused-result with `if(...){}` matches
+                    // the rest of this TU.
+                    if (write(STDOUT_FILENO, linked.data(), linked.size())) {}
                     start = nl + 1;
                 }
                 carry.erase(0, start);
             }
             if (!carry.empty()) {
                 std::string linked = tash::ui::linkify_urls(carry);
-                write(STDOUT_FILENO, linked.data(), linked.size());
+                if (write(STDOUT_FILENO, linked.data(), linked.size())) {}
             }
             close(stdout_pipe[0]);
         }
@@ -183,7 +186,7 @@ int foreground_process(const vector<string> &argv,
                 buf[n] = '\0';
                 captured_stderr->append(buf, static_cast<size_t>(n));
                 // Also show to user on real stderr
-                write(STDERR_FILENO, buf, static_cast<size_t>(n));
+                if (write(STDERR_FILENO, buf, static_cast<size_t>(n))) {}
                 if (captured_stderr->size() >= 4096) break;
             }
             close(stderr_pipe[0]);

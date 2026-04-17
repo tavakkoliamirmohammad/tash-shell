@@ -114,7 +114,7 @@ protected:
     void TearDown() override {
         if (!test_dir_.empty()) {
             std::string cmd = "rm -rf " + test_dir_;
-            system(cmd.c_str());
+            if (system(cmd.c_str())) {}
         }
     }
 
@@ -291,7 +291,7 @@ TEST_F(FigProviderTest, EmptySpecDir) {
 
     // Clean up
     std::string cmd = "rm -rf " + empty_dir;
-    system(cmd.c_str());
+    if (system(cmd.c_str())) {}
 }
 
 #else // !TASH_AI_ENABLED

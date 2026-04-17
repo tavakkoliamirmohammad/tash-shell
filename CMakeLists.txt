@@ -152,7 +152,14 @@ endif()
 
 # ── Test library and plugin tests ─────────────────────────────
 if(BUILD_TESTS)
-    add_library(shell_lib STATIC ${SHELL_SOURCES})
+    # Same sources as tash.out minus main.cpp. Under TESTING_BUILD
+    # main.cpp's int main() is #ifdef'd out, so including it in the
+    # static lib would have ranlib warn "has no symbols". Computed
+    # here (not earlier) so plugin SOURCES from tash_register_plugin
+    # are already appended to SHELL_SOURCES.
+    set(SHELL_LIB_SOURCES ${SHELL_SOURCES})
+    list(REMOVE_ITEM SHELL_LIB_SOURCES src/main.cpp)
+    add_library(shell_lib STATIC ${SHELL_LIB_SOURCES})
     target_link_libraries(shell_lib PRIVATE replxx)
     target_include_directories(shell_lib PRIVATE
         ${TASH_INCLUDE_DIRS}

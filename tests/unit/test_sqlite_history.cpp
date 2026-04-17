@@ -7,18 +7,24 @@
 #include <ctime>
 #include <fstream>
 #include <string>
+#include <unistd.h>
 
 // ── Test fixture ──────────────────────────────────────────────
 
 class SqliteHistoryFixture : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create a unique temp db path for each test
+        // Create a unique temp db path for each test. Uses mkstemp
+        // (actually creates + opens the file) instead of the deprecated
+        // mktemp. The created placeholder file is immediately unlinked
+        // — sqlite_open will create its own db at the same path.
         db_path_ = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp")
                   + "/tash_test_history_XXXXXX";
-        // mktemp is fine for tests -- we just need a unique name
-        char *tmp = &db_path_[0];
-        mktemp(tmp);
+        int fd = mkstemp(&db_path_[0]);
+        if (fd >= 0) {
+            close(fd);
+            std::remove(db_path_.c_str());
+        }
         db_path_ += ".db";
     }
 

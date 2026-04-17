@@ -271,7 +271,7 @@ protected:
         // Clean up temp files
         if (!test_dir_.empty()) {
             std::string cmd = "rm -rf " + test_dir_;
-            system(cmd.c_str());
+            if (system(cmd.c_str())) {}
         }
     }
 

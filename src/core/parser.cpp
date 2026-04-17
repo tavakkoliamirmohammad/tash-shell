@@ -274,6 +274,28 @@ string expand_history_bang(const string &line, replxx::Replxx &rx) {
     return line;
 }
 
+// Build a plain file-backed redirection. Avoids aggregate-init braces
+// now that Redirection has default-initialized heredoc fields — without
+// this the compiler warns about each missing initializer.
+static Redirection make_redir(int fd, const string &filename,
+                              bool append, bool dup_to_stdout) {
+    Redirection r;
+    r.fd = fd;
+    r.filename = filename;
+    r.append = append;
+    r.dup_to_stdout = dup_to_stdout;
+    return r;
+}
+
+// Same reasoning for CommandSegment now that it carries a heredocs
+// vector.
+static CommandSegment make_segment(const string &command, OperatorType op) {
+    CommandSegment s;
+    s.command = command;
+    s.op = op;
+    return s;
+}
+
 Command parse_redirections(const string &command_str) {
     return parse_redirections(command_str, nullptr);
 }
@@ -301,7 +323,7 @@ Command parse_redirections(const string &command_str,
         } else if (!in_double_quotes && !in_single_quotes) {
             // Check for 2>&1
             if (i + 4 <= command_str.size() && command_str.compare(i, 4, "2>&1") == 0) {
-                cmd.redirections.push_back({2, "", false, true});
+                cmd.redirections.push_back(make_redir(2, "", false, true));
                 i += 4;
             }
             // Check for 2>
@@ -315,7 +337,7 @@ Command parse_redirections(const string &command_str,
                 }
                 fname = trim(fname);
                 if (!fname.empty()) {
-                    cmd.redirections.push_back({2, fname, false, false});
+                    cmd.redirections.push_back(make_redir(2, fname, false, false));
                 }
             }
             // Check for >>
@@ -329,7 +351,7 @@ Command parse_redirections(const string &command_str,
                 }
                 fname = trim(fname);
                 if (!fname.empty()) {
-                    cmd.redirections.push_back({1, fname, true, false});
+                    cmd.redirections.push_back(make_redir(1, fname, true, false));
                 }
             }
             // Check for > (must be after >>)
@@ -343,7 +365,7 @@ Command parse_redirections(const string &command_str,
                 }
                 fname = trim(fname);
                 if (!fname.empty()) {
-                    cmd.redirections.push_back({1, fname, false, false});
+                    cmd.redirections.push_back(make_redir(1, fname, false, false));
                 }
             }
             // Check for << (heredoc). Must precede the plain `<` branch.
@@ -406,7 +428,7 @@ Command parse_redirections(const string &command_str,
                 }
                 fname = trim(fname);
                 if (!fname.empty()) {
-                    cmd.redirections.push_back({0, fname, false, false});
+                    cmd.redirections.push_back(make_redir(0, fname, false, false));
                 }
             }
             else {
@@ -505,21 +527,21 @@ vector<CommandSegment> parse_command_line(const string &line) {
         } else if (!in_double_quotes && !in_single_quotes && paren_depth == 0 && c == '&' && i + 1 < stripped.size() && stripped[i + 1] == '&') {
             string cmd = current;
             cmd = trim(cmd);
-            if (!cmd.empty()) segments.push_back({cmd, next_op});
+            if (!cmd.empty()) segments.push_back(make_segment(cmd, next_op));
             next_op = OP_AND;
             current.clear();
             i += 2;
         } else if (!in_double_quotes && !in_single_quotes && paren_depth == 0 && c == '|' && i + 1 < stripped.size() && stripped[i + 1] == '|') {
             string cmd = current;
             cmd = trim(cmd);
-            if (!cmd.empty()) segments.push_back({cmd, next_op});
+            if (!cmd.empty()) segments.push_back(make_segment(cmd, next_op));
             next_op = OP_OR;
             current.clear();
             i += 2;
         } else if (!in_double_quotes && !in_single_quotes && paren_depth == 0 && c == ';') {
             string cmd = current;
             cmd = trim(cmd);
-            if (!cmd.empty()) segments.push_back({cmd, next_op});
+            if (!cmd.empty()) segments.push_back(make_segment(cmd, next_op));
             next_op = OP_SEMICOLON;
             current.clear();
             ++i;
@@ -530,7 +552,7 @@ vector<CommandSegment> parse_command_line(const string &line) {
     }
     string cmd = current;
     cmd = trim(cmd);
-    if (!cmd.empty()) segments.push_back({cmd, next_op});
+    if (!cmd.empty()) segments.push_back(make_segment(cmd, next_op));
     return segments;
 }
 
