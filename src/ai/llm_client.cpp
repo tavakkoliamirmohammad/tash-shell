@@ -6,6 +6,8 @@
 #include <string>
 #include <sstream>
 #include <memory>
+#include <cstdlib>
+#include <cstddef>
 
 #include <curl/curl.h>
 
@@ -410,11 +412,35 @@ struct CurlStreamContext {
     string accumulated;
     function<void(const string &chunk)> on_chunk;
     function<string(const string &line)> parse_line; // returns extracted text or ""
+    std::size_t total_bytes = 0;
 };
+
+static std::size_t tash_max_response_bytes() {
+    static const std::size_t cached = []() -> std::size_t {
+        const char *env = std::getenv("TASH_AI_MAX_RESPONSE_BYTES");
+        if (env && *env) {
+            // strtoull accepts leading sign characters and returns a wrapped huge
+            // value for negative input — reject anything not starting with a digit.
+            if (*env >= '0' && *env <= '9') {
+                char *end = nullptr;
+                unsigned long long v = std::strtoull(env, &end, 10);
+                if (end != env && *end == '\0' && v > 0) {
+                    return static_cast<std::size_t>(v);
+                }
+            }
+        }
+        return static_cast<std::size_t>(10) * 1024 * 1024;  // 10 MiB default
+    }();
+    return cached;
+}
 
 static size_t tash_curl_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
     size_t total = size * nmemb;
     CurlStreamContext *ctx = static_cast<CurlStreamContext*>(userdata);
+    ctx->total_bytes += total;
+    if (ctx->total_bytes > tash_max_response_bytes()) {
+        return 0;  // aborts transfer with CURLE_WRITE_ERROR
+    }
     ctx->buffer.append(ptr, total);
 
     size_t pos;
@@ -445,7 +471,11 @@ struct CurlBufferContext {
 
 static size_t tash_curl_buffer_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
     size_t total = size * nmemb;
-    static_cast<CurlBufferContext*>(userdata)->body.append(ptr, total);
+    auto *ctx = static_cast<CurlBufferContext*>(userdata);
+    if (ctx->body.size() + total > tash_max_response_bytes()) {
+        return 0;  // aborts transfer with CURLE_WRITE_ERROR
+    }
+    ctx->body.append(ptr, total);
     return total;
 }
 
