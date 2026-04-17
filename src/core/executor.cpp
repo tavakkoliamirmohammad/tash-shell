@@ -61,16 +61,8 @@ struct BuiltinRedir {
             if (r.fd == 0) {
                 int in;
                 if (r.is_heredoc) {
-                    int pfd[2];
-                    if (pipe(pfd) < 0) { fail("heredoc"); return; }
-                    if (!r.heredoc_body.empty()) {
-                        ssize_t n = write(pfd[1],
-                                          r.heredoc_body.data(),
-                                          r.heredoc_body.size());
-                        (void)n;
-                    }
-                    close(pfd[1]);
-                    in = pfd[0];
+                    in = open_heredoc_fd(r.heredoc_body);
+                    if (in < 0) { fail("heredoc"); return; }
                 } else {
                     in = open(r.filename.c_str(), O_RDONLY);
                     if (in < 0) { fail(r.filename); return; }

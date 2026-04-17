@@ -1,28 +1,48 @@
 #include "tash/core.h"
 #include "tash/ui/rich_output.h"
 #include <atomic>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <sys/stat.h>
 #include <unordered_set>
+#include <vector>
 
 using namespace std;
 
-// Set up a pipe whose read end becomes stdin and whose write end gets
-// the heredoc body. Used by setup_child_io (child) and BuiltinRedir
-// (parent-side builtin). Returns the read-end fd, or -1 on error.
-static int open_heredoc_pipe(const Redirection &r) {
-    int pipefd[2];
-    if (pipe(pipefd) < 0) return -1;
-    // Body size is bounded by what the user typed. For very large bodies
-    // we could fork a writer; for now a single write is fine (most
-    // heredocs are small, and the pipe buffer is usually ≥4KB).
-    const std::string &b = r.heredoc_body;
-    if (!b.empty()) {
-        ssize_t n = write(pipefd[1], b.data(), b.size());
-        (void)n;
+// Open a private, unlinked temp file seeded with `body`, positioned at
+// offset 0 for reading. Used for stdin heredoc redirection. Returns the
+// fd, or -1 on error. Matches the bash/dash/ksh approach and avoids the
+// pipe-buffer deadlock for heredoc bodies larger than PIPE_BUF.
+int open_heredoc_fd(const std::string &body) {
+    const char *tmpdir = std::getenv("TMPDIR");
+    std::string pattern = (tmpdir && *tmpdir ? std::string(tmpdir) : std::string("/tmp"))
+                          + "/tash-hd-XXXXXX";
+    std::vector<char> buf(pattern.begin(), pattern.end());
+    buf.push_back('\0');
+    int fd = ::mkstemp(buf.data());
+    if (fd < 0) return -1;
+    // Unlink immediately: the file is now private to our process tree.
+    ::unlink(buf.data());
+    // CLOEXEC defensively; any fork+exec that needs stdin will dup2 first.
+    int flags = ::fcntl(fd, F_GETFD);
+    if (flags >= 0) ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+
+    size_t off = 0;
+    while (off < body.size()) {
+        ssize_t w = ::write(fd, body.data() + off, body.size() - off);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            ::close(fd);
+            return -1;
+        }
+        off += static_cast<size_t>(w);
     }
-    close(pipefd[1]);
-    return pipefd[0];
+    if (::lseek(fd, 0, SEEK_SET) == (off_t)-1) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
 }
 
 void setup_child_io(const vector<Redirection> &redirections) {
@@ -34,9 +54,9 @@ void setup_child_io(const vector<Redirection> &redirections) {
         if (r.fd == 0) {
             int in;
             if (r.is_heredoc) {
-                in = open_heredoc_pipe(r);
+                in = open_heredoc_fd(r.heredoc_body);
                 if (in < 0) {
-                    write_stderr("tash: heredoc: pipe failed\n");
+                    write_stderr("tash: heredoc: tmpfile failed\n");
                     exit(1);
                 }
             } else {

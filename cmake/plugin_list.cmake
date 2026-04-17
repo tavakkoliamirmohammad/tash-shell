@@ -192,3 +192,9 @@ tash_register_plugin(
     TEST_PREFIX "unit/core/"
     TEST_AI_AWARE
 )
+
+tash_register_plugin(
+    NAME heredoc_large
+    TEST_SOURCES tests/unit/test_heredoc_large.cpp
+    TEST_PREFIX "unit/core/"
+)

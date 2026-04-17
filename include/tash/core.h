@@ -56,6 +56,11 @@ bool is_builtin(const std::string &name);
 
 // ── process.cpp ────────────────────────────────────────────────
 
+// Open a private, unlinked tmpfile seeded with `body`, positioned at
+// offset 0 for reading. Used for stdin heredoc redirection. Returns
+// the fd, or -1 on error. See src/core/process.cpp for semantics.
+int open_heredoc_fd(const std::string &body);
+
 void setup_child_io(const std::vector<Redirection> &redirections);
 int foreground_process(const std::vector<std::string> &argv,
                        const std::vector<Redirection> &redirections,
