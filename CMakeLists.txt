@@ -83,6 +83,12 @@ set(SHELL_SOURCES
     src/core/parser.cpp
     src/core/process.cpp
     src/core/builtins.cpp
+    src/builtins/nav.cpp
+    src/builtins/env.cpp
+    src/builtins/bg.cpp
+    src/builtins/history.cpp
+    src/builtins/ui.cpp
+    src/builtins/shell.cpp
     src/ui/prompt.cpp
     src/ui/highlight.cpp
     src/ui/completion.cpp
@@ -178,44 +184,12 @@ if(BUILD_TESTS)
     tash_finalize_plugin_tests()
 
     # ── Integration tests ─────────────────────────────────────
-    add_executable(test_integration
-        tests/integration/test_integration.cpp
-        tests/integration/test_basic.cpp
-        tests/integration/test_redirection.cpp
-        tests/integration/test_background.cpp
-        tests/integration/test_cd.cpp
-        tests/integration/test_pipes.cpp
-        tests/integration/test_history.cpp
-        tests/integration/test_env_vars.cpp
-        tests/integration/test_glob.cpp
-        tests/integration/test_operators.cpp
-        tests/integration/test_tashrc.cpp
-        tests/integration/test_alias.cpp
-        tests/integration/test_script.cpp
-        tests/integration/test_comments.cpp
-        tests/integration/test_modern_ux.cpp
-        tests/integration/test_ai_integration.cpp
-        tests/integration/test_contextual_ai.cpp
-        tests/integration/test_safety.cpp
-        tests/integration/test_explain.cpp
-        tests/integration/test_alias_suggest.cpp
-        tests/integration/test_clipboard.cpp
-        tests/integration/test_builtin_matrix.cpp
-        tests/integration/test_benchmark.cpp
-        tests/integration/test_rich_output.cpp
-        tests/integration/test_block_output.cpp
-        tests/integration/test_session.cpp
-        tests/integration/test_config_sync.cpp
-        tests/integration/test_pipeline.cpp
-        tests/integration/test_live_providers.cpp
-        tests/integration/test_config_override.cpp
-        tests/integration/test_source.cpp
-        tests/integration/test_dir_stack.cpp
-        tests/integration/test_job_control_edges.cpp
-        tests/integration/test_mixed_pipelines.cpp
-        tests/integration/test_glob_edges.cpp
-        tests/integration/test_signal_handling.cpp
-    )
+    # Auto-discover every test_*.cpp under tests/integration/ so new
+    # test files don't require CMakeLists edits. CONFIGURE_DEPENDS
+    # forces a re-glob on file-add/remove so builds stay correct.
+    file(GLOB TASH_INTEGRATION_TEST_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_SOURCE_DIR}/tests/integration/test_*.cpp)
+    add_executable(test_integration ${TASH_INTEGRATION_TEST_SOURCES})
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
         ${TASH_INCLUDE_DIRS}

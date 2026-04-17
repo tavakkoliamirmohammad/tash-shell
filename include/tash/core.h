@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <cstdlib>
 #include <fstream>
+#include <unistd.h>
 
 #include "replxx.hxx"
 
@@ -53,11 +54,27 @@ int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
                      const std::string &filename, bool redirect_flag,
                      ShellState *state = nullptr);
 
+// ── I/O primitives ─────────────────────────────────────────────
+//
+// Defined inline so plugin tests that don't link shell_lib (e.g.
+// TEST_STANDALONE targets) still resolve them. Literally every other
+// TU includes this header and calls at least one of these.
+
+inline void write_stderr(const std::string &message) {
+    if (write(STDERR_FILENO, message.c_str(), message.length())) {}
+}
+
+inline void write_stdout(const std::string &message) {
+    if (write(STDOUT_FILENO, message.c_str(), message.length())) {}
+}
+
+inline void exit_with_message(const std::string &message, int exit_status) {
+    write_stderr(message);
+    std::exit(exit_status);
+}
+
 // ── main.cpp ───────────────────────────────────────────────────
 
-void exit_with_message(const std::string &message, int exit_status);
-void write_stderr(const std::string &message);
-void write_stdout(const std::string &message);
 int execute_single_command(std::string command, ShellState &state);
 void execute_command_line(const std::vector<CommandSegment> &segments, ShellState &state);
 int execute_script_file(const std::string &path, ShellState &state);

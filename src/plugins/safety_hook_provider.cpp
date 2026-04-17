@@ -1,6 +1,7 @@
 #include "tash/plugins/safety_hook_provider.h"
+#include "tash/core.h"
 #include "tash/shell.h"
-#include <iostream>
+#include "theme.h"
 #include <algorithm>
 #include <cctype>
 
@@ -215,7 +216,7 @@ void SafetyHookProvider::on_before_command(const std::string &command,
 
     if (level == BLOCKED) {
         warning = "BLOCKED: This will delete your entire filesystem. Blocked.";
-        std::cerr << "\033[1;31m" << warning << "\033[0m" << std::endl;
+        write_stderr(CAT_RED + warning + CAT_RESET + "\n");
         state.skip_execution = true;
         return;
     }
@@ -271,9 +272,10 @@ void SafetyHookProvider::on_before_command(const std::string &command,
         return;
     }
 
-    // Print warning and prompt for confirmation
-    std::string color_code = (level == HIGH) ? "\033[1;31m" : "\033[1;33m";
-    std::cerr << color_code << "WARNING: " << warning << "\033[0m" << std::endl;
+    // Print warning and prompt for confirmation. Use theme-aware colors
+    // so palette swaps propagate. HIGH → red, MEDIUM → yellow.
+    const std::string &color = (level == HIGH) ? CAT_RED : CAT_YELLOW;
+    write_stderr(color + "WARNING: " + warning + CAT_RESET + "\n");
 
     // Read single char from /dev/tty (terminal, not stdin which may be piped)
     FILE *tty = fopen("/dev/tty", "r");

@@ -1,6 +1,6 @@
 #include "tash/plugins/alias_suggest_provider.h"
+#include "tash/core.h"
 #include "tash/shell.h"
-#include <iostream>
 
 // ── Helper: find the alias whose value best matches the command ──
 
@@ -77,8 +77,8 @@ void AliasSuggestProvider::on_before_command(const std::string &command,
     const std::string &alias_value = state.aliases[alias_name];
     std::string remaining = get_remaining_args(command, alias_value);
 
-    std::cerr << "\xF0\x9F\x92\xA1 You have an alias for this: "
-              << alias_name << remaining << std::endl;
+    write_stderr("\xF0\x9F\x92\xA1 You have an alias for this: " +
+                 alias_name + remaining + "\n");
 }
 
 void AliasSuggestProvider::on_after_command(const std::string & /*command*/,

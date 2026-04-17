@@ -1,10 +1,10 @@
 #include "tash/plugins/sqlite_history_provider.h"
+#include "tash/core.h"
 #include "tash/util/config_resolver.h"
 
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -47,8 +47,8 @@ SqliteHistoryProvider::SqliteHistoryProvider(const std::string &db_path)
 
     int rc = sqlite3_open(db_path_.c_str(), &db_);
     if (rc != SQLITE_OK) {
-        std::cerr << "tash: failed to open history database: "
-                  << sqlite3_errmsg(db_) << std::endl;
+        write_stderr(std::string("tash: failed to open history database: ") +
+                     sqlite3_errmsg(db_) + "\n");
         if (db_) {
             sqlite3_close(db_);
             db_ = nullptr;
@@ -247,8 +247,8 @@ void SqliteHistoryProvider::init_schema() {
     char *err = nullptr;
     int rc = sqlite3_exec(db_, schema_sql, nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
-        std::cerr << "tash: failed to create history schema: "
-                  << (err ? err : "unknown error") << std::endl;
+        write_stderr(std::string("tash: failed to create history schema: ") +
+                     (err ? err : "unknown error") + "\n");
         sqlite3_free(err);
     }
 }
