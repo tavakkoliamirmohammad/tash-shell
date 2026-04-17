@@ -1,0 +1,12 @@
+# libFuzzer writes discovered inputs here (hash-named files). Keep only
+# the hand-curated seeds below so the corpus stays small and readable.
+*
+!.gitignore
+!basic
+!pipeline
+!redirection
+!heredoc
+!subshell
+!quoted
+!glob
+!vars
