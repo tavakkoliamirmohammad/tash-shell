@@ -130,13 +130,9 @@ extern volatile sig_atomic_t sigchld_received;
 extern std::atomic<pid_t> fg_child_pid;
 
 // Enforced in the header so every TU reading this atomic from a signal
-// handler inherits the lock-free check. In C++14 we can't use the
-// C++17 `is_always_lock_free` static member, so this proxy suffices
-// for supported targets (Linux/macOS where pid_t = int).
-static_assert(sizeof(pid_t) == sizeof(int),
-              "pid_t must match int for lock-free atomic on supported targets");
-static_assert(ATOMIC_INT_LOCK_FREE == 2,
-              "std::atomic<int> must be always lock-free for async-signal-safety");
+// handler inherits the lock-free check.
+static_assert(std::atomic<pid_t>::is_always_lock_free,
+              "fg_child_pid must be lock-free for async-signal-safety");
 
 // ── Builtin function type ──────────────────────────────────────
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 project(tash VERSION 2.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Default to Release build if not specified
