@@ -73,9 +73,19 @@ xcode-select --install
 
 ### Install System-Wide
 
+Latest tagged release (stable):
+
 ```sh
 curl -sSL https://raw.githubusercontent.com/tavakkoliamirmohammad/tash-shell/master/install.sh | bash
 ```
+
+Rolling snapshot of the latest `master` build (bleeding edge):
+
+```sh
+curl -sSL https://raw.githubusercontent.com/tavakkoliamirmohammad/tash-shell/master/install.sh | TASH_USE_MASTER=1 bash
+```
+
+Or download the binary directly from the [`master-latest` pre-release](https://github.com/tavakkoliamirmohammad/tash-shell/releases/tag/master-latest) — refreshed on every push to `master`.
 
 Or with Homebrew:
 ```sh
