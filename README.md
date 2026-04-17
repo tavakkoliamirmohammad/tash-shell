@@ -110,8 +110,7 @@ Prebuilt binaries are published for:
 |---|---|
 | `tash-linux-amd64` | Ubuntu 20.04+, Debian 11+, Fedora 30+, RHEL/Rocky/Alma 8+, Amazon Linux 2023, Arch (glibc ≥ 2.28) |
 | `tash-linux-arm64` | Same distros on arm64 — Raspberry Pi 64-bit, AWS Graviton, ARM servers |
-| `tash-macos-arm64` | Apple Silicon (M1/M2/M3/M4), macOS 14+ |
-| `tash-macos-amd64` | Intel Macs, macOS 13+ |
+| `tash-macos-arm64` | Apple Silicon (M1/M2/M3/M4), macOS 14+ — also used on Intel Macs via Rosetta 2 |
 
 Any other platform falls back to a source build (`install.sh` auto-installs the needed dev headers first).
 

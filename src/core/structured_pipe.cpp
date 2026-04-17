@@ -1,6 +1,8 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/core/structured_pipe.h"
+#include "tash/core.h"
+#include "tash/shell.h"
 
 #include <algorithm>
 #include <sstream>
@@ -657,21 +659,22 @@ std::string render_table(const JsonValue &data) {
 // Full pipeline execution
 // ═══════════════════════════════════════════════════════════════
 
-std::string execute_pipeline(const std::string &command_line) {
+std::string execute_pipeline(const std::string &command_line, ::ShellState &state) {
     std::vector<PipelineSegment> segments = split_pipeline(command_line);
     if (segments.empty()) return "";
 
-    // Execute the first segment as a shell command and capture stdout
-    std::string output;
-    {
-        FILE *pipe = popen(segments[0].text.c_str(), "r");
-        if (!pipe) return "error: failed to execute command\n";
-        char buffer[4096];
-        while (fgets(buffer, sizeof(buffer), pipe)) {
-            output += buffer;
-        }
-        pclose(pipe);
+    // Route the first segment through the safety-hook system so that
+    // before_command / after_command providers observe (and may veto)
+    // the inner shell command — same fix as Task 8 applied to $(...).
+    HookedCaptureResult hooked =
+        run_command_with_hooks_capture(segments[0].text, state);
+    if (hooked.skipped) {
+        // Safety hook vetoed the command — return empty output immediately.
+        // Downstream operators are skipped to avoid rendering formatters
+        // (e.g., to-json, render_table) on nothing.
+        return "";
     }
+    std::string output = std::move(hooked.captured_stdout);
 
     // Parse output into structured data
     JsonValue data = parse_input(output);

@@ -24,7 +24,7 @@ std::string &ltrim(std::string &s, const char *t = " \t\n\r\f\v");
 std::string &trim(std::string &s, const char *t = " \t\n\r\f\v");
 std::vector<std::string> tokenize_string(std::string line, const std::string &delimiter);
 std::string expand_variables(const std::string &input, int last_exit_status);
-std::string expand_command_substitution(const std::string &input);
+std::string expand_command_substitution(const std::string &input, ShellState &state);
 std::vector<std::string> expand_globs(const std::vector<std::string> &args);
 std::vector<std::string> expand_globs(const std::vector<std::string> &args,
                                        const std::vector<bool> &quoted);
@@ -56,6 +56,11 @@ bool is_builtin(const std::string &name);
 
 // ── process.cpp ────────────────────────────────────────────────
 
+// Open a private, unlinked tmpfile seeded with `body`, positioned at
+// offset 0 for reading. Used for stdin heredoc redirection. Returns
+// the fd, or -1 on error. See src/core/process.cpp for semantics.
+int open_heredoc_fd(const std::string &body);
+
 void setup_child_io(const std::vector<Redirection> &redirections);
 int foreground_process(const std::vector<std::string> &argv,
                        const std::vector<Redirection> &redirections,
@@ -75,6 +80,26 @@ int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
 // structure; the legacy overload above is a thin wrapper.
 int execute_pipeline(std::vector<PipelineSegment> &segments,
                      ShellState *state);
+
+// ── Safety-hook-aware command execution ────────────────────────
+//
+// Runs `raw_cmd` via /bin/sh -c with stdout captured, after firing the
+// plugin registry's before_command hooks. If a hook sets
+// state.skip_execution, the command does not run and `skipped=true` is
+// returned. after_command hooks fire even for non-zero exits so AI
+// recovery / logging providers see the result.
+//
+// Used by expand_command_substitution ($(...)) and structured pipelines
+// (|>) so that hooks see the inner command they would otherwise miss.
+// The raw captured stdout is returned verbatim; callers strip trailing
+// newlines if their context requires it.
+struct HookedCaptureResult {
+    int exit_code;
+    std::string captured_stdout;
+    bool skipped;
+};
+HookedCaptureResult run_command_with_hooks_capture(const std::string &raw_cmd,
+                                                    ShellState &state);
 
 // ── I/O primitives ─────────────────────────────────────────────
 //

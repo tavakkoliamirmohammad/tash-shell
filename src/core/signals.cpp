@@ -5,12 +5,17 @@
 
 #include "tash/core.h"
 
+#include <atomic>
+#include <cassert>
 #include <csignal>
+#include <sys/types.h>
 
 // Globals the handlers touch. Defined here (not main.cpp) so anything
-// linking the shell library sees them.
+// linking the shell library sees them. The lock-free static_asserts for
+// std::atomic<pid_t> live in include/tash/shell.h so every TU that reads
+// this atomic from a signal-adjacent path inherits the check.
 volatile sig_atomic_t sigchld_received = 0;
-volatile sig_atomic_t fg_child_pid = 0;
+std::atomic<pid_t> fg_child_pid{0};
 
 // Pending-trap flags: one slot per signum up to TASH_MAX_SIGNAL. The
 // signal handler writes 1 here (async-signal-safe); the main loop drains
@@ -24,8 +29,12 @@ volatile sig_atomic_t pending_traps[TASH_MAX_SIGNAL] = {0};
 // ── Handlers ──────────────────────────────────────────────────
 
 static void sigint_handler(int) {
-    if (fg_child_pid > 0) {
-        kill(fg_child_pid, SIGINT);
+    // Snapshot to a local so the guard-and-kill pair is safe against the
+    // parent clearing fg_child_pid (post-waitpid) between our check and
+    // the kill() call — otherwise we could signal a recycled pid.
+    pid_t pid = fg_child_pid.load(std::memory_order_acquire);
+    if (pid > 0) {
+        kill(pid, SIGINT);
     } else {
         if (write(STDOUT_FILENO, "\n", 1)) {}
     }
@@ -47,6 +56,7 @@ static void trap_only_handler(int signum) {
 // ── Install ───────────────────────────────────────────────────
 
 void install_signal_handlers() {
+    assert(fg_child_pid.is_lock_free());
     struct sigaction sa_int;
     sa_int.sa_handler = sigint_handler;
     sigemptyset(&sa_int.sa_mask);

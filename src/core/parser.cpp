@@ -146,7 +146,7 @@ string expand_variables(const string &input, int last_exit_status) {
     return result;
 }
 
-string expand_command_substitution(const string &input) {
+string expand_command_substitution(const string &input, ShellState &state) {
     string result;
     size_t i = 0;
     while (i < input.size()) {
@@ -166,19 +166,30 @@ string expand_command_substitution(const string &input) {
             }
             if (depth == 0) {
                 string cmd = input.substr(start, j - start);
-                string output;
-                FILE *pipe = popen(cmd.c_str(), "r");
-                if (pipe) {
-                    char buffer[256];
-                    while (fgets(buffer, sizeof(buffer), pipe)) {
-                        output += buffer;
-                    }
-                    pclose(pipe);
-                }
+                // Route through the hook-aware helper so the safety
+                // plugin can inspect (and potentially skip) the inner
+                // command before it runs. Previously this used popen(),
+                // which bypassed hooks and let `ls $(rm -rf .)` execute
+                // the dangerous inner command unseen.
+                //
+                // Security note: we hook the IMMEDIATE inner command here. Deeper
+                // nesting like `$(echo $(echo x))` is expanded by /bin/sh inside the
+                // helper's child, so the innermost substitution does not traverse the
+                // tash hook registry — only the first level is inspected. Acceptable
+                // boundary because once we hand off to /bin/sh, that's the delegation
+                // point; any safety logic that must apply at deeper levels should live
+                // in the shell the child invokes.
+                auto hooked = run_command_with_hooks_capture(cmd, state);
+                string output = hooked.captured_stdout;
                 while (!output.empty() && output.back() == '\n') {
                     output.pop_back();
                 }
-                result += output;
+                if (!hooked.skipped) {
+                    result += output;
+                }
+                // If skipped, append nothing — the $(...) expands to
+                // empty, which is the same behaviour as `$()` with no
+                // inner command.
                 i = j + 1;
             } else {
                 result += input[i];

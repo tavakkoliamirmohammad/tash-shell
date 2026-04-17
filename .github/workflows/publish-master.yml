@@ -52,10 +52,6 @@ jobs:
           - os: macos-14
             artifact: tash-macos-arm64
             kind: macos
-          # macOS amd64 — Intel Macs.
-          - os: macos-13
-            artifact: tash-macos-amd64
-            kind: macos
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || '' }}
     steps:

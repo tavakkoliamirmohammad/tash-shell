@@ -6,6 +6,9 @@
 #include <string>
 #include <sstream>
 #include <memory>
+#include <cstdlib>
+#include <cstddef>
+#include <cstdio>
 
 #include <curl/curl.h>
 
@@ -410,11 +413,39 @@ struct CurlStreamContext {
     string accumulated;
     function<void(const string &chunk)> on_chunk;
     function<string(const string &line)> parse_line; // returns extracted text or ""
+    std::size_t total_bytes = 0;
+    bool overflowed = false;
 };
+
+static constexpr size_t kDefaultMaxResponseBytes = 10ull * 1024 * 1024;  // 10 MiB
+
+static std::size_t tash_max_response_bytes() {
+    static const std::size_t cached = []() -> std::size_t {
+        const char *env = std::getenv("TASH_AI_MAX_RESPONSE_BYTES");
+        if (env && *env) {
+            // strtoull accepts leading sign characters and returns a wrapped huge
+            // value for negative input — reject anything not starting with a digit.
+            if (*env >= '0' && *env <= '9') {
+                char *end = nullptr;
+                unsigned long long v = std::strtoull(env, &end, 10);
+                if (end != env && *end == '\0' && v > 0) {
+                    return static_cast<std::size_t>(v);
+                }
+            }
+        }
+        return kDefaultMaxResponseBytes;
+    }();
+    return cached;
+}
 
 static size_t tash_curl_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
     size_t total = size * nmemb;
     CurlStreamContext *ctx = static_cast<CurlStreamContext*>(userdata);
+    ctx->total_bytes += total;
+    if (ctx->total_bytes > tash_max_response_bytes()) {
+        ctx->overflowed = true;
+        return 0;  // aborts transfer with CURLE_WRITE_ERROR
+    }
     ctx->buffer.append(ptr, total);
 
     size_t pos;
@@ -441,11 +472,17 @@ static size_t tash_curl_write_cb(char *ptr, size_t size, size_t nmemb, void *use
 
 struct CurlBufferContext {
     string body;
+    bool overflowed = false;
 };
 
 static size_t tash_curl_buffer_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
     size_t total = size * nmemb;
-    static_cast<CurlBufferContext*>(userdata)->body.append(ptr, total);
+    auto *ctx = static_cast<CurlBufferContext*>(userdata);
+    if (ctx->body.size() + total > tash_max_response_bytes()) {
+        ctx->overflowed = true;
+        return 0;  // aborts transfer with CURLE_WRITE_ERROR
+    }
+    ctx->body.append(ptr, total);
     return total;
 }
 
@@ -455,6 +492,56 @@ struct CurlPostResult {
     string body;           // response body when reached_server is true
     string error_message;  // set when reached_server is false
 };
+
+// Apply the security-critical + common transport options every HTTP call
+// in this file needs. Returns true if every option was set successfully;
+// returns false if an option failed — callers MUST fail closed because a
+// missing TLS verification option on a libcurl built without TLS support
+// would silently expose the shell to MitM.
+static bool configure_common_curl_opts(CURL *curl,
+                                       const std::string &url,
+                                       const std::string &body,
+                                       curl_slist *headers,
+                                       long connect_timeout,
+                                       long read_timeout) {
+    auto check = [&](const char *name, CURLcode rc) -> bool {
+        if (rc != CURLE_OK) {
+            std::string msg = std::string("tash: curl_easy_setopt(") + name
+                            + ") failed: " + curl_easy_strerror(rc) + "\n";
+            std::fputs(msg.c_str(), stderr);
+            return false;
+        }
+        return true;
+    };
+
+    if (!check("CURLOPT_URL",
+               curl_easy_setopt(curl, CURLOPT_URL, url.c_str()))) return false;
+    // TLS verification — fail closed if libcurl was built without TLS.
+    if (!check("CURLOPT_SSL_VERIFYPEER",
+               curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L))) return false;
+    if (!check("CURLOPT_SSL_VERIFYHOST",
+               curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L))) return false;
+    // No redirect following: prevents API-key leak to attacker-controlled
+    // hosts via 3xx responses (Gemini key is in the URL query, OpenAI
+    // bearer token is in the Authorization header).
+    if (!check("CURLOPT_FOLLOWLOCATION",
+               curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L))) return false;
+    if (!check("CURLOPT_PROTOCOLS",
+               curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS))) return false;
+    if (!check("CURLOPT_REDIR_PROTOCOLS",
+               curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS))) return false;
+
+    // POST body — explicit size prevents strlen-truncation on embedded NUL.
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+
+    // Non-security transport settings.
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, connect_timeout);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, read_timeout);
+    return true;
+}
 
 static CurlPostResult curl_post(
     const string &url,
@@ -480,19 +567,27 @@ static CurlPostResult curl_post(
         headers = curl_slist_append(headers, extra_headers[i].c_str());
     }
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    if (!configure_common_curl_opts(curl, url, body, headers,
+                                    static_cast<long>(connect_timeout),
+                                    static_cast<long>(read_timeout))) {
+        out.error_message = "tls configuration failed";
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return out;
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, tash_curl_buffer_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long)connect_timeout);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)read_timeout);
 
     CURLcode res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-        out.error_message = string("connection failed: ") + curl_easy_strerror(res);
+        if (ctx.overflowed) {
+            out.error_message = "response exceeded TASH_AI_MAX_RESPONSE_BYTES ("
+                              + std::to_string(tash_max_response_bytes())
+                              + " bytes); aborted";
+        } else {
+            out.error_message = string("connection failed: ") + curl_easy_strerror(res);
+        }
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
         return out;
@@ -539,19 +634,27 @@ static LLMResponse curl_streaming_post(
         headers = curl_slist_append(headers, extra_headers[i].c_str());
     }
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    if (!configure_common_curl_opts(curl, url, body, headers,
+                                    static_cast<long>(connect_timeout),
+                                    static_cast<long>(read_timeout))) {
+        resp.error_message = "tls configuration failed";
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return resp;
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, tash_curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long)connect_timeout);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)read_timeout);
 
     CURLcode res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-        resp.error_message = string("connection failed: ") + curl_easy_strerror(res);
+        if (ctx.overflowed) {
+            resp.error_message = "response exceeded TASH_AI_MAX_RESPONSE_BYTES ("
+                               + std::to_string(tash_max_response_bytes())
+                               + " bytes); aborted";
+        } else {
+            resp.error_message = string("connection failed: ") + curl_easy_strerror(res);
+        }
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
         return resp;

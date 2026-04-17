@@ -3,6 +3,7 @@
 #include "tash/builtins.h"
 #include "tash/core.h"
 
+#include <atomic>
 #include <cstring>
 #include <sstream>
 #include <stdexcept>
@@ -100,10 +101,10 @@ int builtin_fg(const vector<string> &argv, ShellState &state) {
         if (pid == -1) { write_stderr("fg: invalid job number\n"); return 1; }
     }
     kill(pid, SIGCONT);
-    fg_child_pid = pid;
+    fg_child_pid.store(pid, std::memory_order_release);
     int status;
     waitpid(pid, &status, WUNTRACED);
-    fg_child_pid = 0;
+    fg_child_pid.store(0, std::memory_order_release);
     state.background_processes.erase(pid);
     return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }

@@ -10,6 +10,8 @@
 #include "tash/ui.h"
 #include "theme.h"
 
+#include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <sys/stat.h>
 
@@ -61,16 +63,8 @@ struct BuiltinRedir {
             if (r.fd == 0) {
                 int in;
                 if (r.is_heredoc) {
-                    int pfd[2];
-                    if (pipe(pfd) < 0) { fail("heredoc"); return; }
-                    if (!r.heredoc_body.empty()) {
-                        ssize_t n = write(pfd[1],
-                                          r.heredoc_body.data(),
-                                          r.heredoc_body.size());
-                        (void)n;
-                    }
-                    close(pfd[1]);
-                    in = pfd[0];
+                    in = open_heredoc_fd(r.heredoc_body);
+                    if (in < 0) { fail("heredoc"); return; }
                 } else {
                     in = open(r.filename.c_str(), O_RDONLY);
                     if (in < 0) { fail(r.filename); return; }
@@ -110,6 +104,91 @@ private:
     }
 };
 } // namespace
+
+// ── Hook-aware captured-stdout command execution ──────────────
+//
+// Drop-in replacement for the `popen(cmd, "r")` calls scattered across
+// command-substitution and structured-pipeline paths. Runs `raw_cmd`
+// via /bin/sh -c after firing before_command hooks so the safety hook
+// can block dangerous inner commands and after_command fires for AI
+// error recovery. Caller strips trailing newlines.
+HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
+                                                    ShellState &state) {
+    HookedCaptureResult result{0, "", false};
+
+    global_plugin_registry().fire_before_command(raw_cmd, state);
+    if (state.skip_execution) {
+        // Matches the skip convention in execute_single_command: reset
+        // the flag and return exit_code 1 without running the command.
+        state.skip_execution = false;
+        result.exit_code = 1;
+        result.skipped = true;
+        return result;
+    }
+
+    int pfd[2];
+    if (::pipe(pfd) < 0) {
+        write_stderr("tash: run_command_with_hooks_capture: pipe failed\n");
+        result.exit_code = 1;
+        return result;
+    }
+
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(pfd[0]);
+        ::close(pfd[1]);
+        write_stderr("tash: run_command_with_hooks_capture: fork failed\n");
+        result.exit_code = 1;
+        return result;
+    }
+
+    if (pid == 0) {
+        // Child: replace stdout with the pipe write end, exec /bin/sh.
+        // _exit (not exit) avoids flushing the parent's inherited stdio
+        // buffers a second time.
+        ::close(pfd[0]);
+        ::dup2(pfd[1], STDOUT_FILENO);
+        ::close(pfd[1]);
+        // Reset signal dispositions that the parent shell customizes.
+        // POSIX shells do this in command substitution children so SIGINT
+        // from the terminal reaches the child instead of being caught by
+        // the parent's handler inherited across fork.
+        ::signal(SIGINT, SIG_DFL);
+        ::signal(SIGQUIT, SIG_DFL);
+        ::execl("/bin/sh", "sh", "-c", raw_cmd.c_str(), (char *)nullptr);
+        _exit(127);
+    }
+
+    // Parent: drain the pipe before waitpid to avoid deadlock on large
+    // outputs (the kernel pipe buffer is finite).
+    ::close(pfd[1]);
+    char buf[4096];
+    ssize_t n;
+    while ((n = ::read(pfd[0], buf, sizeof(buf))) > 0) {
+        result.captured_stdout.append(buf, static_cast<size_t>(n));
+    }
+    ::close(pfd[0]);
+
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) break;
+    }
+
+    // Convert wait status to exit code using the same convention as
+    // foreground_process in src/core/process.cpp: WEXITSTATUS for normal
+    // exits, 128 + signal for termination by signal, 0 otherwise (stopped).
+    if (WIFEXITED(status))       result.exit_code = WEXITSTATUS(status);
+    else if (WIFSIGNALED(status)) result.exit_code = 128 + WTERMSIG(status);
+    else                          result.exit_code = 0;
+
+    // The 3-arg fire_before_command has no stderr equivalent; we pass
+    // empty string to the 4-arg after_command so AI-error-recovery sees
+    // a non-trigger case and skips. Future work (Task 10) could capture
+    // stderr here too, but Tasks 8/9 don't need it.
+    global_plugin_registry().fire_after_command(raw_cmd, result.exit_code,
+                                                 "", state);
+    return result;
+}
 
 // ── Public: execute a single command segment ──────────────────
 
@@ -206,7 +285,7 @@ int execute_single_command(string command, ShellState &state,
     // Structured pipeline (`cmd |> where ... |> sort-by ...`) short-circuits
     // before normal parsing so the `|>` operator isn't confused with `|`.
     if (tash::structured_pipe::has_structured_pipe(command)) {
-        string out = tash::structured_pipe::execute_pipeline(command);
+        string out = tash::structured_pipe::execute_pipeline(command, state);
         write_stdout(out);
         if (!out.empty() && out.back() != '\n') write_stdout("\n");
         return 0;
@@ -214,7 +293,7 @@ int execute_single_command(string command, ShellState &state,
 #endif
 
     command = expand_variables(command, state.last_exit_status);
-    command = expand_command_substitution(command);
+    command = expand_command_substitution(command, state);
 
     Command cmd = parse_redirections(command, heredocs);
     if (cmd.argv.empty()) return 0;
@@ -225,7 +304,7 @@ int execute_single_command(string command, ShellState &state,
         if (r.is_heredoc && r.heredoc_expand) {
             r.heredoc_body = expand_variables(r.heredoc_body,
                                               state.last_exit_status);
-            r.heredoc_body = expand_command_substitution(r.heredoc_body);
+            r.heredoc_body = expand_command_substitution(r.heredoc_body, state);
         }
     }
 
@@ -348,7 +427,7 @@ int execute_single_command(string command, ShellState &state,
                 if (r.is_heredoc && r.heredoc_expand) {
                     r.heredoc_body = expand_variables(
                         r.heredoc_body, state.last_exit_status);
-                    r.heredoc_body = expand_command_substitution(r.heredoc_body);
+                    r.heredoc_body = expand_command_substitution(r.heredoc_body, state);
                 }
             }
 

@@ -7,9 +7,12 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <termios.h>
 #include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <iostream>
 #include <algorithm>
@@ -29,7 +32,66 @@ string ai_get_config_dir() {
 static bool ensure_config_dir() {
     string dir = ai_get_config_dir();
     if (dir.empty()) return false;
-    return tash::config::ensure_dir(dir);
+    if (!tash::config::ensure_dir(dir)) return false;
+
+    struct stat st{};
+    if (lstat(dir.c_str(), &st) == 0) {
+        if (S_ISLNK(st.st_mode)) {
+            static bool warned = false;
+            if (!warned) {
+                write_stderr("tash: refusing to operate on " + dir
+                             + " — it is a symbolic link; key files would be exposed\n");
+                warned = true;
+            }
+            return false;  // Refuse to write keys through a symlink.
+        }
+        if (!S_ISDIR(st.st_mode)) {
+            return false;  // Not a directory; ensure_dir should have caught this, but defensive.
+        }
+        mode_t current = st.st_mode & 0777;
+        if (current != 0700) {
+            if (chmod(dir.c_str(), 0700) == 0) {
+                // Only log once per process to avoid noise on every key access.
+                static bool logged = false;
+                if (!logged) {
+                    write_stderr("tash: tightened permissions on " + dir + " to 0700\n");
+                    logged = true;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+// Atomically create/truncate `path` with owner-only perms and write `content`.
+// Returns true on full write.
+static bool write_secure_file(const string &path, const string &content) {
+    if (path.empty()) return false;
+    int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        write_stderr("tash: could not open " + path + ": " + strerror(errno) + "\n");
+        return false;
+    }
+    // If the file already existed with looser perms, tighten now.
+    (void)fchmod(fd, 0600);
+    size_t off = 0;
+    while (off < content.size()) {
+        ssize_t w = ::write(fd, content.data() + off, content.size() - off);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            ::close(fd);
+            return false;
+        }
+        off += static_cast<size_t>(w);
+    }
+    // Durability: fsync before close so a crash between `close` and the
+    // filesystem journal flush does not leave a truncated/zero-length key.
+    // fsync failure is logged but not fatal — data is already written.
+    if (::fsync(fd) != 0) {
+        write_stderr("tash: fsync warning on " + path + ": " + strerror(errno) + "\n");
+    }
+    bool ok = (::close(fd) == 0);
+    return ok;
 }
 
 // ── Helper: read single-line file ────────────────────────────
@@ -49,13 +111,8 @@ static string read_file_line(const string &path) {
 
 static bool write_file_line(const string &path, const string &content) {
     if (path.empty()) return false;
-    ensure_config_dir();
-    ofstream file(path, ios::trunc);
-    if (!file.is_open()) return false;
-    file << content << "\n";
-    bool ok = file.good();
-    file.close();
-    return ok;
+    if (!ensure_config_dir()) return false;
+    return write_secure_file(path, content + "\n");
 }
 
 // ── Key management ────────────────────────────────────────────
@@ -77,18 +134,8 @@ string ai_load_key() {
 bool ai_save_key(const string &key) {
     string path = ai_get_key_path();
     if (path.empty()) return false;
-
-    ensure_config_dir();
-    ofstream file(path, ios::trunc);
-    if (!file.is_open()) return false;
-
-    file << key << "\n";
-    file.close();
-
-    if (chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0) {
-        write_stderr("tash: warning: could not set permissions on " + path + "\n");
-    }
-    return true;
+    if (!ensure_config_dir()) return false;
+    return write_secure_file(path, key + "\n");
 }
 
 // ── Provider config functions ────────────────────────────────
@@ -129,19 +176,9 @@ bool ai_save_provider_key(const string &provider, const string &key) {
     if (provider != "gemini" && provider != "openai" && provider != "ollama") return false;
     string dir = ai_get_config_dir();
     if (dir.empty()) return false;
-
     string path = dir + "/" + provider + "_key";
-    ensure_config_dir();
-    ofstream file(path, ios::trunc);
-    if (!file.is_open()) return false;
-
-    file << key << "\n";
-    file.close();
-
-    if (chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0) {
-        write_stderr("tash: warning: could not set permissions on " + path + "\n");
-    }
-    return true;
+    if (!ensure_config_dir()) return false;
+    return write_secure_file(path, key + "\n");
 }
 
 string ai_get_ollama_url() {
@@ -336,8 +373,9 @@ void ai_increment_usage() {
     ensure_config_dir();
 
     // Use file locking to prevent races between concurrent sessions
-    int fd = open(path.c_str(), O_RDWR | O_CREAT, 0644);
+    int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if (fd < 0) return;
+    (void)::fchmod(fd, 0600);
 
     if (flock(fd, LOCK_EX) != 0) {
         close(fd);

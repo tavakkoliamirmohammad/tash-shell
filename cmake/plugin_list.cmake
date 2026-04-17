@@ -79,6 +79,22 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME key_file_perms
+    REQUIRES TASH_AI_ENABLED
+    TEST_SOURCES tests/unit/test_key_file_perms.cpp
+    TEST_PREFIX "unit/ai/"
+    TEST_AI_AWARE
+)
+
+tash_register_plugin(
+    NAME config_dir_migration
+    REQUIRES TASH_AI_ENABLED
+    TEST_SOURCES tests/unit/test_config_dir_migration.cpp
+    TEST_PREFIX "unit/ai/"
+    TEST_AI_AWARE
+)
+
+tash_register_plugin(
     NAME sqlite_history
     SOURCES src/plugins/sqlite_history_provider.cpp
     REQUIRES TASH_SQLITE_ENABLED
@@ -175,4 +191,23 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_pipeline.cpp
     TEST_PREFIX "unit/core/"
     TEST_AI_AWARE
+)
+
+tash_register_plugin(
+    NAME heredoc_large
+    TEST_SOURCES tests/unit/test_heredoc_large.cpp
+    TEST_PREFIX "unit/core/"
+)
+
+tash_register_plugin(
+    NAME hooked_capture
+    TEST_SOURCES tests/unit/test_hooked_capture.cpp
+    TEST_PREFIX "unit/core/"
+)
+
+tash_register_plugin(
+    NAME hook_ordering
+    TEST_AI_AWARE
+    TEST_SOURCES tests/unit/test_hook_ordering.cpp
+    TEST_PREFIX "unit/core/"
 )

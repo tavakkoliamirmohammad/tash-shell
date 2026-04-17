@@ -16,6 +16,18 @@
 #include <cstdint>
 #include <string>
 
+// Stub the executor-side hook-aware capture helper. parser.cpp links it
+// for `expand_command_substitution`, but the fuzz harness never exercises
+// that path (LLVMFuzzerTestOneInput below only drives the pure parser
+// entry points). Providing a no-op stub keeps the fuzzer's "parse-only
+// surface" promise from CMakeLists.txt without dragging executor.cpp and
+// the plugin registry into the instrumented build.
+#include "tash/shell.h"
+HookedCaptureResult run_command_with_hooks_capture(const std::string &,
+                                                    ShellState &) {
+    return HookedCaptureResult{0, std::string(), false};
+}
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     // libFuzzer invokes this over and over; stay cheap and pure.
     std::string input(reinterpret_cast<const char *>(data), size);
