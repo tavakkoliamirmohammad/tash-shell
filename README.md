@@ -68,21 +68,21 @@ cmake -B build && cmake --build build
 
 ### Prerequisites
 
-- **OpenSSL** and **libcurl** (for AI features) — available on all macOS and Linux systems
-- The build system fetches [replxx](https://github.com/AmokHuginnsson/replxx), [nlohmann/json](https://github.com/nlohmann/json), [cpp-httplib](https://github.com/yhirose/cpp-httplib), and [Google Test](https://github.com/google/googletest) automatically via CMake FetchContent
+- **libcurl** (for AI features) and **libsqlite3** (for smart history) — available on all macOS and Linux systems via the package manager
+- The build system fetches [replxx](https://github.com/AmokHuginnsson/replxx), [nlohmann/json](https://github.com/nlohmann/json), and [Google Test](https://github.com/google/googletest) automatically via CMake FetchContent
 
 ```sh
 # Ubuntu/Debian
-sudo apt install libssl-dev libcurl4-openssl-dev libsqlite3-dev
+sudo apt install libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev
 
 # Fedora/RHEL/Rocky/Alma
-sudo dnf install openssl-devel libcurl-devel sqlite-devel
+sudo dnf install libcurl-devel sqlite-devel json-devel
 
 # Alpine
-apk add openssl-dev curl-dev sqlite-dev
+apk add curl-dev sqlite-dev nlohmann-json
 
 # Arch
-sudo pacman -S openssl curl sqlite
+sudo pacman -S curl sqlite nlohmann-json
 
 # macOS — included with Xcode Command Line Tools
 xcode-select --install

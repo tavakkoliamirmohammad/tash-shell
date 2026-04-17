@@ -24,7 +24,7 @@ set(TASH_PLUGIN_TEST_NAMES "")
 #   TEST_INCLUDES <dirs>            extra target_include_directories for the test
 #   TEST_LIBS <libs>                extra target_link_libraries for the test
 #   TEST_DEFS <defs>                extra target_compile_definitions for the test
-#   TEST_AI_AWARE                   when TASH_AI_ENABLED, add the AI define + httplib/curl
+#   TEST_AI_AWARE                   when TASH_AI_ENABLED, add the AI define + libcurl
 #   TEST_STANDALONE                 do NOT link shell_lib (use when the test compiles
 #                                   its own sources and needs isolation)
 function(tash_register_plugin)
@@ -100,7 +100,6 @@ function(tash_finalize_plugin_tests)
         if(${${_pref}_AI_AWARE} AND TASH_AI_ENABLED)
             target_compile_definitions(test_${name} PRIVATE TASH_AI_ENABLED)
             target_include_directories(test_${name} PRIVATE
-                ${httplib_SOURCE_DIR}
                 ${nlohmann_json_SOURCE_DIR}/include)
             target_link_libraries(test_${name} PRIVATE CURL::libcurl)
         endif()

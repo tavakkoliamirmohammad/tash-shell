@@ -27,32 +27,41 @@ if(TARGET replxx)
     target_compile_options(replxx PRIVATE -Wno-c++20-compat)
 endif()
 
-# ── Fetch nlohmann/json (used by Fig completion provider + AI) ─
-FetchContent_Declare(
-    nlohmann_json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
-# ── AI features (optional, requires OpenSSL) ─────────────────
-find_package(OpenSSL QUIET)
-if(OpenSSL_FOUND)
-    set(TASH_AI_ENABLED ON)
+# ── nlohmann/json (used by Fig completion provider + AI) ────
+# Prefer the distro package when installed — Debian/Ubuntu ship
+# `nlohmann-json3-dev`, Fedora/RHEL/Rocky/Alma ship `json-devel`,
+# Homebrew ships `nlohmann-json`. That shaves 1-2s off configure
+# and stops us bundling our own copy when the system already has
+# one. FetchContent is a strict fallback for environments without
+# the package (CI containers that haven't installed it, etc.).
+find_package(nlohmann_json 3.9.0 CONFIG QUIET)
+if(nlohmann_json_FOUND)
+    message(STATUS "nlohmann_json ${nlohmann_json_VERSION} found (system)")
+    # Normalize the include-dir variable used below.
+    get_target_property(nlohmann_json_SOURCE_DIR nlohmann_json::nlohmann_json
+                        INTERFACE_INCLUDE_DIRECTORIES)
+else()
+    message(STATUS "nlohmann_json not found — fetching from upstream")
     FetchContent_Declare(
-        httplib
-        URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.18.3.tar.gz
+        nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
-    FetchContent_MakeAvailable(httplib)
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
 
-    find_package(CURL REQUIRED)
+# ── AI features (optional, requires libcurl) ─────────────────
+# libcurl handles HTTPS; its SSL backend (OpenSSL 1.1, OpenSSL 3,
+# NSS, GnuTLS — distro's choice) is abstracted away from us. No
+# direct OpenSSL link needed anymore now that cpp-httplib is gone.
+find_package(CURL QUIET)
+if(CURL_FOUND)
+    set(TASH_AI_ENABLED ON)
     find_package(Threads REQUIRED)
-
-    message(STATUS "AI features enabled (OpenSSL + libcurl found)")
+    message(STATUS "AI features enabled (libcurl found)")
 else()
     set(TASH_AI_ENABLED OFF)
-    message(STATUS "AI features disabled (OpenSSL not found)")
+    message(STATUS "AI features disabled (libcurl not found)")
 endif()
 
 # ── SQLite history (optional) ─────────────────────────────────
@@ -139,9 +148,7 @@ target_compile_definitions(tash.out PRIVATE
 
 if(TASH_AI_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
-    target_link_libraries(tash.out PRIVATE
-        OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
-    target_include_directories(tash.out PRIVATE ${httplib_SOURCE_DIR})
+    target_link_libraries(tash.out PRIVATE CURL::libcurl Threads::Threads)
 endif()
 
 if(TASH_SQLITE_ENABLED)
@@ -171,9 +178,7 @@ if(BUILD_TESTS)
 
     if(TASH_AI_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
-        target_link_libraries(shell_lib PRIVATE
-            OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
-        target_include_directories(shell_lib PRIVATE ${httplib_SOURCE_DIR})
+        target_link_libraries(shell_lib PRIVATE CURL::libcurl Threads::Threads)
     endif()
 
     if(TASH_SQLITE_ENABLED)
