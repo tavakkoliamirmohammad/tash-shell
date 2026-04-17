@@ -479,6 +479,8 @@ vector<CommandSegment> parse_command_line(const string &line) {
     string current;
     bool in_double_quotes = false;
     bool in_single_quotes = false;
+    int paren_depth = 0;       // track `(...)` subshells so `;`, `&&`,
+                               // `||` inside them don't split segments
     size_t i = 0;
     OperatorType next_op = OP_NONE;
 
@@ -492,21 +494,29 @@ vector<CommandSegment> parse_command_line(const string &line) {
             in_single_quotes = !in_single_quotes;
             current += c;
             ++i;
-        } else if (!in_double_quotes && !in_single_quotes && c == '&' && i + 1 < stripped.size() && stripped[i + 1] == '&') {
+        } else if (!in_double_quotes && !in_single_quotes && c == '(') {
+            ++paren_depth;
+            current += c;
+            ++i;
+        } else if (!in_double_quotes && !in_single_quotes && c == ')') {
+            if (paren_depth > 0) --paren_depth;
+            current += c;
+            ++i;
+        } else if (!in_double_quotes && !in_single_quotes && paren_depth == 0 && c == '&' && i + 1 < stripped.size() && stripped[i + 1] == '&') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});
             next_op = OP_AND;
             current.clear();
             i += 2;
-        } else if (!in_double_quotes && !in_single_quotes && c == '|' && i + 1 < stripped.size() && stripped[i + 1] == '|') {
+        } else if (!in_double_quotes && !in_single_quotes && paren_depth == 0 && c == '|' && i + 1 < stripped.size() && stripped[i + 1] == '|') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});
             next_op = OP_OR;
             current.clear();
             i += 2;
-        } else if (!in_double_quotes && !in_single_quotes && c == ';') {
+        } else if (!in_double_quotes && !in_single_quotes && paren_depth == 0 && c == ';') {
             string cmd = current;
             cmd = trim(cmd);
             if (!cmd.empty()) segments.push_back({cmd, next_op});
