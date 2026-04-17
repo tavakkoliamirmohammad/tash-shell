@@ -379,6 +379,10 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
             if (ch == 'y' || ch == 'Y') {
                 write_stdout("\n");
+                // H6: AI-suggested commands route through execute_single_command,
+                // which fires the safety hook. Do NOT bypass — a jailbroken LLM
+                // could return dangerous substitutions that the hook must still see.
+                // Regression covered by test_hook_ordering.cpp::AiStyleCommand*.
                 return execute_single_command(parsed.content, state);
             } else if (ch == 'e' || ch == 'E') {
                 if (prefill_cmd) *prefill_cmd = parsed.content;
@@ -484,6 +488,10 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
                 }
 
                 write_stdout("\n");
+                // H6: AI-suggested commands route through execute_single_command,
+                // which fires the safety hook. Do NOT bypass — a jailbroken LLM
+                // could return dangerous substitutions that the hook must still see.
+                // Regression covered by test_hook_ordering.cpp::AiStyleCommand*.
                 last_status = execute_single_command(parsed.steps[i].command, state);
                 if (last_status != 0 && !run_all) {
                     ai_print_error("step " + to_string(i + 1) + " failed (exit " + to_string(last_status) + "). Stop? [y/n] ");
