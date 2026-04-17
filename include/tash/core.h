@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <cstdlib>
 #include <fstream>
+#include <string_view>
 #include <unistd.h>
 
 #include "replxx.hxx"
@@ -29,7 +30,7 @@ std::vector<std::string> expand_globs(const std::vector<std::string> &args);
 std::vector<std::string> expand_globs(const std::vector<std::string> &args,
                                        const std::vector<bool> &quoted);
 std::string expand_tilde(const std::string &token);
-std::string strip_quotes(const std::string &s);
+std::string strip_quotes(std::string_view s);
 std::vector<CommandSegment> parse_command_line(const std::string &line);
 std::string expand_history_bang(const std::string &line, replxx::Replxx &rx);
 Command parse_redirections(const std::string &command_str);
