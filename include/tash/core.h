@@ -93,7 +93,7 @@ int execute_pipeline(std::vector<PipelineSegment> &segments,
 // (|>) so that hooks see the inner command they would otherwise miss.
 // The raw captured stdout is returned verbatim; callers strip trailing
 // newlines if their context requires it.
-struct HookedCaptureResult {
+struct [[nodiscard]] HookedCaptureResult {
     int exit_code;
     std::string captured_stdout;
     bool skipped;

@@ -8,7 +8,7 @@
 #include <functional>
 #include <memory>
 
-struct LLMResponse {
+struct [[nodiscard]] LLMResponse {
     bool success;
     std::string text;
     int http_status;
