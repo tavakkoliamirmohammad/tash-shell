@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
@@ -26,7 +27,10 @@ static bool file_exists(const std::string &path) {
 
 static void ensure_directory(const std::string &path) {
     if (path.empty()) return;
-    mkdir(path.c_str(), 0755);
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    // Silent on failure — historical behavior. Callers that open the
+    // DB will surface any real error via sqlite3_open.
 }
 
 // ── Constructor / Destructor ──────────────────────────────────

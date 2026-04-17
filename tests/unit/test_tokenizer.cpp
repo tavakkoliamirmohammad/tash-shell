@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <cstdlib>
 #include <cstdio>
+#include <filesystem>
 #include <unistd.h>
 
 using namespace std;
@@ -713,13 +714,13 @@ TEST(CompletionCallback, EnvVarCompletion) {
 TEST(CompletionCallback, FileCompletionListsCwd) {
     // Create a temp dir with known contents
     string tmpdir = "/tmp/tash_comp_test_" + to_string(getpid());
-    mkdir(tmpdir.c_str(), 0755);
+    std::filesystem::create_directories(tmpdir);
     // Create a file and a subdirectory
     string filepath = tmpdir + "/hello.txt";
     FILE *f = fopen(filepath.c_str(), "w");
     if (f) fclose(f);
     string subdir = tmpdir + "/subdir";
-    mkdir(subdir.c_str(), 0755);
+    std::filesystem::create_directories(subdir);
 
     // cd into the temp dir so "." resolves to it
     char *old_cwd = getcwd(nullptr, 0);
@@ -735,14 +736,13 @@ TEST(CompletionCallback, FileCompletionListsCwd) {
     // Cleanup
     if (chdir(old_cwd)) {}
     free(old_cwd);
-    remove(filepath.c_str());
-    rmdir(subdir.c_str());
-    rmdir(tmpdir.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmpdir, ec);
 }
 
 TEST(CompletionCallback, FileCompletionWithPrefix) {
     string tmpdir = "/tmp/tash_comp_pfx_" + to_string(getpid());
-    mkdir(tmpdir.c_str(), 0755);
+    std::filesystem::create_directories(tmpdir);
     string f1 = tmpdir + "/alpha.cpp";
     string f2 = tmpdir + "/alpha.h";
     string f3 = tmpdir + "/beta.cpp";
@@ -766,17 +766,14 @@ TEST(CompletionCallback, FileCompletionWithPrefix) {
 
     if (chdir(old_cwd)) {}
     free(old_cwd);
-    remove(f1.c_str());
-    remove(f2.c_str());
-    remove(f3.c_str());
-    rmdir(tmpdir.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmpdir, ec);
 }
 
 TEST(CompletionCallback, FileCompletionWithPathPrefix) {
     string tmpdir = "/tmp/tash_comp_path_" + to_string(getpid());
-    mkdir(tmpdir.c_str(), 0755);
     string sub = tmpdir + "/nested";
-    mkdir(sub.c_str(), 0755);
+    std::filesystem::create_directories(sub);
     string f1 = sub + "/foo.txt";
     FILE *fp = fopen(f1.c_str(), "w");
     if (fp) fclose(fp);
@@ -788,14 +785,13 @@ TEST(CompletionCallback, FileCompletionWithPathPrefix) {
         << "path prefix should complete foo.txt inside nested dir";
     EXPECT_EQ(ctx, 2) << "context_len should be length of 'fo'";
 
-    remove(f1.c_str());
-    rmdir(sub.c_str());
-    rmdir(tmpdir.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmpdir, ec);
 }
 
 TEST(CompletionCallback, HiddenFilesOnlyWhenDotPrefix) {
     string tmpdir = "/tmp/tash_comp_dot_" + to_string(getpid());
-    mkdir(tmpdir.c_str(), 0755);
+    std::filesystem::create_directories(tmpdir);
     string hidden = tmpdir + "/.hidden";
     string visible = tmpdir + "/visible";
     FILE *fp;
@@ -820,21 +816,20 @@ TEST(CompletionCallback, HiddenFilesOnlyWhenDotPrefix) {
 
     if (chdir(old_cwd)) {}
     free(old_cwd);
-    remove(hidden.c_str());
-    remove(visible.c_str());
-    rmdir(tmpdir.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmpdir, ec);
 }
 
 // -- cd / pushd directory-only completion --
 
 TEST(CompletionCallback, CdCompletesDirectoriesOnly) {
     string tmpdir = "/tmp/tash_cd_comp_" + to_string(getpid());
-    mkdir(tmpdir.c_str(), 0755);
+    std::filesystem::create_directories(tmpdir);
     // Mix of a file and a directory.
     string file1 = tmpdir + "/some_file.txt";
     FILE *f = fopen(file1.c_str(), "w"); if (f) fclose(f);
     string sub = tmpdir + "/some_dir";
-    mkdir(sub.c_str(), 0755);
+    std::filesystem::create_directories(sub);
 
     char *old_cwd = getcwd(nullptr, 0);
     if (chdir(tmpdir.c_str())) {}
@@ -854,9 +849,8 @@ TEST(CompletionCallback, CdCompletesDirectoriesOnly) {
 
     if (chdir(old_cwd)) {}
     free(old_cwd);
-    remove(file1.c_str());
-    rmdir(sub.c_str());
-    rmdir(tmpdir.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmpdir, ec);
 }
 
 // -- kill / bgkill / bgstop / bgstart PID completion --

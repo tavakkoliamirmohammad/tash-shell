@@ -4,37 +4,16 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <dirent.h>
 #include <unistd.h>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include "tash/ai.h"
 
 namespace {
-
-// Recursively remove directory contents.
-static void rm_rf(const std::string &path) {
-    DIR *d = ::opendir(path.c_str());
-    if (d) {
-        struct dirent *e;
-        while ((e = ::readdir(d)) != nullptr) {
-            std::string name = e->d_name;
-            if (name == "." || name == "..") continue;
-            std::string child = path + "/" + name;
-            struct stat st{};
-            if (::lstat(child.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-                rm_rf(child);
-            } else {
-                ::unlink(child.c_str());
-            }
-        }
-        ::closedir(d);
-    }
-    ::rmdir(path.c_str());
-}
 
 struct KeyPermFixture : public ::testing::Test {
     std::string tmp;
@@ -43,12 +22,14 @@ struct KeyPermFixture : public ::testing::Test {
         std::string tbase = (base && *base) ? base : "/tmp";
         tmp = tbase + "/tash_key_perm_" + std::to_string(::getpid()) + "_" +
               std::to_string(::testing::UnitTest::GetInstance()->random_seed());
-        ::mkdir(tmp.c_str(), 0700);
+        std::error_code ec;
+        std::filesystem::create_directories(tmp, ec);
         ::setenv("TASH_AI_CONFIG_DIR", tmp.c_str(), 1);
     }
     void TearDown() override {
         ::unsetenv("TASH_AI_CONFIG_DIR");
-        rm_rf(tmp);
+        std::error_code ec;
+        std::filesystem::remove_all(tmp, ec);
     }
 };
 

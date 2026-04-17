@@ -8,6 +8,7 @@
 #include "test_helpers.h"
 
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -47,7 +48,7 @@ TEST(UnicodePaths, MultibyteFilenameMatchesGlob) {
 TEST(UnicodePaths, MultibyteDirectoryNavigation) {
     Sandbox s;
     std::string subdir = s.root + "/\xce\xb1\xce\xb2\xce\xb3"; // αβγ
-    mkdir(subdir.c_str(), 0755);
+    std::filesystem::create_directories(subdir);
     std::ofstream f(subdir + "/probe.txt"); f << "hi"; f.close();
 
     auto r = run_shell("ls " + subdir + "\nexit\n");

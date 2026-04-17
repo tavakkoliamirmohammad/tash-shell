@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -55,13 +56,10 @@ std::string get_starship_config_path() { return home() + "/.config/starship.toml
 
 bool ensure_dir(const std::string &path) {
     if (path.empty()) return false;
-    struct stat st;
-    if (stat(path.c_str(), &st) == 0) return S_ISDIR(st.st_mode);
-    size_t slash = path.find_last_of('/');
-    if (slash != std::string::npos && slash > 0) {
-        if (!ensure_dir(path.substr(0, slash))) return false;
-    }
-    return mkdir(path.c_str(), 0755) == 0 || errno == EEXIST;
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (!ec) return true;
+    return std::filesystem::is_directory(path, ec);
 }
 
 } // namespace config

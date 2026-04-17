@@ -4,42 +4,19 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <dirent.h>
 #include <unistd.h>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include "tash/ai.h"
-
-namespace {
-
-static void rm_rf(const std::string &path) {
-    DIR *d = ::opendir(path.c_str());
-    if (d) {
-        struct dirent *e;
-        while ((e = ::readdir(d)) != nullptr) {
-            std::string name = e->d_name;
-            if (name == "." || name == "..") continue;
-            std::string child = path + "/" + name;
-            struct stat st{};
-            if (::lstat(child.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-                rm_rf(child);
-            } else {
-                ::unlink(child.c_str());
-            }
-        }
-        ::closedir(d);
-    }
-    ::rmdir(path.c_str());
-}
-
-} // namespace
 
 TEST(ConfigDirMigration, TightensLooseModeOnKeyWrite) {
     const char *base = std::getenv("TMPDIR");
     std::string tbase = (base && *base) ? base : "/tmp";
     std::string tmp = tbase + "/tash_cfg_mig_" + std::to_string(::getpid()) + "_" +
                       std::to_string(::testing::UnitTest::GetInstance()->random_seed());
-    ::mkdir(tmp.c_str(), 0755);
+    std::error_code ec;
+    std::filesystem::create_directories(tmp, ec);
     ::chmod(tmp.c_str(), 0755);
     ::setenv("TASH_AI_CONFIG_DIR", tmp.c_str(), 1);
 
@@ -51,7 +28,7 @@ TEST(ConfigDirMigration, TightensLooseModeOnKeyWrite) {
     EXPECT_EQ(st.st_mode & 0777, 0700);
 
     ::unsetenv("TASH_AI_CONFIG_DIR");
-    rm_rf(tmp);
+    std::filesystem::remove_all(tmp, ec);
 }
 
 TEST(ConfigDirMigration, RefusesSymlinkedConfigDir) {
@@ -62,7 +39,9 @@ TEST(ConfigDirMigration, RefusesSymlinkedConfigDir) {
     std::string real_dir = "/tmp/tash_sym_real_" + tag;
     std::string link_path = "/tmp/tash_sym_link_" + tag;
 
-    ::mkdir(real_dir.c_str(), 0700);
+    std::error_code ec;
+    std::filesystem::create_directories(real_dir, ec);
+    ::chmod(real_dir.c_str(), 0700);
     ::unlink(link_path.c_str());
     ASSERT_EQ(::symlink(real_dir.c_str(), link_path.c_str()), 0);
 
@@ -78,7 +57,7 @@ TEST(ConfigDirMigration, RefusesSymlinkedConfigDir) {
 
     unsetenv("TASH_AI_CONFIG_DIR");
     ::unlink(link_path.c_str());
-    ::rmdir(real_dir.c_str());
+    std::filesystem::remove_all(real_dir, ec);
 }
 
 #else

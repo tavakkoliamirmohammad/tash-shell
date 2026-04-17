@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
@@ -32,7 +33,10 @@ static bool directory_exists(const std::string &path) {
 }
 
 static bool create_directory(const std::string &path) {
-    return mkdir(path.c_str(), 0755) == 0 || directory_exists(path);
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (!ec) return true;
+    return directory_exists(path);
 }
 
 static bool write_file(const std::string &path, const std::string &content) {

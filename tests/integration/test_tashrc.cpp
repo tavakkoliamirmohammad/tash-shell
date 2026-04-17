@@ -1,5 +1,6 @@
 #include "test_helpers.h"
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sys/stat.h>
 
@@ -31,7 +32,7 @@ static ShellResult run_shell_with_home(const std::string &home_dir,
 TEST(Tashrc, LoadsRcFileOnStartup) {
     // Create a temporary HOME directory
     std::string tmp_home = "/tmp/tash_rc_test_" + std::to_string(getpid());
-    mkdir(tmp_home.c_str(), 0755);
+    std::filesystem::create_directories(tmp_home);
 
     // Write a .tashrc that exports a variable
     {
@@ -46,14 +47,14 @@ TEST(Tashrc, LoadsRcFileOnStartup) {
         << "Variable exported in .tashrc should be available in session. Output: " << r.output;
 
     // Cleanup
-    unlink((tmp_home + "/.tashrc").c_str());
-    rmdir(tmp_home.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmp_home, ec);
 }
 
 TEST(Tashrc, NoRcFileIsOkay) {
     // Create a temporary HOME directory with no .tashrc
     std::string tmp_home = "/tmp/tash_rc_empty_" + std::to_string(getpid());
-    mkdir(tmp_home.c_str(), 0755);
+    std::filesystem::create_directories(tmp_home);
 
     // Shell should start normally without a .tashrc
     auto r = run_shell_with_home(tmp_home, "echo works_fine\nexit\n");
@@ -61,13 +62,14 @@ TEST(Tashrc, NoRcFileIsOkay) {
         << "Shell should work normally without .tashrc. Output: " << r.output;
 
     // Cleanup
-    rmdir(tmp_home.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmp_home, ec);
 }
 
 TEST(Tashrc, MultipleCommandsInRc) {
     // Create a temporary HOME directory
     std::string tmp_home = "/tmp/tash_rc_multi_" + std::to_string(getpid());
-    mkdir(tmp_home.c_str(), 0755);
+    std::filesystem::create_directories(tmp_home);
 
     // Write a .tashrc with multiple export commands
     {
@@ -85,6 +87,6 @@ TEST(Tashrc, MultipleCommandsInRc) {
         << "Second var from .tashrc should be set. Output: " << r.output;
 
     // Cleanup
-    unlink((tmp_home + "/.tashrc").c_str());
-    rmdir(tmp_home.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmp_home, ec);
 }
