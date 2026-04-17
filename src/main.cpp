@@ -15,6 +15,7 @@
 #ifdef TASH_AI_ENABLED
 #include "tash/ai.h"
 #include "tash/ai/contextual_ai.h"
+#include "tash/core/structured_pipe.h"
 #endif
 
 using namespace std;
@@ -92,6 +93,17 @@ int execute_single_command(string command, ShellState &state) {
             return 1;
         }
     }
+
+#ifdef TASH_AI_ENABLED
+    // Structured pipeline (`cmd |> where ... |> sort-by ...`) short-circuits
+    // before normal parsing so the `|>` operator isn't confused with `|`.
+    if (tash::structured_pipe::has_structured_pipe(command)) {
+        string out = tash::structured_pipe::execute_pipeline(command);
+        write_stdout(out);
+        if (!out.empty() && out.back() != '\n') write_stdout("\n");
+        return 0;
+    }
+#endif
 
     command = expand_variables(command, state.last_exit_status);
     command = expand_command_substitution(command);
