@@ -362,47 +362,56 @@ TEST(StripQuotesTest, NestedQuotes) {
 // ═══════════════════════════════════════════════════════════════
 
 TEST(CommandSubstitutionTest, SimpleEcho) {
-    string result = expand_command_substitution("$(echo hello)");
+    ShellState state;
+    string result = expand_command_substitution("$(echo hello)", state);
     EXPECT_EQ(result, "hello");
 }
 
 TEST(CommandSubstitutionTest, EmbeddedInString) {
-    string result = expand_command_substitution("count: $(echo 42)");
+    ShellState state;
+    string result = expand_command_substitution("count: $(echo 42)", state);
     EXPECT_EQ(result, "count: 42");
 }
 
 TEST(CommandSubstitutionTest, NoSubstitution) {
-    string result = expand_command_substitution("hello world");
+    ShellState state;
+    string result = expand_command_substitution("hello world", state);
     EXPECT_EQ(result, "hello world");
 }
 
 TEST(CommandSubstitutionTest, EmptyInput) {
-    string result = expand_command_substitution("");
+    ShellState state;
+    string result = expand_command_substitution("", state);
     EXPECT_EQ(result, "");
 }
 
 TEST(CommandSubstitutionTest, NestedParens) {
-    string result = expand_command_substitution("$(echo $(echo nested))");
+    ShellState state;
+    string result = expand_command_substitution("$(echo $(echo nested))", state);
     EXPECT_EQ(result, "nested");
 }
 
 TEST(CommandSubstitutionTest, MultipleSubstitutions) {
-    string result = expand_command_substitution("$(echo a) and $(echo b)");
+    ShellState state;
+    string result = expand_command_substitution("$(echo a) and $(echo b)", state);
     EXPECT_EQ(result, "a and b");
 }
 
 TEST(CommandSubstitutionTest, TrailingNewlineStripped) {
-    string result = expand_command_substitution("$(echo hello)");
+    ShellState state;
+    string result = expand_command_substitution("$(echo hello)", state);
     EXPECT_EQ(result, "hello");
 }
 
 TEST(CommandSubstitutionTest, LoneDollarSign) {
-    string result = expand_command_substitution("cost is $");
+    ShellState state;
+    string result = expand_command_substitution("cost is $", state);
     EXPECT_EQ(result, "cost is $");
 }
 
 TEST(CommandSubstitutionTest, UnmatchedParen) {
-    string result = expand_command_substitution("$(echo hello");
+    ShellState state;
+    string result = expand_command_substitution("$(echo hello", state);
     EXPECT_EQ(result, "$(echo hello");
 }
 

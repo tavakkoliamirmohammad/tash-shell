@@ -284,7 +284,7 @@ int execute_single_command(string command, ShellState &state,
 #endif
 
     command = expand_variables(command, state.last_exit_status);
-    command = expand_command_substitution(command);
+    command = expand_command_substitution(command, state);
 
     Command cmd = parse_redirections(command, heredocs);
     if (cmd.argv.empty()) return 0;
@@ -295,7 +295,7 @@ int execute_single_command(string command, ShellState &state,
         if (r.is_heredoc && r.heredoc_expand) {
             r.heredoc_body = expand_variables(r.heredoc_body,
                                               state.last_exit_status);
-            r.heredoc_body = expand_command_substitution(r.heredoc_body);
+            r.heredoc_body = expand_command_substitution(r.heredoc_body, state);
         }
     }
 
@@ -418,7 +418,7 @@ int execute_single_command(string command, ShellState &state,
                 if (r.is_heredoc && r.heredoc_expand) {
                     r.heredoc_body = expand_variables(
                         r.heredoc_body, state.last_exit_status);
-                    r.heredoc_body = expand_command_substitution(r.heredoc_body);
+                    r.heredoc_body = expand_command_substitution(r.heredoc_body, state);
                 }
             }
 
