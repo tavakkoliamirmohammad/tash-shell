@@ -14,6 +14,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "tash/ai/bootstrap.h"
+
 #ifdef TASH_AI_ENABLED
 #include "tash/ai.h"
 #include "tash/ai/contextual_ai.h"
@@ -102,32 +104,10 @@ static void print_banner() {
     write_stdout(BANNER_FRAME + "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
     write_stdout("\n");
 
-#ifdef TASH_AI_ENABLED
-    // Offer to run the AI setup wizard on first run.
-    string provider = ai_get_provider();
-    string key = ai_load_provider_key(provider);
-    if (key.empty() && provider != "ollama") {
-        write_stdout(AI_LABEL + "tash ai" CAT_RESET + AI_SEPARATOR + " ─ " CAT_RESET
-                     "AI features available! Set up now? [y/n] ");
-        char setup_ch = 0;
-        struct termios old_t, new_t;
-        tcgetattr(STDIN_FILENO, &old_t);
-        new_t = old_t;
-        new_t.c_lflag &= ~(ICANON | ECHO);
-        new_t.c_cc[VMIN] = 1;
-        new_t.c_cc[VTIME] = 0;
-        tcsetattr(STDIN_FILENO, TCSANOW, &new_t);
-        if (read(STDIN_FILENO, &setup_ch, 1) != 1) setup_ch = 'n';
-        tcsetattr(STDIN_FILENO, TCSANOW, &old_t);
-        write_stdout(string(1, setup_ch) + "\n");
-        if (setup_ch == 'y' || setup_ch == 'Y') {
-            ai_run_setup_wizard();
-        } else {
-            write_stdout(CAT_DIM "  Tip: run @ai config anytime to set up.\n" CAT_RESET);
-        }
-        write_stdout("\n");
-    }
-#endif
+    // The AI setup wizard (and any future AI-visible first-run prompts)
+    // live in src/ai/ai_bootstrap.cpp. Noop when AI is disabled or the
+    // user already has a provider configured.
+    tash::ai::offer_setup_wizard();
 }
 
 // ── Replxx keybinding setup ───────────────────────────────────

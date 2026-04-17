@@ -8,6 +8,7 @@
 //
 // main.cpp is now ~60 LOC, which is the point.
 
+#include "tash/ai/bootstrap.h"
 #include "tash/core.h"
 #include "tash/history.h"
 #include "tash/repl.h"
@@ -17,10 +18,6 @@
 
 #include <string>
 #include <unistd.h>
-
-#ifdef TASH_AI_ENABLED
-#include "tash/ai.h"
-#endif
 
 using std::string;
 
@@ -69,17 +66,7 @@ int main(int argc, char *argv[]) {
     }
 
     build_command_cache();
-
-#ifdef TASH_AI_ENABLED
-    // Build context-aware suggestion map from history.
-    {
-        string hist = history_file_path();
-        if (!hist.empty()) {
-            build_transition_map(hist, get_transition_map());
-        }
-    }
-#endif
-
+    tash::ai::build_history_context();
     tash::load_tashrc(state);
     return tash::run_interactive(state);
 }
