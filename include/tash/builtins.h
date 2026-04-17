@@ -49,5 +49,6 @@ int builtin_theme(const std::vector<std::string> &argv, ShellState &state);
 int builtin_explain(const std::vector<std::string> &argv, ShellState &state);
 int builtin_config(const std::vector<std::string> &argv, ShellState &state);
 int builtin_session(const std::vector<std::string> &argv, ShellState &state);
+int builtin_trap(const std::vector<std::string> &argv, ShellState &state);
 
 #endif // TASH_BUILTINS_H

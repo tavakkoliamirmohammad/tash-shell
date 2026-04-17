@@ -42,6 +42,7 @@ const unordered_map<string, BuiltinFn>& get_builtins() {
         {"block",    builtin_block},
         {"session",  builtin_session},
         {"config",   builtin_config},
+        {"trap",     builtin_trap},
     };
     return builtins;
 }
