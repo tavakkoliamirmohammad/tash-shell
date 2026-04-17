@@ -1,8 +1,6 @@
 #ifndef TASH_FIG_COMPLETION_PROVIDER_H
 #define TASH_FIG_COMPLETION_PROVIDER_H
 
-#ifdef TASH_AI_ENABLED
-
 #include "tash/plugin.h"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -77,7 +75,5 @@ private:
     mutable std::unordered_map<std::string, nlohmann::json> specs_;
     mutable std::mutex spec_mutex_;
 };
-
-#endif // TASH_AI_ENABLED
 
 #endif // TASH_FIG_COMPLETION_PROVIDER_H

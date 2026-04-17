@@ -1,44 +1,67 @@
 .TH TASH 1 "April 2026" "v@PROJECT_VERSION@" "User Commands"
 .SH NAME
-tash \- Tavakkoli's Shell, a lightweight Unix shell
+tash \- Tavakkoli's Shell, a modern Unix shell with syntax highlighting, autosuggestions, themes, and optional AI assistance
 .SH SYNOPSIS
 .B tash
 .RI [ script ]
+.br
+.B tash
+.B --version
+.br
+.B tash
+.B --features
+.br
+.B tash
+.B --benchmark
 .SH DESCRIPTION
 .B tash
-is a lightweight Unix shell written in C++ with support for pipes, redirection, environment variables, command substitution, glob expansion, job control, and command history.
+is a modern Unix shell written in C++. It supports standard shell features — pipes, redirection, subshells, heredocs, command substitution, glob expansion, job control, aliases, history, and POSIX-style \fBtrap\fR handlers — alongside a plugin architecture that powers smart completions (Fish + Fig + man-page), configurable themes, rich terminal output, a SQLite-backed history, and an optional AI assistant.
 .PP
 If a
 .I script
 file is given as an argument, tash executes it and exits. Otherwise, it starts an interactive session.
+.SH OPTIONS
+.TP
+.B --version, --features, -V
+Print the version and the list of compiled-in features (e.g. \fB+ai +sqlite-history\fR) and exit. Tokens prefixed with \fB-\fR indicate a feature was compiled out because its dependency was missing at build time.
+.TP
+.B --benchmark
+Print a staged startup-time breakdown and exit.
 .SH BUILT-IN COMMANDS
+.SS Navigation
 .TP
 .B cd \fR[\fIdir\fR]
-Change directory. With no argument, goes to $HOME. \fBcd -\fR returns to the previous directory.
+Change directory. No argument goes to \fB$HOME\fR. \fBcd -\fR returns to the previous directory. Auto-cd: typing a bare directory name \fBcd\fRs into it.
 .TP
 .B pwd
 Print the current working directory.
 .TP
-.B exit
-Exit the shell.
+.B z \fIpattern\fR
+Jump to the most-visited directory matching \fIpattern\fR (frecency-ranked).
 .TP
-.B history
-Display numbered command history.
+.B pushd \fIdir\fR, popd, dirs
+Directory-stack manipulation.
+.SS Environment & aliases
 .TP
 .B export \fR[\fIVAR=value\fR]
-Set an environment variable. With no argument, list all variables.
+Set an environment variable. No argument lists all.
 .TP
 .B unset \fIVAR\fR
 Remove an environment variable.
 .TP
 .B alias \fR[\fIname=value\fR]
-Create a command alias. With no argument, list all aliases.
+Define an alias. No argument lists all. Tash reminds you when you type a command for which you have an alias.
 .TP
 .B unalias \fIname\fR
 Remove an alias.
+.SS History
 .TP
-.B source \fIfile\fR
-Execute commands from a file in the current shell.
+.B history \fR[\fI--here|--failed|stats\fR]
+Show history. \fB--here\fR filters to the current directory, \fB--failed\fR to non-zero exits, \fBstats\fR shows top commands and failure rates (SQLite backend only).
+.TP
+.B !!, !n
+Repeat the last command, or the \fIn\fRth.
+.SS Job control
 .TP
 .B bg \fIcommand\fR
 Run a command in the background.
@@ -46,14 +69,53 @@ Run a command in the background.
 .B bglist
 List background jobs.
 .TP
-.B bgkill \fIn\fR
-Terminate background job number \fIn\fR.
+.B bgkill \fIn\fR, bgstop \fIn\fR, bgstart \fIn\fR
+Terminate, suspend, or resume background job number \fIn\fR.
 .TP
-.B bgstop \fIn\fR
-Suspend background job number \fIn\fR.
+.B fg \fR[\fIn\fR]
+Bring a background job to the foreground.
 .TP
-.B bgstart \fIn\fR
-Resume background job number \fIn\fR.
+.B trap \fR[\fI'cmd' SIG...\fR]
+Install a POSIX signal/EXIT handler. \fBtrap -\fR \fISIG\fR resets, \fBtrap '' \fISIG\fR ignores. Recognizes EXIT, HUP, INT, QUIT, TERM, USR1, USR2.
+.SS Files & scripts
+.TP
+.B source \fIfile\fR (also \fB.\fR)
+Execute commands from \fIfile\fR in the current shell.
+.TP
+.B which \fIcmd\fR, type \fIcmd\fR
+Locate a command or identify a builtin.
+.SS UI & rich output
+.TP
+.B theme \fR[\fBlist\fR | \fBset\fR \fIname\fR | \fBpreview\fR]
+Manage the color theme. Five bundled: \fBcatppuccin-mocha\fR (default), \fBcatppuccin-latte\fR, \fBtokyo-night\fR, \fBdracula\fR, \fBnord\fR.
+.TP
+.B explain \fIcmd\fR \fR[\fIargs...\fR]
+Print inline documentation for a command and its flags (built-in database covering \fBtar\fR, \fBgrep\fR, \fBfind\fR, \fBchmod\fR, \fBls\fR, \fBgit\fR, and 25+ more).
+.TP
+.B copy \fR[\fItext\fR] | paste
+Clipboard copy/paste via OSC 52 (works over SSH, inside tmux) with \fBpbcopy\fR/\fBxclip\fR/\fBwl-copy\fR fallbacks.
+.TP
+.B linkify, table, block
+Rich-output helpers: wrap URLs as OSC 8 hyperlinks, render TSV/CSV as a Unicode box-drawn table, and open/close collapsible command blocks.
+.TP
+.B clear
+Clear the screen.
+.SS Sessions & config
+.TP
+.B session \fBsave\fR | \fBlist\fR | \fBrm\fR | \fBload\fR \fIname\fR
+Persist and restore cwd, aliases, and exported environment under \fB~/.tash/sessions/\fR.
+.TP
+.B config \fR[\fBget\fR | \fBset\fR | \fBsync\fR \fBinit\fR|\fBremote\fR|\fBpush\fR|\fBpull\fR|\fBdiff\fR]
+Manage configuration, including git-based sync across machines (keeps \fBconfig.toml\fR, themes, alias packs; excludes \fBhistory.db\fR, sessions, sockets).
+.SS AI (when compiled in)
+.TP
+.B @ai \fR[\fIquestion | config | clear | on | off | errors on|off\fR]
+Ask the AI in natural language; configure providers (Gemini, OpenAI, Ollama); clear conversation memory.
+.TP
+.IB "question" ?
+Any line ending in \fB?\fR whose first word is not a valid command is routed to the AI, which generates a shell command you can run, edit, or cancel.
+.PP
+When a command fails, tash may automatically explain the error and suggest a one-keypress fix (disable with \fB@ai errors off\fR).
 .SH OPERATORS
 .TP
 .B &&
@@ -67,35 +129,78 @@ Run next command unconditionally.
 .TP
 .B |
 Pipe stdout of one command to stdin of the next.
+.TP
+.B |>
+Structured-data pipeline (\fBwhere\fR, \fBsort-by\fR, \fBselect\fR, \fBreject\fR, \fBfirst\fR, \fBlast\fR, \fBcount\fR, \fBuniq\fR, \fBto-json\fR, \fBto-csv\fR, \fBto-table\fR).
+.TP
+.B ( ... )
+Subshell — runs commands in a forked child so \fBcd\fR / \fBexport\fR do not leak into the parent. Works inside pipelines.
 .SH REDIRECTION
 .TP
-.B > \fIfile\fR
-Redirect stdout to file (overwrite).
-.TP
-.B >> \fIfile\fR
-Redirect stdout to file (append).
+.B > \fIfile\fR, >> \fIfile\fR
+Redirect stdout (overwrite / append).
 .TP
 .B < \fIfile\fR
-Redirect stdin from file.
+Redirect stdin.
+.TP
+.B 2> \fIfile\fR, 2>&1
+Redirect stderr / merge stderr into stdout.
+.TP
+.B << \fIDELIM\fR, <<- \fIDELIM\fR, <<'\fIDELIM\fR', <<"\fIDELIM\fR"
+Heredocs. The dash form strips leading tabs; quoted delimiter disables \fB$VAR\fR and \fB$(...)\fR expansion inside the body. Supported inside pipelines.
 .SH EXPANSION
 .TP
-.B $VAR \fRor\fB ${VAR}
+.B $VAR, ${VAR}
 Environment variable expansion.
+.TP
+.B $?
+Exit status of the previous command.
+.TP
+.B $$
+PID of the current shell.
+.TP
+.B $(cmd)
+Command substitution.
 .TP
 .B ~
 Home directory expansion.
 .TP
 .B * ? [...]
 Glob/wildcard expansion.
-.SH HISTORY
-.B !!
-repeats the last command.
-.B !n
-runs the nth command from history.
+.SH PLUGIN TOGGLES
+Any bundled provider can be disabled at startup without rebuilding by setting the matching environment variable to any non-zero value:
+\fBTASH_DISABLE_FISH_COMPLETION\fR,
+\fBTASH_DISABLE_FIG_COMPLETION\fR,
+\fBTASH_DISABLE_MANPAGE_COMPLETION\fR,
+\fBTASH_DISABLE_STARSHIP\fR,
+\fBTASH_DISABLE_SQLITE_HISTORY\fR,
+\fBTASH_DISABLE_SAFETY_HOOK\fR,
+\fBTASH_DISABLE_ALIAS_SUGGEST\fR,
+\fBTASH_DISABLE_AI_ERROR_HOOK\fR.
 .SH FILES
 .TP
 .B ~/.tashrc
 Startup commands executed when tash starts interactively.
+.TP
+.B ~/.tash/config.toml
+Configuration file.
+.TP
+.B ~/.tash/history.db
+SQLite-backed history (when compiled with SQLite support).
+.TP
+.B ~/.tash/sessions/
+Persisted sessions.
+.TP
+.B ~/.tash/completions/fig/
+Fig/Amazon Q completion specs.
+.TP
+.B ~/.tash/themes/
+User-supplied themes (augments the bundled set).
+.SH SEE ALSO
+.BR sh (1),
+.BR bash (1),
+.BR zsh (1),
+.BR fish (1)
 .SH AUTHOR
 Amir Mohammad Tavakkoli
 .SH LICENSE

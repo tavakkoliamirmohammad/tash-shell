@@ -13,7 +13,15 @@ ARCH="$(uname -m)"
 
 case "${OS}" in
     Linux)
-        ARTIFACT="tash-linux-amd64"
+        case "${ARCH}" in
+            x86_64|amd64)   ARTIFACT="tash-linux-amd64" ;;
+            aarch64|arm64)  ARTIFACT="tash-linux-arm64" ;;
+            *)
+                echo "Unsupported Linux arch: ${ARCH}"
+                echo "Will try to build from source."
+                ARTIFACT=""
+                ;;
+        esac
         ;;
     Darwin)
         if [ "${ARCH}" = "arm64" ]; then
@@ -28,6 +36,47 @@ case "${OS}" in
         exit 1
         ;;
 esac
+
+# Pick sudo invocation for privileged installs (root in containers has
+# no sudo binary; a regular user on Alpine may only have `doas`).
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+        SUDO="sudo"
+    elif command -v doas >/dev/null 2>&1; then
+        SUDO="doas"
+    fi
+fi
+
+# Install build-time + runtime deps for the source-build fallback.
+# Best-effort: if the package manager isn't recognized we fall through
+# and let cmake surface the missing header. The user's distro may name
+# things differently; that failure is strictly better than a silent
+# degraded build (no AI, no SQLite history) that the user never notices.
+install_build_deps() {
+    echo "Installing build dependencies (cmake + OpenSSL + libcurl + SQLite)..."
+    if command -v apt-get >/dev/null 2>&1; then
+        ${SUDO} apt-get update -y
+        ${SUDO} apt-get install -y cmake g++ make \
+            libssl-dev libcurl4-openssl-dev libsqlite3-dev
+    elif command -v dnf >/dev/null 2>&1; then
+        ${SUDO} dnf install -y cmake gcc-c++ make \
+            openssl-devel libcurl-devel sqlite-devel
+    elif command -v yum >/dev/null 2>&1; then
+        ${SUDO} yum install -y cmake gcc-c++ make \
+            openssl-devel libcurl-devel sqlite-devel
+    elif command -v apk >/dev/null 2>&1; then
+        ${SUDO} apk add --no-cache g++ cmake make linux-headers git \
+            openssl-dev curl-dev sqlite-dev
+    elif command -v pacman >/dev/null 2>&1; then
+        ${SUDO} pacman -Sy --noconfirm cmake gcc make openssl curl sqlite
+    elif command -v brew >/dev/null 2>&1; then
+        brew install cmake openssl@3 curl sqlite
+    else
+        echo "Warning: unknown package manager; install cmake + OpenSSL + libcurl + SQLite manually."
+        echo "See README.md 'Prerequisites' for distro-specific commands."
+    fi
+}
 
 mkdir -p "${INSTALL_DIR}"
 
@@ -46,24 +95,48 @@ else
     LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
 fi
 
-if [ -z "${LATEST}" ]; then
-    echo "No releases found. Building from source..."
+# Build from source as a fallback. Installs deps first so users don't
+# silently get a binary without AI / SQLite history (CMake auto-disables
+# those features when their headers are missing). `channel` picks the
+# tarball — "master" for rolling builds, a tag for tagged releases.
+build_from_source() {
+    local channel="$1"
+    install_build_deps
 
-    if ! command -v cmake &> /dev/null; then
-        echo "Error: cmake not found. Please install cmake."
+    if ! command -v cmake >/dev/null 2>&1; then
+        echo "Error: cmake still not available after install attempt."
+        echo "Install cmake manually and re-run this script."
         exit 1
     fi
 
     TMPDIR=$(mktemp -d)
     cd "${TMPDIR}"
-    curl -sL "https://github.com/${REPO}/archive/refs/heads/master.tar.gz" | tar xz
-    cd tash-shell-master
+    if [ "${channel}" = "master" ]; then
+        curl -sL "https://github.com/${REPO}/archive/refs/heads/master.tar.gz" | tar xz
+        cd tash-shell-master
+    else
+        curl -sL "https://github.com/${REPO}/archive/refs/tags/${channel}.tar.gz" | tar xz
+        cd tash-shell-*
+    fi
     cmake -B build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
-    cmake --build build
+    cmake --build build -j "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 
     echo "Installing to ${INSTALL_DIR}..."
     install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
+    cd - >/dev/null
     rm -rf "${TMPDIR}"
+}
+
+if [ -z "${LATEST}" ]; then
+    echo "No releases found. Building from source..."
+    build_from_source master
+elif [ -z "${ARTIFACT}" ]; then
+    echo "No prebuilt binary available for ${OS} ${ARCH}. Building from source..."
+    if [ "${USE_MASTER}" = "1" ]; then
+        build_from_source master
+    else
+        build_from_source "${LATEST}"
+    fi
 else
     echo "Downloading ${LATEST}..."
     DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/${ARTIFACT}"
@@ -77,22 +150,11 @@ else
     else
         echo "Pre-built binary not available for your platform. Building from source..."
         rm -f "${TMPFILE}"
-
-        TMPDIR=$(mktemp -d)
-        cd "${TMPDIR}"
-        # master channel → master branch tarball; tag channel → tag tarball.
         if [ "${USE_MASTER}" = "1" ]; then
-            curl -sL "https://github.com/${REPO}/archive/refs/heads/master.tar.gz" | tar xz
+            build_from_source master
         else
-            curl -sL "https://github.com/${REPO}/archive/refs/tags/${LATEST}.tar.gz" | tar xz
+            build_from_source "${LATEST}"
         fi
-        cd tash-shell-*
-        cmake -B build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
-        cmake --build build
-
-        echo "Installing to ${INSTALL_DIR}..."
-        install -m 755 build/tash.out "${INSTALL_DIR}/${BINARY_NAME}"
-        rm -rf "${TMPDIR}"
     fi
 fi
 
@@ -184,6 +246,27 @@ esac
 echo ""
 echo "Tash shell installed successfully!"
 echo "Run 'tash' to start the shell, or restart your shell to pick up PATH changes."
+
+# Show which optional features are compiled into the installed binary.
+# AI and SQLite history auto-disable when their headers are missing, so
+# this line is the user's only hint they didn't get a full-featured
+# build. Parse the feature line so we can call out anything compiled
+# out (e.g. `-ai`) in a way that stands out.
+if INSTALLED_INFO=$("${INSTALL_DIR}/${BINARY_NAME}" --version 2>/dev/null); then
+    echo ""
+    echo "${INSTALLED_INFO}"
+    if echo "${INSTALLED_INFO}" | grep -q '\-ai'; then
+        echo ""
+        echo "WARNING: AI features (@ai, ? suffix, error recovery) are NOT compiled in."
+        echo "Reinstall after installing libssl-dev + libcurl dev headers to enable them."
+    fi
+    if echo "${INSTALLED_INFO}" | grep -q '\-sqlite-history'; then
+        echo ""
+        echo "NOTE: SQLite history is not compiled in — falling back to plain ~/.tash_history."
+        echo "Install libsqlite3-dev and reinstall to enable history --here / --failed / stats."
+    fi
+fi
+
 echo ""
 echo "IMPORTANT: Set your terminal font to \"MesloLGS Nerd Font\" for prompt icons to display correctly."
 echo "  - iTerm2:      Preferences > Profiles > Text > Font"

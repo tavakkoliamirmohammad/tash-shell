@@ -5,7 +5,7 @@ A feature-rich Unix shell written in C++ with syntax highlighting, autosuggestio
 [![GitHub stars](https://img.shields.io/github/stars/tavakkoliamirmohammad/tash-shell?style=social)](https://github.com/tavakkoliamirmohammad/tash-shell/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build](https://github.com/tavakkoliamirmohammad/tash-shell/actions/workflows/build.yml/badge.svg)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
-[![Tests](https://img.shields.io/badge/tests-275%20passing-brightgreen)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
+[![Tests](https://img.shields.io/badge/tests-779%20passing-brightgreen)](https://github.com/tavakkoliamirmohammad/tash-shell/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/tavakkoliamirmohammad/tash-shell/pulls)
 
 <!-- TODO: Replace with actual screenshot/GIF of tash in action -->
@@ -16,30 +16,44 @@ A feature-rich Unix shell written in C++ with syntax highlighting, autosuggestio
 - **Syntax highlighting** — commands glow green if valid, red if not, as you type
 - **Autosuggestions** — gray ghost text from history, press `Right` to accept
 - **"Did you mean?"** — typo `gti` suggests `git` via Damerau-Levenshtein distance
-- **Smart completions** — Tab completes builtins, PATH commands, git/docker subcommands, `$VAR` names
-- **Catppuccin Mocha** — a warm, classy color palette across the entire shell
-- **AI powered** — `@ai` generates commands, explains errors, writes scripts (Gemini, OpenAI, or Ollama)
-- **275 automated tests** — Google Test suite covering every feature
+- **Smart completions** — Tab completes builtins, PATH commands, git/docker subcommands, `$VAR` names, plus **1,700+ commands** via Fish + Fig/Amazon Q completion providers and `--help` parsing as a fallback
+- **Configurable themes** — 5 bundled palettes (Catppuccin Mocha/Latte, Tokyo Night, Dracula, Nord), switch live with `theme set <name>`
+- **Plugin architecture** — completion, prompt, history, and hook providers with a priority-based registry (Starship prompt, SQLite history, AI error recovery, safety net, alias reminders…)
+- **AI powered** — `@ai` generates commands, explains errors, writes scripts; `?` suffix routes natural-language questions; automatic AI error recovery on failed commands (Gemini, OpenAI, or Ollama)
+- **Smart history** — SQLite-backed with context (cwd, exit code, duration, hostname); `history --here`, `history --failed`, `history stats`; Atuin bridge
+- **Structured pipelines** — `|>` operator with `where`, `sort-by`, `select`, `to-table`, `to-json`, `to-csv` for JSON data
+- **Block-style output + rich rendering** — collapsible command blocks, OSC 8 clickable URLs, auto-detected tables with Unicode box-drawing
+- **Safety net** — destructive-command detection (`rm -rf /`, `git push --force`, `dd`, `mkfs`…) with confirm prompts
+- **Sessions + config sync** — save/restore named sessions (cwd, aliases, env); git-based config sync across machines
+- **POSIX coverage** — heredocs (`<<`, `<<-`, quoted), subshells `(cmd; cmd)`, per-segment pipeline redirections, `trap` for signals + EXIT
+- **779 automated tests** — Google Test suite (24 unit + 41 integration files) plus libFuzzer parser harness with coverage gate
 
 ## Features
 
 | Category | Features |
 |----------|----------|
 | **Interactive** | Syntax highlighting, autosuggestions (ghost text), `Tab` completion, `Right` to accept hint, `Alt+Right` to accept one word, `Alt+.` to insert last argument |
-| **Execution** | Pipes (`\|`), command substitution (`$(cmd)`), script execution (`tash script.sh`) |
-| **Redirection** | stdout (`>`, `>>`), stdin (`<`), stderr (`2>`, `2>&1`) |
-| **Operators** | `&&` (and), `\|\|` (or), `;` (sequential) |
+| **Completions** | Builtins, PATH, `$VAR`, **Fish** completions (1,056 commands), **Fig/Amazon Q** specs (715 commands), `--help` parsing fallback, `cd`/`pushd` dirs-only, `kill`/`bgkill`/`bgstop`/`bgstart` PID list |
+| **Execution** | Pipes (`\|`), command substitution (`$(cmd)`), script execution (`tash script.sh`), **subshells** `(cmd; cmd)`, **structured `\|>`** pipelines for JSON |
+| **Redirection** | stdout (`>`, `>>`), stdin (`<`), stderr (`2>`, `2>&1`), **heredocs** (`<<`, `<<-`, `<<'DELIM'`), per-segment pipeline redirections |
+| **Operators** | `&&` (and), `\|\|` (or), `;` (sequential), `\|>` (structured) |
 | **Variables** | `$VAR`, `${VAR}`, `$?` (exit status), `$$` (PID), `export`, `unset` |
 | **Expansion** | Glob (`*`, `?`, `[...]`), tilde (`~`), command substitution (`$(...)`) |
 | **Navigation** | `cd`, `cd -`, `pushd`/`popd`/`dirs`, **auto-cd** (type directory name), **`z`** (frecency jump) |
-| **Job Control** | `bg`, `fg`, `bglist`, `bgkill`, `bgstop`, `bgstart` |
-| **Aliases** | `alias ll='ls -la'`, `unalias`, expansion before execution |
-| **History** | Persistent `~/.tash_history`, dedup, ignore-space, `!!`, `!n`, arrow navigation |
+| **Job Control** | `bg`, `fg`, `bglist`, `bgkill`, `bgstop`, `bgstart`, POSIX **`trap`** (signals + EXIT) |
+| **Aliases** | `alias ll='ls -la'`, `unalias`, expansion before execution, **smart reminders** when you forget to use one |
+| **History** | **SQLite-backed** `~/.tash/history.db` with context (cwd, exit code, duration, hostname), `history --here`, `history --failed`, `history stats`, Atuin bridge, dedup, ignore-space, `!!`, `!n`, arrow navigation |
 | **Multiline** | Auto-continue on unclosed quotes or trailing `\|`/`&&`, backslash continuation |
-| **Prompt** | Catppuccin-themed two-line prompt with git branch, dirty/clean status (`+*?`), exit code indicator (green/red `❯`), command duration |
-| **AI** | `@ai <anything>` — ask in natural language, multi-provider (Gemini/OpenAI/Ollama), streaming output, conversation memory, `@ai config` |
-| **Safety** | Ctrl+D protection (double-press), bracketed paste, SIGINT handling |
-| **Config** | `~/.tashrc` loaded on startup |
+| **Prompt** | Two-line prompt with git branch, dirty/clean status (`+*?`), exit code indicator (green/red `❯`), command duration; **Starship** auto-integration; built-in block-style output with collapsible command blocks |
+| **Themes** | 5 bundled palettes (Catppuccin Mocha/Latte, Tokyo Night, Dracula, Nord); `theme list`, `theme set <name>`, `theme preview`; TOML theme files |
+| **Rich output** | OSC 8 **clickable URLs**, auto-detected tables rendered with Unicode box-drawing, markdown export |
+| **AI** | `@ai <anything>` — multi-provider (Gemini/OpenAI/Ollama), streaming output, conversation memory, `@ai config`; **`?` suffix** routes natural-language queries (`find all python files?`); **automatic error recovery** — AI explains failed commands and suggests a one-keypress fix |
+| **Clipboard** | `copy`/`paste` builtins via OSC 52, works over SSH and inside tmux; pbcopy/xclip/wl-copy fallbacks; multi-line paste confirmation |
+| **Sessions** | `tash --persist <name>` / `--attach` / `--sessions` / `--kill` — save/restore cwd, aliases, and env vars |
+| **Config** | `~/.tashrc` loaded on startup, XDG-aware paths (`~/.tash/`, `$XDG_CONFIG_HOME`), **git-based config sync** across machines (`tash sync init/remote/push/pull/diff`) |
+| **Plugin system** | `ICompletionProvider`, `IPromptProvider`, `IHistoryProvider`, `IHookProvider` — priority-based registry dispatches to all registered providers |
+| **Safety** | **Destructive-command detection** (`rm -rf /`, `git push --force`, `dd`, `mkfs`, `chmod -R 777`…), Ctrl+D protection (double-press), bracketed paste, SIGINT handling |
+| **Tooling** | `tash --benchmark` startup profiler, `explain <cmd>` inline docs for 30+ commands, built-in fuzzy finder (no fzf dependency) |
 | **Platform** | Linux (Ubuntu, Fedora, Alpine) and macOS (Intel + ARM) |
 
 ## Quick Start
@@ -59,17 +73,22 @@ cmake -B build && cmake --build build
 
 ```sh
 # Ubuntu/Debian
-sudo apt install libssl-dev libcurl4-openssl-dev
+sudo apt install libssl-dev libcurl4-openssl-dev libsqlite3-dev
 
-# Fedora/RHEL
-sudo dnf install openssl-devel libcurl-devel
+# Fedora/RHEL/Rocky/Alma
+sudo dnf install openssl-devel libcurl-devel sqlite-devel
 
 # Alpine
-apk add openssl-dev curl-dev
+apk add openssl-dev curl-dev sqlite-dev
+
+# Arch
+sudo pacman -S openssl curl sqlite
 
 # macOS — included with Xcode Command Line Tools
 xcode-select --install
 ```
+
+> `install.sh` runs the right `apt`/`dnf`/`apk`/`pacman`/`brew` command automatically when it falls back to a source build, so most users don't need to run any of the above by hand.
 
 ### Install System-Wide
 
@@ -85,12 +104,32 @@ Rolling snapshot of the latest `master` build (bleeding edge):
 curl -sSL https://raw.githubusercontent.com/tavakkoliamirmohammad/tash-shell/master/install.sh | TASH_USE_MASTER=1 bash
 ```
 
+Prebuilt binaries are published for:
+
+| Artifact | Runs on |
+|---|---|
+| `tash-linux-amd64` | Ubuntu 20.04+, Debian 11+, Fedora 30+, RHEL/Rocky/Alma 8+, Amazon Linux 2023, Arch (glibc ≥ 2.28) |
+| `tash-linux-arm64` | Same distros on arm64 — Raspberry Pi 64-bit, AWS Graviton, ARM servers |
+| `tash-macos-arm64` | Apple Silicon (M1/M2/M3/M4), macOS 14+ |
+| `tash-macos-amd64` | Intel Macs, macOS 13+ |
+
+Any other platform falls back to a source build (`install.sh` auto-installs the needed dev headers first).
+
 Or download the binary directly from the [`master-latest` pre-release](https://github.com/tavakkoliamirmohammad/tash-shell/releases/tag/master-latest) — refreshed on every push to `master`.
 
-Or with Homebrew:
+Or with Homebrew (latest tagged release, or `--HEAD` for bleeding-edge master):
 ```sh
-brew install --formula Formula/tash.rb
+brew install --formula Formula/tash.rb         # stable
+brew install --HEAD --formula Formula/tash.rb  # latest master
 ```
+
+After install, verify which features got compiled in:
+```sh
+tash --version
+# tash 2.0.0
+# features: +ai +sqlite-history +fish-completion +fig-completion +manpage-completion +clipboard +themes +trap +heredocs +subshells
+```
+A `-ai` or `-sqlite-history` token means the dev headers weren't present at build time — `install.sh` will flag this and tell you what to install.
 
 ## Usage
 
@@ -243,7 +282,15 @@ The AI remembers context within a session — ask follow-up questions naturally:
 | `pushd dir` | Push directory onto stack and cd. |
 | `popd` | Pop directory from stack and cd. |
 | `dirs` | Show directory stack. |
+| `trap 'cmd' SIG...` | POSIX signal/EXIT handler. `trap` lists, `trap - SIG` resets, `trap '' SIG` ignores. Recognizes EXIT, HUP, INT, QUIT, TERM, USR1, USR2. |
+| `theme list\|set <name>\|preview` | List, switch, or preview color themes. |
+| `explain <cmd> [args]` | Explain a command and its flags (built-in docs for 30+ commands). |
+| `copy [text]` / `paste` | Clipboard via OSC 52 (or `pbcopy`/`xclip`/`wl-copy` fallback). Pipe in or out. |
+| `linkify` / `table` / `block` | Rich output helpers — hyperlink URLs, render tables, collapsible command blocks. |
+| `session save\|list\|rm\|load <name>` | Persist and restore shell state (cwd, aliases, env). |
+| `config [get\|set\|sync...]` | Manage config and git-based config sync across machines. |
 | `@ai <question>` | AI-powered assistant — ask anything in natural language. |
+| `<question>?` | Trailing `?` routes a natural-language query to the AI (e.g., `find all python files larger than 1MB?`). |
 
 ## Architecture
 
@@ -265,24 +312,48 @@ Input → Replxx (highlighting + hints + completion)
 
 ### Source Files
 
-| File | Purpose |
-|------|---------|
-| `main.cpp` | Entry point, replxx setup, command execution loop |
-| `parser.cpp` | Tokenizer, variable/command expansion, redirection parsing |
-| `builtins.cpp` | Dispatch table for 22 built-in commands |
-| `process.cpp` | fork/exec, pipelines, background processes |
-| `completion.cpp` | Tab completion (builtins, PATH, git/docker, $VAR) |
-| `highlight.cpp` | Syntax highlighting + autosuggestion hints |
-| `suggest.cpp` | "Did you mean?" via Damerau-Levenshtein distance |
-| `history.cpp` | Persistent history with dedup and ignore-space |
-| `frecency.cpp` | Frecency-based directory tracking for `z` |
-| `prompt.cpp` | Two-line prompt with git status and command duration |
-| `colors.cpp` | ANSI color wrapper functions |
-| `theme.h` | Catppuccin Mocha color palette definitions |
-| `ai_handler.cpp` | @ai command routing and unified AI handler |
-| `llm_client.cpp` | Multi-provider LLM client (Gemini, OpenAI, Ollama) with streaming |
-| `ai_config.cpp` | Provider config, API key management, rate limiter, usage tracking |
-| `context_suggest.cpp` | Context-aware autosuggestion engine |
+The tree is organized into layers: `src/core/` for shell execution, `src/ui/` for interactive features, `src/plugins/` for provider implementations, `src/util/` for shared infrastructure, and `src/ai/` for LLM integration.
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| **Core** | `src/core/parser.cpp` | Tokenizer, variable/command expansion, redirection parsing (including heredocs) |
+| | `src/core/executor.cpp` | Command-line execution, subshells, per-segment pipeline dispatch |
+| | `src/core/process.cpp` | fork/exec, pipelines, background processes |
+| | `src/core/builtins.cpp` | Dispatch table for all built-in commands |
+| | `src/core/signals.cpp` | Signal handling + POSIX `trap` delivery |
+| | `src/core/session.cpp` | Session save/load/attach |
+| | `src/core/config_sync.cpp` | Git-based config sync (init/remote/push/pull/diff) |
+| | `src/core/structured_pipe.cpp` | `\|>` structured-data pipeline operators |
+| **Builtins** | `src/builtins/{nav,env,bg,history,ui,shell}.cpp` | Grouped builtin implementations |
+| **UI** | `src/ui/completion.cpp` | Tab completion + plugin registry dispatch |
+| | `src/ui/highlight.cpp` | Syntax highlighting + autosuggestion hints |
+| | `src/ui/suggest.cpp` | "Did you mean?" via Damerau-Levenshtein distance |
+| | `src/ui/prompt.cpp` | Two-line prompt with git status and command duration |
+| | `src/ui/fuzzy_finder.cpp` | Built-in fuzzy matching engine |
+| | `src/ui/block_renderer.cpp` | Collapsible block-style command output |
+| | `src/ui/rich_output.cpp` | OSC 8 hyperlinks + Unicode table rendering |
+| | `src/ui/clipboard.cpp` | OSC 52 clipboard copy/paste |
+| | `src/ui/inline_docs.cpp` | `explain` builtin flag database |
+| **Plugins** | `src/plugins/plugin_registry.cpp` | Provider interfaces + priority-based dispatch |
+| | `src/plugins/fish_completion_provider.cpp` | Fish completion file parser (1,056 commands) |
+| | `src/plugins/fig_completion_provider.cpp` | Fig/Amazon Q JSON spec loader (715 commands) |
+| | `src/plugins/manpage_completion_provider.cpp` | `--help` parsing fallback |
+| | `src/plugins/sqlite_history_provider.cpp` | SQLite history + Atuin bridge |
+| | `src/plugins/theme_provider.cpp` | Theme loader + 5 bundled TOML palettes |
+| | `src/plugins/starship_prompt_provider.cpp` | Optional Starship prompt integration |
+| | `src/plugins/alias_suggest_provider.cpp` | "You have an alias for this" reminders |
+| | `src/plugins/safety_hook_provider.cpp` | Destructive-command detection |
+| | `src/plugins/ai_error_hook_provider.cpp` | Automatic AI error recovery |
+| **Util** | `src/util/config_resolver.cpp` | XDG-aware filesystem paths (`~/.tash/`, `$XDG_CONFIG_HOME`) |
+| | `src/util/benchmark.cpp` | Staged startup benchmark (`tash --benchmark`) |
+| | `src/util/theme.cpp` / `colors.cpp` | Color palette + ANSI wrappers |
+| | `src/util/history.cpp` / `frecency.cpp` | Plain-text history + `z` frecency store |
+| **AI** | `src/ai/ai_handler.cpp` | `@ai` command routing and unified handler |
+| | `src/ai/llm_client.cpp` | Multi-provider LLM client (Gemini, OpenAI, Ollama) with streaming |
+| | `src/ai/ai_config.cpp` | Provider config, API keys, rate limiter, usage tracking |
+| | `src/ai/contextual_ai.cpp` | `?` suffix routing with project-type and git context |
+| | `src/ai/context_suggest.cpp` | Context-aware autosuggestion engine |
+| **Entry** | `src/repl.cpp` | REPL loop, replxx setup, heredoc reader |
 
 ## Color Palette
 
@@ -311,9 +382,14 @@ cmake --build build
 ctest --test-dir build --output-on-failure -V
 ```
 
-275 tests across 18 test files using Google Test:
-- **130+ unit tests** — tokenizer, parser, variable expansion, redirections, command suggestions, frecency, AI parser, key management, JSON builders/parsers (Gemini/OpenAI/Ollama), LLM factory, rate limiter, retry logic, context suggestions
-- **140+ integration tests** — pipes, redirection, operators, aliases, scripts, history, auto-cd, z command, "did you mean?", multiline, AI subcommands, provider switching, stderr capture
+779 tests across 65 test files (24 unit + 41 integration) using Google Test:
+- **Core shell** — tokenizer, parser, variable/command expansion, redirections, heredocs, subshells, per-segment pipeline redirections, operators, aliases, auto-cd, `z` frecency, glob edges, unicode paths
+- **Builtins** — full matrix of the builtin dispatch table, plus focused suites for `cd`, `source`, `pushd/popd`, `history`, `trap`, `session`, `copy`/`paste`, `explain`, `theme`, `config sync`
+- **Process & signals** — fork/exec, job control edges, SIGCHLD stress (many short jobs, cap-fill-and-drain), signal handling robustness
+- **Plugins** — registry dispatch/priority/dedup, Fish + Fig completion parsers, man-page `--help` fallback, SQLite history (record, search, migration, large history), themes, Starship, alias reminders, safety hook, AI error recovery
+- **UI** — fuzzy finder scoring, inline docs, block renderer, rich output (OSC 8 + tables), startup benchmark, clipboard (base64 + OSC 52 + multi-line detection)
+- **AI** — parser, key management, Gemini/OpenAI/Ollama JSON builders/parsers, LLM factory, rate limiter, retry logic, context suggestions, `?` suffix routing, live-provider smoke tests
+- **Property + stress** — parser property tests, bulletproofing pass (stress + unicode + property), libFuzzer parser harness with a coverage threshold gate in CI
 
 ## Contributing
 

@@ -31,7 +31,6 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_fig_completion.cpp
     TEST_INCLUDES ${nlohmann_json_SOURCE_DIR}/include
     TEST_PREFIX "unit/fig/"
-    TEST_AI_AWARE
 )
 
 tash_register_plugin(

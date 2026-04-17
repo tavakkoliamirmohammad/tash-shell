@@ -16,6 +16,7 @@
 #include "tash/ui.h"
 #include "theme.h"
 
+#include <cstdio>
 #include <string>
 #include <unistd.h>
 
@@ -24,10 +25,52 @@ using std::string;
 // I/O helpers are inline in tash/core.h so standalone plugin tests
 // (TEST_STANDALONE targets not linked to shell_lib) can resolve them.
 
+// ── --version / --features ─────────────────────────────────────
+//
+// Prints the build's version and which optional features were
+// compiled in. `install.sh` invokes this after install so users see
+// exactly what they got — especially useful because AI and SQLite
+// history compile out silently when their headers are missing.
+// CI lanes assert on the output to catch regressions.
+//
+// Output format is stable (space-separated `+feat` / `-feat` tokens)
+// so scripts can grep it.
+static int print_version_and_features() {
+#ifndef TASH_VERSION_STRING
+#define TASH_VERSION_STRING "unknown"
+#endif
+    std::printf("tash %s\n", TASH_VERSION_STRING);
+    std::printf("features:");
+#ifdef TASH_AI_ENABLED
+    std::printf(" +ai");
+#else
+    std::printf(" -ai");
+#endif
+#ifdef TASH_SQLITE_ENABLED
+    std::printf(" +sqlite-history");
+#else
+    std::printf(" -sqlite-history");
+#endif
+    // Always-on features worth surfacing so users can sanity-check a
+    // build (and so scripts can assert they're present).
+    std::printf(" +fish-completion +fig-completion +manpage-completion");
+    std::printf(" +clipboard +themes +trap +heredocs +subshells");
+    std::printf("\n");
+    return 0;
+}
+
 // ── main ───────────────────────────────────────────────────────
 
 #ifndef TESTING_BUILD
 int main(int argc, char *argv[]) {
+    // `tash --version` / `tash --features` — report build info and exit.
+    if (argc == 2 &&
+        (string(argv[1]) == "--version" ||
+         string(argv[1]) == "-V" ||
+         string(argv[1]) == "--features")) {
+        return print_version_and_features();
+    }
+
     // `tash --benchmark` — print a startup-stage breakdown and exit.
     if (argc == 2 && string(argv[1]) == "--benchmark") {
         return tash::run_benchmark_mode();

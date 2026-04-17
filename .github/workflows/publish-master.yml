@@ -26,41 +26,55 @@ permissions:
 
 jobs:
   build:
+    name: ${{ matrix.artifact }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            container: alpine:latest
+          # Linux amd64 — glibc dynamic, full-featured (AI + SQLite).
+          # Built inside quay.io/pypa/manylinux_2_28_x86_64 (AlmaLinux 8)
+          # so the resulting binary has a glibc 2.28 baseline. That
+          # covers every mainstream distro from the last ~5 years:
+          # Ubuntu 20.04+, Debian 11+, Fedora 30+, RHEL/Rocky/Alma 8+,
+          # Amazon Linux 2023, Arch. Users still need libssl, libcurl,
+          # libsqlite3 at runtime — one `apt/dnf install` on any distro.
+          - os: ubuntu-22.04
+            container: quay.io/pypa/manylinux_2_28_x86_64
             artifact: tash-linux-amd64
-            static: true
+            kind: linux-manylinux
+          # Linux arm64 — same story, aarch64 image on an arm runner.
+          # Covers Raspberry Pi 64-bit, AWS Graviton, ARM servers.
+          - os: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64
+            artifact: tash-linux-arm64
+            kind: linux-manylinux
+          # macOS arm64 — Apple Silicon (M1/M2/M3/M4).
           - os: macos-14
             artifact: tash-macos-arm64
-            static: false
+            kind: macos
+          # macOS amd64 — Intel Macs.
+          - os: macos-13
+            artifact: tash-macos-amd64
+            kind: macos
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || '' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies (Alpine - static musl)
-        # No openssl-dev / libcurl / sqlite on the static lane — `-static`
-        # can't link against their .so files (attempts produce
-        # "attempted static link of dynamic object"), and a clean static
-        # package set covering all three isn't available on Alpine.
-        # Matches release.yml — the Alpine static binary builds without
-        # AI / SQLite, which is acceptable for a rolling master snapshot.
-        if: matrix.static
-        run: apk add --no-cache g++ cmake make linux-headers git
-      - name: Build Release
-        env:
-          STATIC: ${{ matrix.static }}
+
+      - name: Install dependencies (manylinux — dnf on AlmaLinux 8)
+        # manylinux_2_28 is AlmaLinux 8. cmake + openssl + curl + sqlite
+        # dev headers are all in the default repos; the image ships gcc
+        # and git pre-installed.
+        if: matrix.kind == 'linux-manylinux'
         run: |
-          if [ "$STATIC" = "true" ]; then
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
-              -DCMAKE_EXE_LINKER_FLAGS="-static"
-          else
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
-          fi
-          cmake --build build -j
+          dnf install -y cmake gcc-c++ make \
+            openssl-devel libcurl-devel sqlite-devel
+
+      - name: Build Release
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build -j "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+
       - name: Smoke test built binary
         run: echo -e "echo publish_master_ok\nexit" | ./build/tash.out
       - name: Stage binary with final name
