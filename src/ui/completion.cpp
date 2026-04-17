@@ -146,9 +146,10 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
         }
     }
 
-    // PID completion for kill-family builtins. Reads `ps -eo pid,comm=`
-    // (portable across BSD and GNU ps) and emits matching pids with the
-    // command name as the description.
+    // PID completion for kill-family builtins. Try `ps` first for the
+    // command name in the output; fall back to /proc scan (Linux) when
+    // ps is missing — minimal container images often have neither ps
+    // nor procps installed.
     static const std::unordered_set<std::string> kill_cmds = {
         "kill", "bgkill", "bgstop", "bgstart"
     };
@@ -157,7 +158,6 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
         if (p) {
             char buf[512];
             while (fgets(buf, sizeof(buf), p)) {
-                // Line looks like "  1234 some-command". Skip leading ws.
                 char *s = buf;
                 while (*s == ' ' || *s == '\t') s++;
                 char *space = s;
@@ -169,7 +169,26 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
             }
             pclose(p);
         }
-        // kill-family commands only take PIDs — skip file completion.
+        // /proc fallback — if ps produced nothing (e.g. minimal Linux
+        // container), list numeric directories under /proc.
+        if (completions.empty()) {
+            DIR *proc = opendir("/proc");
+            if (proc) {
+                struct dirent *entry;
+                while ((entry = readdir(proc)) != nullptr) {
+                    const char *n = entry->d_name;
+                    bool all_digits = *n != '\0';
+                    for (const char *c = n; *c; ++c) {
+                        if (*c < '0' || *c > '9') { all_digits = false; break; }
+                    }
+                    if (!all_digits) continue;
+                    std::string pid_str(n);
+                    if (pid_str.compare(0, prefix.size(), prefix) != 0) continue;
+                    completions.emplace_back(pid_str, comp_subcmd());
+                }
+                closedir(proc);
+            }
+        }
         return completions;
     }
 
