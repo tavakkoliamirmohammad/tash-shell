@@ -2,6 +2,7 @@
 
 #include "tash/ai.h"
 #include "tash/core.h"
+#include "tash/util/config_resolver.h"
 #include "theme.h"
 #include <fstream>
 #include <sys/stat.h>
@@ -18,25 +19,17 @@ using namespace std;
 // ── XDG config directory ─────────────────────────────────────
 
 string ai_get_config_dir() {
+    // AI-specific escape hatch kept for backward compat; everything else
+    // now goes through tash::config so XDG / TASH_CONFIG_HOME apply uniformly.
     const char *override_dir = getenv("TASH_AI_CONFIG_DIR");
     if (override_dir && override_dir[0] != '\0') return string(override_dir);
-
-    const char *xdg = getenv("XDG_CONFIG_HOME");
-    if (xdg && xdg[0] != '\0') return string(xdg) + "/tash";
-
-    const char *home = getenv("HOME");
-    if (!home) return "";
-    return string(home) + "/.config/tash";
+    return tash::config::get_config_dir();
 }
 
 static bool ensure_config_dir() {
     string dir = ai_get_config_dir();
     if (dir.empty()) return false;
-    // Create parent ~/.config if needed
-    string parent = dir.substr(0, dir.rfind('/'));
-    if (mkdir(parent.c_str(), 0755) != 0 && errno != EEXIST) return false;
-    if (mkdir(dir.c_str(), 0755) != 0 && errno != EEXIST) return false;
-    return true;
+    return tash::config::ensure_dir(dir);
 }
 
 // ── Helper: read single-line file ────────────────────────────

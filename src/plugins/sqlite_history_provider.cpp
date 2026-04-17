@@ -1,4 +1,5 @@
 #include "tash/plugins/sqlite_history_provider.h"
+#include "tash/util/config_resolver.h"
 
 #include <cstdlib>
 #include <ctime>
@@ -11,15 +12,11 @@
 // ── Helpers ───────────────────────────────────────────────────
 
 static std::string default_db_path() {
-    const char *home = std::getenv("HOME");
-    if (!home) return "";
-    return std::string(home) + "/.tash/history.db";
+    return tash::config::get_history_db_path();
 }
 
 static std::string plain_text_history_path() {
-    const char *home = std::getenv("HOME");
-    if (!home) return "";
-    return std::string(home) + "/.tash_history";
+    return tash::config::get_history_file_path();
 }
 
 static bool file_exists(const std::string &path) {

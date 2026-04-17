@@ -1,4 +1,5 @@
 #include "tash/core/config_sync.h"
+#include "tash/util/config_resolver.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -108,14 +109,9 @@ CmdResult run_git_command(const std::string &config_dir,
 // ── get_tash_config_dir ──────────────────────────────────────
 
 std::string get_tash_config_dir() {
-    const char *home = std::getenv("HOME");
-    if (!home) {
-        return "";
-    }
-
-    std::string config_dir = std::string(home) + "/.tash";
+    std::string config_dir = tash::config::get_data_dir();
+    if (config_dir.empty()) return "";
     create_directory(config_dir);
-
     return ensure_trailing_slash(config_dir);
 }
 

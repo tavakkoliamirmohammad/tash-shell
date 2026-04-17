@@ -11,6 +11,13 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME config_resolver
+    TEST_SOURCES tests/unit/test_config_resolver.cpp src/util/config_resolver.cpp
+    TEST_PREFIX "unit/util/"
+    TEST_STANDALONE
+)
+
+tash_register_plugin(
     NAME fish_completion
     SOURCES src/plugins/fish_completion_provider.cpp
     TEST_SOURCES tests/unit/test_fish_completion.cpp
@@ -76,7 +83,7 @@ tash_register_plugin(
     NAME sqlite_history
     SOURCES src/plugins/sqlite_history_provider.cpp
     REQUIRES TASH_SQLITE_ENABLED
-    TEST_SOURCES tests/unit/test_sqlite_history.cpp src/plugins/sqlite_history_provider.cpp
+    TEST_SOURCES tests/unit/test_sqlite_history.cpp src/plugins/sqlite_history_provider.cpp src/util/config_resolver.cpp
     TEST_INCLUDES ${SQLite3_INCLUDE_DIRS}
     TEST_LIBS ${SQLite3_LIBRARIES}
     TEST_PREFIX "unit/sqlite/"

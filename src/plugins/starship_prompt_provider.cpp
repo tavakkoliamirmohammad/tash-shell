@@ -1,4 +1,5 @@
 #include "tash/plugins/starship_prompt_provider.h"
+#include "tash/util/config_resolver.h"
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -82,13 +83,9 @@ bool StarshipPromptProvider::is_available() {
         return true;
     }
 
-    const char *home = getenv("HOME");
-    if (home) {
-        std::string default_config = std::string(home) + "/.config/starship.toml";
-        if (file_exists(default_config)) {
-            available_ = true;
-            return true;
-        }
+    if (file_exists(tash::config::get_starship_config_path())) {
+        available_ = true;
+        return true;
     }
 
     // Starship works without a config file (uses defaults), so binary
