@@ -21,24 +21,8 @@
 
 using std::string;
 
-// ── I/O helpers used across the whole shell ───────────────────
-//
-// Defined here (not in an io.cpp module) because literally every other
-// translation unit calls them and we want exactly one definition in the
-// final binary.
-
-void exit_with_message(const string &message, int exit_status) {
-    if (write(STDERR_FILENO, message.c_str(), message.length())) {}
-    exit(exit_status);
-}
-
-void write_stderr(const string &message) {
-    if (write(STDERR_FILENO, message.c_str(), message.length())) {}
-}
-
-void write_stdout(const string &message) {
-    if (write(STDOUT_FILENO, message.c_str(), message.length())) {}
-}
+// I/O helpers are inline in tash/core.h so standalone plugin tests
+// (TEST_STANDALONE targets not linked to shell_lib) can resolve them.
 
 // ── main ───────────────────────────────────────────────────────
 
