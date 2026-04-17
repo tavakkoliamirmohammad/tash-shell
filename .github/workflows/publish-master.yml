@@ -42,8 +42,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies (Alpine - static musl)
+        # No openssl-dev / libcurl / sqlite on the static lane — `-static`
+        # can't link against their .so files (attempts produce
+        # "attempted static link of dynamic object"), and a clean static
+        # package set covering all three isn't available on Alpine.
+        # Matches release.yml — the Alpine static binary builds without
+        # AI / SQLite, which is acceptable for a rolling master snapshot.
         if: matrix.static
-        run: apk add --no-cache g++ cmake make linux-headers openssl-dev openssl-libs-static curl-dev sqlite-dev git zlib-static
+        run: apk add --no-cache g++ cmake make linux-headers git
       - name: Build Release
         env:
           STATIC: ${{ matrix.static }}
