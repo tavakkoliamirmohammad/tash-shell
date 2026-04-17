@@ -6,6 +6,24 @@
 
 using namespace std;
 
+// Set up a pipe whose read end becomes stdin and whose write end gets
+// the heredoc body. Used by setup_child_io (child) and BuiltinRedir
+// (parent-side builtin). Returns the read-end fd, or -1 on error.
+static int open_heredoc_pipe(const Redirection &r) {
+    int pipefd[2];
+    if (pipe(pipefd) < 0) return -1;
+    // Body size is bounded by what the user typed. For very large bodies
+    // we could fork a writer; for now a single write is fine (most
+    // heredocs are small, and the pipe buffer is usually ≥4KB).
+    const std::string &b = r.heredoc_body;
+    if (!b.empty()) {
+        ssize_t n = write(pipefd[1], b.data(), b.size());
+        (void)n;
+    }
+    close(pipefd[1]);
+    return pipefd[0];
+}
+
 void setup_child_io(const vector<Redirection> &redirections) {
     for (const Redirection &r : redirections) {
         if (r.dup_to_stdout) {
@@ -13,10 +31,19 @@ void setup_child_io(const vector<Redirection> &redirections) {
             continue;
         }
         if (r.fd == 0) {
-            int in = open(r.filename.c_str(), O_RDONLY);
-            if (in < 0) {
-                write_stderr("tash: " + r.filename + ": No such file or directory\n");
-                exit(1);
+            int in;
+            if (r.is_heredoc) {
+                in = open_heredoc_pipe(r);
+                if (in < 0) {
+                    write_stderr("tash: heredoc: pipe failed\n");
+                    exit(1);
+                }
+            } else {
+                in = open(r.filename.c_str(), O_RDONLY);
+                if (in < 0) {
+                    write_stderr("tash: " + r.filename + ": No such file or directory\n");
+                    exit(1);
+                }
             }
             dup2(in, STDIN_FILENO);
             close(in);

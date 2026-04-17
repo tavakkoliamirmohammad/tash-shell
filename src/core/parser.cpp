@@ -275,11 +275,17 @@ string expand_history_bang(const string &line, replxx::Replxx &rx) {
 }
 
 Command parse_redirections(const string &command_str) {
+    return parse_redirections(command_str, nullptr);
+}
+
+Command parse_redirections(const string &command_str,
+                           vector<PendingHeredoc> *bodies) {
     Command cmd;
     string remaining;
     bool in_double_quotes = false;
     bool in_single_quotes = false;
     size_t i = 0;
+    size_t body_index = 0;
 
     while (i < command_str.size()) {
         char c = command_str[i];
@@ -339,6 +345,55 @@ Command parse_redirections(const string &command_str) {
                 if (!fname.empty()) {
                     cmd.redirections.push_back({1, fname, false, false});
                 }
+            }
+            // Check for << (heredoc). Must precede the plain `<` branch.
+            else if (i + 2 <= command_str.size() && command_str.compare(i, 2, "<<") == 0) {
+                i += 2;
+                bool strip_tabs = false;
+                if (i < command_str.size() && command_str[i] == '-') {
+                    strip_tabs = true;
+                    ++i;
+                }
+                while (i < command_str.size() &&
+                       (command_str[i] == ' ' || command_str[i] == '\t')) ++i;
+
+                // Capture the delimiter token. Quoted delim (single or
+                // double) disables variable/command expansion in the body.
+                bool expand = true;
+                std::string delim;
+                if (i < command_str.size() &&
+                    (command_str[i] == '\'' || command_str[i] == '"')) {
+                    char q = command_str[i++];
+                    expand = false;
+                    while (i < command_str.size() && command_str[i] != q) {
+                        delim += command_str[i++];
+                    }
+                    if (i < command_str.size()) ++i; // skip closing quote
+                } else {
+                    while (i < command_str.size() &&
+                           command_str[i] != ' ' && command_str[i] != '\t' &&
+                           command_str[i] != '|' && command_str[i] != '>' &&
+                           command_str[i] != '<') {
+                        delim += command_str[i++];
+                    }
+                }
+
+                Redirection r;
+                r.fd = 0;
+                r.append = false;
+                r.dup_to_stdout = false;
+                r.is_heredoc = true;
+                r.heredoc_delim = delim;
+                r.heredoc_strip_tabs = strip_tabs;
+                r.heredoc_expand = expand;
+
+                // Pull the already-collected body (filled by the REPL /
+                // script reader). Matched by appearance order.
+                if (bodies && body_index < bodies->size()) {
+                    r.heredoc_body = (*bodies)[body_index].body;
+                    ++body_index;
+                }
+                cmd.redirections.push_back(r);
             }
             // Check for <
             else if (c == '<') {
@@ -498,5 +553,71 @@ bool is_input_complete(const string &input) {
         }
     }
 
+    return true;
+}
+
+// ── Heredoc helpers ────────────────────────────────────────────
+//
+// Scan a command line for `<<` / `<<-` markers at top level (outside
+// quotes) and return one PendingHeredoc entry per marker, in order.
+// Bodies stay empty; the caller fills them from the input stream.
+vector<PendingHeredoc> scan_pending_heredocs(const string &line) {
+    vector<PendingHeredoc> pending;
+    bool in_double = false, in_single = false;
+    size_t i = 0;
+    while (i < line.size()) {
+        char c = line[i];
+        if (c == '"' && !in_single) { in_double = !in_double; ++i; continue; }
+        if (c == '\'' && !in_double) { in_single = !in_single; ++i; continue; }
+        if (!in_single && !in_double &&
+            i + 2 <= line.size() && line.compare(i, 2, "<<") == 0) {
+            i += 2;
+            PendingHeredoc h;
+            if (i < line.size() && line[i] == '-') {
+                h.strip_tabs = true;
+                ++i;
+            }
+            while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+            if (i < line.size() && (line[i] == '\'' || line[i] == '"')) {
+                char q = line[i++];
+                h.expand = false;
+                while (i < line.size() && line[i] != q) h.delim += line[i++];
+                if (i < line.size()) ++i;
+            } else {
+                while (i < line.size() &&
+                       line[i] != ' ' && line[i] != '\t' &&
+                       line[i] != '|' && line[i] != '>' && line[i] != '<') {
+                    h.delim += line[i++];
+                }
+            }
+            if (!h.delim.empty()) pending.push_back(h);
+            continue;
+        }
+        ++i;
+    }
+    return pending;
+}
+
+bool collect_heredoc_bodies(vector<PendingHeredoc> &pending,
+                            const std::function<bool(string&)> &read_line) {
+    for (PendingHeredoc &h : pending) {
+        string body;
+        string raw;
+        while (true) {
+            if (!read_line(raw)) return false;
+            // Strip leading tabs when `<<-` form. Applies to both the
+            // body lines and the terminating-delimiter line.
+            string test = raw;
+            if (h.strip_tabs) {
+                size_t k = 0;
+                while (k < test.size() && test[k] == '\t') ++k;
+                test = test.substr(k);
+            }
+            if (test == h.delim) break;
+            body += test;
+            body += '\n';
+        }
+        h.body = body;
+    }
     return true;
 }

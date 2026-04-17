@@ -28,9 +28,21 @@ enum OperatorType {
     OP_SEMICOLON
 };
 
+// Collected heredoc body, one per `<<` seen in a command. Lives here
+// (before CommandSegment) so segments can carry a vector of them.
+struct PendingHeredoc {
+    std::string delim;
+    bool strip_tabs = false;
+    bool expand = true;
+    std::string body;  // populated by the line-reader
+};
+
 struct CommandSegment {
     std::string command;
     OperatorType op;
+    // Heredoc bodies declared by this segment, in appearance order.
+    // Filled by the REPL / script reader before execution.
+    std::vector<PendingHeredoc> heredocs;
 };
 
 // ── Redirection and Command IR ─────────────────────────────────
@@ -40,6 +52,18 @@ struct Redirection {
     std::string filename;
     bool append;
     bool dup_to_stdout;
+
+    // Heredoc fields. When is_heredoc is true, the redirection's body is
+    // streamed from heredoc_body rather than opened from filename.
+    //   heredoc_delim       end-of-body marker (as the user wrote it)
+    //   heredoc_strip_tabs  true for `<<-` form (leading tabs stripped)
+    //   heredoc_expand      false when the delimiter was quoted
+    //   heredoc_body        the accumulated body text (fills after read)
+    bool is_heredoc = false;
+    std::string heredoc_delim;
+    bool heredoc_strip_tabs = false;
+    bool heredoc_expand = true;
+    std::string heredoc_body;
 };
 
 struct Command {
@@ -50,6 +74,7 @@ struct Command {
     std::vector<bool> argv_quoted;
     std::vector<Redirection> redirections;
 };
+
 
 // ── Shell state ────────────────────────────────────────────────
 

@@ -59,8 +59,22 @@ struct BuiltinRedir {
                 continue;
             }
             if (r.fd == 0) {
-                int in = open(r.filename.c_str(), O_RDONLY);
-                if (in < 0) { fail(r.filename); return; }
+                int in;
+                if (r.is_heredoc) {
+                    int pfd[2];
+                    if (pipe(pfd) < 0) { fail("heredoc"); return; }
+                    if (!r.heredoc_body.empty()) {
+                        ssize_t n = write(pfd[1],
+                                          r.heredoc_body.data(),
+                                          r.heredoc_body.size());
+                        (void)n;
+                    }
+                    close(pfd[1]);
+                    in = pfd[0];
+                } else {
+                    in = open(r.filename.c_str(), O_RDONLY);
+                    if (in < 0) { fail(r.filename); return; }
+                }
                 if (saved_stdin == -1) saved_stdin = dup(STDIN_FILENO);
                 dup2(in, STDIN_FILENO);
                 close(in);
@@ -99,7 +113,8 @@ private:
 
 // ── Public: execute a single command segment ──────────────────
 
-int execute_single_command(string command, ShellState &state) {
+int execute_single_command(string command, ShellState &state,
+                           vector<PendingHeredoc> *heredocs) {
     if (command.empty() || command.find_first_not_of(" \t") == string::npos) return 0;
 
     // Backslash prefix bypasses safety/hook checks (e.g. "\rm -rf dir/").
@@ -135,8 +150,18 @@ int execute_single_command(string command, ShellState &state) {
     command = expand_variables(command, state.last_exit_status);
     command = expand_command_substitution(command);
 
-    Command cmd = parse_redirections(command);
+    Command cmd = parse_redirections(command, heredocs);
     if (cmd.argv.empty()) return 0;
+
+    // Unquoted-delimiter heredocs expand $VAR and $(cmd) in the body.
+    // Quoted-delimiter heredocs stay literal.
+    for (auto &r : cmd.redirections) {
+        if (r.is_heredoc && r.heredoc_expand) {
+            r.heredoc_body = expand_variables(r.heredoc_body,
+                                              state.last_exit_status);
+            r.heredoc_body = expand_command_substitution(r.heredoc_body);
+        }
+    }
 
     if (state.aliases.count(cmd.argv[0])) {
         string expanded = state.aliases[cmd.argv[0]];
@@ -158,6 +183,13 @@ int execute_single_command(string command, ShellState &state) {
 
     vector<string> pipe_segments = tokenize_string(command, "|");
     if (pipe_segments.size() > 1) {
+        // Heredocs inside pipelines require per-segment stdin wiring
+        // that the current execute_pipeline doesn't support. Better to
+        // report clearly than to silently drop the body.
+        if (heredocs && !heredocs->empty()) {
+            write_stderr("tash: heredocs in pipelines not yet supported\n");
+            return 1;
+        }
         vector<vector<string>> pipeline_cmds;
         string redirect_file;
         bool redirect_flag = false;
@@ -244,7 +276,12 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
             case OP_SEMICOLON: should_run = true; break;
         }
         if (should_run) {
-            last_exit = execute_single_command(segments[i].command, state);
+            // Segments carry heredoc bodies collected by the REPL /
+            // script reader; pass them down so parse_redirections can
+            // stitch them onto their Redirection entries.
+            std::vector<PendingHeredoc> hd = segments[i].heredocs;
+            last_exit = execute_single_command(
+                segments[i].command, state, hd.empty() ? nullptr : &hd);
             state.last_exit_status = last_exit;
             global_plugin_registry().fire_after_command(
                 segments[i].command, last_exit,
@@ -284,7 +321,31 @@ int execute_script_file(const string &path, ShellState &state) {
             if (!getline(file, next)) break;
             line += next;
         }
+        // Collect heredoc bodies from subsequent script lines before
+        // executing. Same distribution logic as the REPL: scan, read,
+        // stitch onto segments in appearance order.
+        std::vector<PendingHeredoc> all_heredocs = scan_pending_heredocs(line);
+        if (!all_heredocs.empty()) {
+            bool ok = collect_heredoc_bodies(
+                all_heredocs,
+                [&file](std::string &out) -> bool {
+                    return static_cast<bool>(getline(file, out));
+                });
+            if (!ok) {
+                write_stderr("tash: heredoc: unexpected EOF in script\n");
+                return 1;
+            }
+        }
         vector<CommandSegment> segments = parse_command_line(line);
+        size_t bod_idx = 0;
+        for (auto &seg : segments) {
+            auto seg_pending = scan_pending_heredocs(seg.command);
+            for (size_t k = 0; k < seg_pending.size() &&
+                               bod_idx < all_heredocs.size(); ++k, ++bod_idx) {
+                seg_pending[k].body = all_heredocs[bod_idx].body;
+            }
+            seg.heredocs = std::move(seg_pending);
+        }
         execute_command_line(segments, state);
     }
     return 0;
