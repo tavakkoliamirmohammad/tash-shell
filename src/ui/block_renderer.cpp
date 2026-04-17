@@ -94,44 +94,6 @@ static std::string repeat_str(const char *s, int n) {
     return result;
 }
 
-// ── Compute visible length (strip ANSI escape sequences) ──────
-
-static size_t visible_length(const std::string &s) {
-    size_t len = 0;
-    bool in_escape = false;
-    size_t i = 0;
-    while (i < s.size()) {
-        unsigned char c = static_cast<unsigned char>(s[i]);
-        if (c == 0x1B) {
-            in_escape = true;
-            ++i;
-            continue;
-        }
-        if (in_escape) {
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
-                in_escape = false;
-            }
-            ++i;
-            continue;
-        }
-        // Count UTF-8 characters (not bytes)
-        if (c < 0x80) {
-            ++len;
-        } else if ((c & 0xE0) == 0xC0) {
-            ++len;
-            i += 1; // skip continuation byte
-        } else if ((c & 0xF0) == 0xE0) {
-            ++len;
-            i += 2; // skip 2 continuation bytes
-        } else if ((c & 0xF8) == 0xF0) {
-            ++len;
-            i += 3; // skip 3 continuation bytes
-        }
-        ++i;
-    }
-    return len;
-}
-
 // ── Block header rendering ────────────────────────────────────
 //
 // Format: "─── <command> ──────────── <duration> <status> ───"

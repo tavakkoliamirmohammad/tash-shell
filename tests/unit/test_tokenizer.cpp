@@ -714,7 +714,7 @@ TEST(CompletionCallback, FileCompletionListsCwd) {
 
     // cd into the temp dir so "." resolves to it
     char *old_cwd = getcwd(nullptr, 0);
-    chdir(tmpdir.c_str());
+    if (chdir(tmpdir.c_str())) {}
 
     int ctx = 0;
     auto results = completion_callback("ls ", ctx);
@@ -724,7 +724,7 @@ TEST(CompletionCallback, FileCompletionListsCwd) {
         << "should complete directory with trailing slash";
 
     // Cleanup
-    chdir(old_cwd);
+    if (chdir(old_cwd)) {}
     free(old_cwd);
     remove(filepath.c_str());
     rmdir(subdir.c_str());
@@ -743,7 +743,7 @@ TEST(CompletionCallback, FileCompletionWithPrefix) {
     fp = fopen(f3.c_str(), "w"); if (fp) fclose(fp);
 
     char *old_cwd = getcwd(nullptr, 0);
-    chdir(tmpdir.c_str());
+    if (chdir(tmpdir.c_str())) {}
 
     int ctx = 0;
     auto results = completion_callback("cat al", ctx);
@@ -755,7 +755,7 @@ TEST(CompletionCallback, FileCompletionWithPrefix) {
         << "'al' prefix should not match beta.cpp";
     EXPECT_EQ(ctx, 2) << "context_len should be length of 'al'";
 
-    chdir(old_cwd);
+    if (chdir(old_cwd)) {}
     free(old_cwd);
     remove(f1.c_str());
     remove(f2.c_str());
@@ -794,7 +794,7 @@ TEST(CompletionCallback, HiddenFilesOnlyWhenDotPrefix) {
     fp = fopen(visible.c_str(), "w"); if (fp) fclose(fp);
 
     char *old_cwd = getcwd(nullptr, 0);
-    chdir(tmpdir.c_str());
+    if (chdir(tmpdir.c_str())) {}
 
     // Without dot prefix — hidden file should NOT appear
     int ctx = 0;
@@ -809,7 +809,7 @@ TEST(CompletionCallback, HiddenFilesOnlyWhenDotPrefix) {
     EXPECT_TRUE(completions_contain(r2, ".hidden"))
         << "hidden files should appear with dot prefix";
 
-    chdir(old_cwd);
+    if (chdir(old_cwd)) {}
     free(old_cwd);
     remove(hidden.c_str());
     remove(visible.c_str());
@@ -828,7 +828,7 @@ TEST(CompletionCallback, CdCompletesDirectoriesOnly) {
     mkdir(sub.c_str(), 0755);
 
     char *old_cwd = getcwd(nullptr, 0);
-    chdir(tmpdir.c_str());
+    if (chdir(tmpdir.c_str())) {}
 
     int ctx = 0;
     auto results = completion_callback("cd some", ctx);
@@ -843,7 +843,7 @@ TEST(CompletionCallback, CdCompletesDirectoriesOnly) {
     EXPECT_TRUE(completions_contain(presults, "some_dir/"));
     EXPECT_FALSE(completions_contain(presults, "some_file.txt"));
 
-    chdir(old_cwd);
+    if (chdir(old_cwd)) {}
     free(old_cwd);
     remove(file1.c_str());
     rmdir(sub.c_str());

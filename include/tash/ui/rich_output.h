@@ -15,7 +15,7 @@ bool is_url(const std::string &token);
 
 /// Find URLs matching https?://[^\s<>"]+  in the text and wrap each with
 /// OSC 8 hyperlink escape sequences:
-///   \033]8;;URL\033\\TEXT\033]8;;\033\\
+///   ESC ] 8 ; ; URL ESC \ TEXT ESC ] 8 ; ; ESC \
 /// Non-URL text is returned unchanged.
 std::string linkify_urls(const std::string &text);
 

@@ -26,31 +26,6 @@ bool starts_with(const std::string &s, const std::string &prefix) {
            s.compare(0, prefix.size(), prefix) == 0;
 }
 
-// Check if string contains substring
-bool contains(const std::string &s, const std::string &sub) {
-    return s.find(sub) != std::string::npos;
-}
-
-// Check if rm flags contain both 'r' and 'f' (in any order)
-// flags is the token after "rm" that starts with '-'
-bool rm_flags_have_rf(const std::string &flags) {
-    bool has_r = false;
-    bool has_f = false;
-    for (size_t i = 1; i < flags.size(); ++i) {
-        if (flags[i] == 'r' || flags[i] == 'R') has_r = true;
-        if (flags[i] == 'f') has_f = true;
-    }
-    return has_r && has_f;
-}
-
-// Check if rm flags contain 'r' (recursive)
-bool rm_flags_have_r(const std::string &flags) {
-    for (size_t i = 1; i < flags.size(); ++i) {
-        if (flags[i] == 'r' || flags[i] == 'R') return true;
-    }
-    return false;
-}
-
 // Simple tokenizer: split on whitespace
 std::vector<std::string> tokenize(const std::string &s) {
     std::vector<std::string> tokens;

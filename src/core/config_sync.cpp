@@ -31,21 +31,8 @@ static bool directory_exists(const std::string &path) {
     return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-static bool file_exists(const std::string &path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-}
-
 static bool create_directory(const std::string &path) {
     return mkdir(path.c_str(), 0755) == 0 || directory_exists(path);
-}
-
-static std::string read_file(const std::string &path) {
-    std::ifstream ifs(path);
-    if (!ifs.is_open()) return "";
-    std::ostringstream oss;
-    oss << ifs.rdbuf();
-    return oss.str();
 }
 
 static bool write_file(const std::string &path, const std::string &content) {
