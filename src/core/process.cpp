@@ -233,9 +233,16 @@ void background_process(const vector<string> &argv,
 }
 
 void check_background_process_finished(unordered_map<pid_t, string> &background_processes) {
-    int status;
-    pid_t pid_finished = waitpid(-1, &status, WNOHANG | WCONTINUED | WUNTRACED);
-    if (pid_finished > 0) {
+    // Drain all ready children in one call. Unix signals coalesce —
+    // if 5 SIGCHLDs arrive while blocked, only one delivery is
+    // observable. Previously this reaped a single pid per invocation,
+    // which left zombies in the tracking map after batch completions
+    // and eventually tripped the max-bg cap. Loop with WNOHANG until
+    // waitpid reports no-more-ready.
+    while (true) {
+        int status;
+        pid_t pid_finished = waitpid(-1, &status, WNOHANG | WCONTINUED | WUNTRACED);
+        if (pid_finished <= 0) break;
         if (WIFCONTINUED(status)) {
             write_stdout("Background process with " + to_string(pid_finished) + " Continued\n");
         } else if (WIFSTOPPED(status)) {

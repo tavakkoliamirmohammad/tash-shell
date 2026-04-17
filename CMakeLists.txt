@@ -180,6 +180,11 @@ if(BUILD_TESTS)
     target_link_libraries(test_tokenizer GTest::gtest_main shell_lib)
     gtest_discover_tests(test_tokenizer TEST_PREFIX "unit/")
 
+    add_executable(test_parser_properties tests/unit/test_parser_properties.cpp)
+    target_include_directories(test_parser_properties PRIVATE ${TASH_INCLUDE_DIRS})
+    target_link_libraries(test_parser_properties GTest::gtest_main shell_lib)
+    gtest_discover_tests(test_parser_properties TEST_PREFIX "unit/")
+
     # Create all plugin tests declared via tash_register_plugin(TEST_SOURCES ...)
     tash_finalize_plugin_tests()
 
