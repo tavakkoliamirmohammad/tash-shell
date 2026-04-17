@@ -150,7 +150,7 @@ int execute_single_command(string command, ShellState &state) {
         cmd.argv = new_tokens;
     }
 
-    cmd.argv = expand_globs(cmd.argv);
+    cmd.argv = expand_globs(cmd.argv, cmd.argv_quoted);
 
     if (!cmd.argv.empty() && state.colorful_commands.count(cmd.argv[0])) {
         cmd.argv.insert(cmd.argv.begin() + 1, COLOR_FLAG);

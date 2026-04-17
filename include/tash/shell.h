@@ -44,6 +44,10 @@ struct Redirection {
 
 struct Command {
     std::vector<std::string> argv;
+    // One entry per argv element: true when the raw token was enclosed in
+    // single/double quotes (e.g. `echo '*'` → argv[1] = "*", quoted[1] = true).
+    // Glob expansion must skip quoted tokens so `echo '*'` stays literal.
+    std::vector<bool> argv_quoted;
     std::vector<Redirection> redirections;
 };
 
