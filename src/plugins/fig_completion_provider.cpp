@@ -1,5 +1,3 @@
-#ifdef TASH_AI_ENABLED
-
 #include "tash/plugins/fig_completion_provider.h"
 #include "tash/util/config_resolver.h"
 #include <fstream>
@@ -427,5 +425,3 @@ std::vector<Completion> FigCompletionProvider::extract_arguments(
 
     return results;
 }
-
-#endif // TASH_AI_ENABLED

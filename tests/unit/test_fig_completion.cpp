@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#ifdef TASH_AI_ENABLED
-
 #include "tash/plugins/fig_completion_provider.h"
 #include "tash/shell.h"
 
@@ -293,12 +291,3 @@ TEST_F(FigProviderTest, EmptySpecDir) {
     std::string cmd = "rm -rf " + empty_dir;
     if (system(cmd.c_str())) {}
 }
-
-#else // !TASH_AI_ENABLED
-
-// When AI is disabled, Fig tests are skipped but the binary still compiles
-TEST(FigCompletionDisabled, SkippedWithoutAI) {
-    GTEST_SKIP() << "Fig completion requires TASH_AI_ENABLED";
-}
-
-#endif // TASH_AI_ENABLED

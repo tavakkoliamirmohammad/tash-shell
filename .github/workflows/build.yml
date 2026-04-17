@@ -35,6 +35,18 @@ jobs:
           ctest --test-dir build --output-on-failure -j "$JOBS"
       - name: Smoke test
         run: echo -e "pwd\nls\necho hello\nexit" | ./build/tash.out
+      - name: Assert full feature set
+        # Every lane with OpenSSL + libcurl + SQLite installed should
+        # produce a binary that reports +ai and +sqlite-history. Catches
+        # the class of bug where a well-meaning refactor silently drops
+        # a feature because CMake couldn't find a header.
+        run: |
+          FEATURES=$(./build/tash.out --version)
+          echo "$FEATURES"
+          echo "$FEATURES" | grep -q '+ai' \
+            || { echo "FAIL: AI not compiled in on full-deps lane"; exit 1; }
+          echo "$FEATURES" | grep -q '+sqlite-history' \
+            || { echo "FAIL: SQLite history not compiled in on full-deps lane"; exit 1; }
       - name: Test install script (from-source path)
         run: |
           INSTALL_DIR=${{ runner.temp }}/tash-install
@@ -92,6 +104,26 @@ jobs:
           cmake --build install-build -j "$(getconf _NPROCESSORS_ONLN)"
           install -m 755 install-build/tash.out /usr/local/bin/tash
           echo -e "echo install_test\nexit" | /usr/local/bin/tash
+
+  # No-AI static build — mirrors the Alpine static lane in
+  # publish-master.yml. Catches regressions where a non-AI source file
+  # references something behind `#ifdef TASH_AI_ENABLED` (or any feature
+  # behind `#ifdef TASH_SQLITE_ENABLED`) before merge, not after.
+  # Without this, only the rolling publish job notices — too late.
+  build-alpine-static-no-ai:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps (no AI/SQLite — matches publish-master static lane)
+        run: apk add --no-cache g++ cmake make linux-headers git
+      - name: Build Release (static, no AI/SQLite)
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static"
+          cmake --build build -j "$(getconf _NPROCESSORS_ONLN)"
+      - name: Smoke test static binary
+        run: echo -e "echo static_no_ai_ok\nexit" | ./build/tash.out
 
   sanitizer:
     strategy:

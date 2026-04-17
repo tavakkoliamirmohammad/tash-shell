@@ -95,10 +95,14 @@ static void print_banner() {
     write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_LOGO + "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" CAT_RESET "          " + BANNER_FRAME + "║" CAT_RESET "\n");
     write_stdout(BANNER_FRAME + "   ║" CAT_RESET "                                              " + BANNER_FRAME + "║" CAT_RESET "\n");
     write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_TITLE + "Tavakkoli's Shell" CAT_RESET " " CAT_DIM "───" CAT_RESET " " + BANNER_VERSION + "v" TASH_VERSION_STRING CAT_RESET "               " + BANNER_FRAME + "║" CAT_RESET "\n");
-    write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "▸ syntax highlighting  ▸ autosuggestions" CAT_RESET "   " + BANNER_FRAME + "║" CAT_RESET "\n");
-    write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "▸ smart completions    ▸ catppuccin theme" CAT_RESET "  " + BANNER_FRAME + "║" CAT_RESET "\n");
+    // Discovery hints instead of a feature list — feature lists on a
+    // banner rot, cost screen every launch, and experienced users skip
+    // them. Point at where features actually live (the man page, the
+    // --features flag, the AI entrypoints) and let users pull what
+    // they want.
+    write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "man tash " CAT_DIM "·" CAT_RESET " " + BANNER_FEATURE + "tash --features" CAT_RESET "                 " + BANNER_FRAME + "║" CAT_RESET "\n");
 #ifdef TASH_AI_ENABLED
-    write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "▸ AI powered          ▸ @ai to get started" CAT_RESET " " + BANNER_FRAME + "║" CAT_RESET "\n");
+    write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "@ai <question>" CAT_RESET " or " + BANNER_FEATURE + "question?" CAT_RESET " for AI help    " + BANNER_FRAME + "║" CAT_RESET "\n");
 #endif
     write_stdout(BANNER_FRAME + "   ║" CAT_RESET "                                              " + BANNER_FRAME + "║" CAT_RESET "\n");
     write_stdout(BANNER_FRAME + "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
