@@ -103,10 +103,12 @@ else
     LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
 fi
 
-# Build from source as a fallback. Installs deps first so users don't
-# silently get a binary without AI / SQLite history (CMake auto-disables
-# those features when their headers are missing). `channel` picks the
-# tarball — "master" for rolling builds, a tag for tagged releases.
+# Build from source as a fallback. Installs deps first so configure
+# doesn't fail on missing libcurl (hard dependency — find_package
+# errors out at configure if it's absent) and users don't silently
+# get a binary without SQLite history (still auto-disables when its
+# header is missing). `channel` picks the tarball — "master" for
+# rolling builds, a tag for tagged releases.
 build_from_source() {
     local channel="$1"
     install_build_deps
