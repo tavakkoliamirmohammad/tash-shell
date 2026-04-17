@@ -247,6 +247,26 @@ int run_interactive(ShellState &state) {
             raw_line += "\n" + string(cont);
         }
 
+        // Heredoc body collection. If the user typed `cmd <<EOF`, prompt
+        // for body lines at "heredoc> " until each declared delimiter is
+        // seen. Bodies get stitched onto segments below so
+        // parse_redirections can attach them to their Redirection.
+        std::vector<PendingHeredoc> all_heredocs = scan_pending_heredocs(raw_line);
+        if (!all_heredocs.empty()) {
+            bool ok = collect_heredoc_bodies(
+                all_heredocs,
+                [&rx](std::string &out) -> bool {
+                    char const *hl = rx.input("heredoc> ");
+                    if (!hl) return false;
+                    out = hl;
+                    return true;
+                });
+            if (!ok) {
+                write_stderr("tash: heredoc: unexpected EOF\n");
+                continue;
+            }
+        }
+
         for (size_t i = 0; i < raw_line.size(); i++) {
             if (raw_line[i] == '\n') raw_line[i] = ';';
         }
@@ -303,6 +323,18 @@ int run_interactive(ShellState &state) {
 
         double start_time = get_time_s();
         vector<CommandSegment> segments = parse_command_line(expanded);
+        // Distribute collected heredoc bodies across segments by
+        // appearance order (segments left-to-right, each pulling as
+        // many bodies as its command declares).
+        size_t bod_idx = 0;
+        for (auto &seg : segments) {
+            auto seg_pending = scan_pending_heredocs(seg.command);
+            for (size_t k = 0; k < seg_pending.size() &&
+                               bod_idx < all_heredocs.size(); ++k, ++bod_idx) {
+                seg_pending[k].body = all_heredocs[bod_idx].body;
+            }
+            seg.heredocs = std::move(seg_pending);
+        }
         execute_command_line(segments, state);
 
         state.last_command_text = expanded;

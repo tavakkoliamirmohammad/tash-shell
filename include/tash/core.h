@@ -5,6 +5,7 @@
 
 #include <sstream>
 #include <iostream>
+#include <functional>
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <regex>
@@ -32,7 +33,21 @@ std::string strip_quotes(const std::string &s);
 std::vector<CommandSegment> parse_command_line(const std::string &line);
 std::string expand_history_bang(const std::string &line, replxx::Replxx &rx);
 Command parse_redirections(const std::string &command_str);
+Command parse_redirections(const std::string &command_str,
+                           std::vector<PendingHeredoc> *bodies);
 bool is_input_complete(const std::string &input);
+
+// Walk a full command line (post-replxx input, pre-segment-split) and
+// return an ordered list of heredoc markers it declares. Caller uses
+// this to know whether more input lines must be read to form the body.
+std::vector<PendingHeredoc> scan_pending_heredocs(const std::string &line);
+
+// Read body lines from `read_line` until each pending heredoc's
+// delimiter appears alone on a line. Returns true on success, false if
+// the stream ran out before all delimiters were satisfied. Performs
+// leading-tab stripping for `<<-` forms.
+bool collect_heredoc_bodies(std::vector<PendingHeredoc> &pending,
+                            const std::function<bool(std::string&)> &read_line);
 
 // ── builtins.cpp ───────────────────────────────────────────────
 
@@ -75,7 +90,8 @@ inline void exit_with_message(const std::string &message, int exit_status) {
 
 // ── main.cpp ───────────────────────────────────────────────────
 
-int execute_single_command(std::string command, ShellState &state);
+int execute_single_command(std::string command, ShellState &state,
+                           std::vector<PendingHeredoc> *heredocs = nullptr);
 void execute_command_line(const std::vector<CommandSegment> &segments, ShellState &state);
 int execute_script_file(const std::string &path, ShellState &state);
 
