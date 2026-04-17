@@ -192,10 +192,13 @@ string expand_command_substitution(const string &input) {
     return result;
 }
 
-vector<string> expand_globs(const vector<string> &args) {
+vector<string> expand_globs(const vector<string> &args,
+                             const vector<bool> &quoted) {
     vector<string> expanded;
-    for (const string &arg : args) {
-        if (arg.find_first_of("*?[") != string::npos) {
+    for (size_t idx = 0; idx < args.size(); ++idx) {
+        const string &arg = args[idx];
+        bool is_quoted = (idx < quoted.size()) ? quoted[idx] : false;
+        if (!is_quoted && arg.find_first_of("*?[") != string::npos) {
             glob_t glob_result;
             int ret = glob(arg.c_str(), GLOB_NOCHECK | GLOB_TILDE, nullptr, &glob_result);
             if (ret == 0) {
@@ -211,6 +214,11 @@ vector<string> expand_globs(const vector<string> &args) {
         }
     }
     return expanded;
+}
+
+vector<string> expand_globs(const vector<string> &args) {
+    // Back-compat overload for callers that have no quote information.
+    return expand_globs(args, vector<bool>{});
 }
 
 string strip_quotes(const string &s) {
@@ -356,13 +364,40 @@ Command parse_redirections(const string &command_str) {
         }
     }
 
-    // Now tokenize the remaining command string into argv
+    // Tokenize the command body, then record whether each token was
+    // originally enclosed in quotes so expand_globs can skip it. Also
+    // un-escape any backslash-escaped glob metacharacters and mark the
+    // token quoted (literal) when such escapes are present.
     vector<string> tokens = tokenize_string(remaining, " ");
+    cmd.argv.reserve(tokens.size());
+    cmd.argv_quoted.reserve(tokens.size());
     for (string &t : tokens) {
+        bool was_quoted = false;
+        if (t.size() >= 2 &&
+            ((t.front() == '"' && t.back() == '"') ||
+             (t.front() == '\'' && t.back() == '\''))) {
+            was_quoted = true;
+        }
         t = expand_tilde(t);
         t = strip_quotes(t);
+        // Un-escape `\*` / `\?` / `\[` so the character stays literal
+        // through expand_globs.
+        string unescaped;
+        unescaped.reserve(t.size());
+        for (size_t k = 0; k < t.size(); ++k) {
+            if (t[k] == '\\' && k + 1 < t.size() &&
+                (t[k + 1] == '*' || t[k + 1] == '?' ||
+                 t[k + 1] == '[' || t[k + 1] == '\\')) {
+                unescaped += t[k + 1];
+                was_quoted = true;   // treat escaped-metachar as literal
+                ++k;
+            } else {
+                unescaped += t[k];
+            }
+        }
+        cmd.argv.push_back(unescaped);
+        cmd.argv_quoted.push_back(was_quoted);
     }
-    cmd.argv = tokens;
 
     return cmd;
 }

@@ -24,6 +24,8 @@ std::vector<std::string> tokenize_string(std::string line, const std::string &de
 std::string expand_variables(const std::string &input, int last_exit_status);
 std::string expand_command_substitution(const std::string &input);
 std::vector<std::string> expand_globs(const std::vector<std::string> &args);
+std::vector<std::string> expand_globs(const std::vector<std::string> &args,
+                                       const std::vector<bool> &quoted);
 std::string expand_tilde(const std::string &token);
 std::string strip_quotes(const std::string &s);
 std::vector<CommandSegment> parse_command_line(const std::string &line);

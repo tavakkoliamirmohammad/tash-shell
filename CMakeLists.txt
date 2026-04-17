@@ -209,6 +209,12 @@ if(BUILD_TESTS)
         tests/integration/test_pipeline.cpp
         tests/integration/test_live_providers.cpp
         tests/integration/test_config_override.cpp
+        tests/integration/test_source.cpp
+        tests/integration/test_dir_stack.cpp
+        tests/integration/test_job_control_edges.cpp
+        tests/integration/test_mixed_pipelines.cpp
+        tests/integration/test_glob_edges.cpp
+        tests/integration/test_signal_handling.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests

@@ -176,6 +176,10 @@ int foreground_process(const vector<string> &argv,
 void background_process(const vector<string> &argv,
                         ShellState &state,
                         const vector<Redirection> &redirections) {
+    if (argv.size() < 2) {
+        write_stderr("bg: usage: bg <command> [args...]\n");
+        return;
+    }
     if ((int)state.background_processes.size() >= state.max_background_processes) {
         write_stderr("Error: Maximum number of background processes\n");
         return;
