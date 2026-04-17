@@ -81,6 +81,26 @@ int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
 int execute_pipeline(std::vector<PipelineSegment> &segments,
                      ShellState *state);
 
+// ── Safety-hook-aware command execution ────────────────────────
+//
+// Runs `raw_cmd` via /bin/sh -c with stdout captured, after firing the
+// plugin registry's before_command hooks. If a hook sets
+// state.skip_execution, the command does not run and `skipped=true` is
+// returned. after_command hooks fire even for non-zero exits so AI
+// recovery / logging providers see the result.
+//
+// Used by expand_command_substitution ($(...)) and structured pipelines
+// (|>) so that hooks see the inner command they would otherwise miss.
+// The raw captured stdout is returned verbatim; callers strip trailing
+// newlines if their context requires it.
+struct HookedCaptureResult {
+    int exit_code;
+    std::string captured_stdout;
+    bool skipped;
+};
+HookedCaptureResult run_command_with_hooks_capture(const std::string &raw_cmd,
+                                                    ShellState &state);
+
 // ── I/O primitives ─────────────────────────────────────────────
 //
 // Defined inline so plugin tests that don't link shell_lib (e.g.

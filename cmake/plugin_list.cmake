@@ -198,3 +198,9 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_heredoc_large.cpp
     TEST_PREFIX "unit/core/"
 )
+
+tash_register_plugin(
+    NAME hooked_capture
+    TEST_SOURCES tests/unit/test_hooked_capture.cpp
+    TEST_PREFIX "unit/core/"
+)

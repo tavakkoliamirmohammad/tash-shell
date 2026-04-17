@@ -10,6 +10,7 @@
 #include "tash/ui.h"
 #include "theme.h"
 
+#include <cerrno>
 #include <cstring>
 #include <sys/stat.h>
 
@@ -102,6 +103,83 @@ private:
     }
 };
 } // namespace
+
+// ── Hook-aware captured-stdout command execution ──────────────
+//
+// Drop-in replacement for the `popen(cmd, "r")` calls scattered across
+// command-substitution and structured-pipeline paths. Runs `raw_cmd`
+// via /bin/sh -c after firing before_command hooks so the safety hook
+// can block dangerous inner commands and after_command fires for AI
+// error recovery. Caller strips trailing newlines.
+HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
+                                                    ShellState &state) {
+    HookedCaptureResult result{0, "", false};
+
+    global_plugin_registry().fire_before_command(raw_cmd, state);
+    if (state.skip_execution) {
+        // Matches the skip convention in execute_single_command: reset
+        // the flag and return exit_code 1 without running the command.
+        state.skip_execution = false;
+        result.exit_code = 1;
+        result.skipped = true;
+        return result;
+    }
+
+    int pfd[2];
+    if (::pipe(pfd) < 0) {
+        write_stderr("tash: run_command_with_hooks_capture: pipe failed\n");
+        result.exit_code = 1;
+        return result;
+    }
+
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(pfd[0]);
+        ::close(pfd[1]);
+        write_stderr("tash: run_command_with_hooks_capture: fork failed\n");
+        result.exit_code = 1;
+        return result;
+    }
+
+    if (pid == 0) {
+        // Child: replace stdout with the pipe write end, exec /bin/sh.
+        // _exit (not exit) avoids flushing the parent's inherited stdio
+        // buffers a second time.
+        ::close(pfd[0]);
+        ::dup2(pfd[1], STDOUT_FILENO);
+        ::close(pfd[1]);
+        ::execl("/bin/sh", "sh", "-c", raw_cmd.c_str(), (char *)nullptr);
+        _exit(127);
+    }
+
+    // Parent: drain the pipe before waitpid to avoid deadlock on large
+    // outputs (the kernel pipe buffer is finite).
+    ::close(pfd[1]);
+    char buf[4096];
+    ssize_t n;
+    while ((n = ::read(pfd[0], buf, sizeof(buf))) > 0) {
+        result.captured_stdout.append(buf, static_cast<size_t>(n));
+    }
+    ::close(pfd[0]);
+
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) break;
+    }
+
+    // Exit-code convention matches foreground_process (process.cpp:220).
+    if (WIFEXITED(status))       result.exit_code = WEXITSTATUS(status);
+    else if (WIFSIGNALED(status)) result.exit_code = 128 + WTERMSIG(status);
+    else                          result.exit_code = 0;
+
+    // The 3-arg fire_before_command has no stderr equivalent; we pass
+    // empty string to the 4-arg after_command so AI-error-recovery sees
+    // a non-trigger case and skips. Future work (Task 10) could capture
+    // stderr here too, but Tasks 8/9 don't need it.
+    global_plugin_registry().fire_after_command(raw_cmd, result.exit_code,
+                                                 "", state);
+    return result;
+}
 
 // ── Public: execute a single command segment ──────────────────
 
