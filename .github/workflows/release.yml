@@ -32,11 +32,6 @@ jobs:
           - os: macos-14
             artifact: tash-macos-arm64
             kind: macos
-          # macOS amd64 — Intel Macs (macos-13 is the last GitHub-
-          # hosted Intel runner).
-          - os: macos-13
-            artifact: tash-macos-amd64
-            kind: macos
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || '' }}
     steps:

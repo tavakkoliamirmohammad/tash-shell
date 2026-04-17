@@ -26,8 +26,15 @@ case "${OS}" in
     Darwin)
         if [ "${ARCH}" = "arm64" ]; then
             ARTIFACT="tash-macos-arm64"
+        elif [ "${ARCH}" = "x86_64" ]; then
+            echo "Note: Intel Macs are no longer a first-class target."
+            echo "Installing the arm64 build — it will run under Rosetta 2."
+            echo "If Rosetta 2 is not installed, run: softwareupdate --install-rosetta"
+            ARTIFACT="tash-macos-arm64"
         else
-            ARTIFACT="tash-macos-amd64"
+            echo "Unsupported macOS arch: ${ARCH}"
+            echo "Please build from source: cmake -B build && cmake --build build"
+            exit 1
         fi
         ;;
     *)
