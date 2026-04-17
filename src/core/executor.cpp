@@ -159,40 +159,46 @@ int execute_single_command(string command, ShellState &state,
                 write_stderr("tash: unmatched '(' in subshell\n");
                 return 1;
             }
-            // Reject pipelined subshells for now; execute_pipeline
-            // doesn't thread per-segment stdio. Standalone + trailing
-            // redirections are supported.
+            // If `|` appears after `)`, let the pipeline branch below
+            // handle this as a multi-stage command. The standalone path
+            // only runs when there's no pipe on the rest of the line.
             string trailing = command.substr(close + 1);
-            for (char ch : trailing) {
-                if (ch == '|') {
-                    write_stderr("tash: subshells in pipelines not yet supported\n");
-                    return 1;
+            bool has_pipe = false;
+            {
+                bool is = false, id = false;
+                for (size_t k = 0; k < trailing.size(); ++k) {
+                    char ch = trailing[k];
+                    if (ch == '\'' && !id) is = !is;
+                    else if (ch == '"' && !is) id = !id;
+                    else if (!is && !id && ch == '|' &&
+                             (k + 1 >= trailing.size() || trailing[k + 1] != '|')) {
+                        has_pipe = true; break;
+                    }
                 }
             }
+            if (!has_pipe) {
+                string inner = command.substr(first + 1, close - first - 1);
+                Command redirs_only = parse_redirections(trailing);
+                const std::vector<Redirection> &redirs = redirs_only.redirections;
 
-            string inner = command.substr(first + 1, close - first - 1);
-            Command redirs_only = parse_redirections(trailing);
-            const std::vector<Redirection> &redirs = redirs_only.redirections;
-
-            pid_t pid = fork();
-            if (pid < 0) {
-                write_stderr("tash: fork failed for subshell\n");
-                return 1;
+                pid_t pid = fork();
+                if (pid < 0) {
+                    write_stderr("tash: fork failed for subshell\n");
+                    return 1;
+                }
+                if (pid == 0) {
+                    setup_child_io(redirs);
+                    ShellState child_state = state;
+                    std::vector<CommandSegment> segs = parse_command_line(inner);
+                    execute_command_line(segs, child_state);
+                    std::exit(child_state.last_exit_status);
+                }
+                int status;
+                waitpid(pid, &status, 0);
+                int rc = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+                return rc;
             }
-            if (pid == 0) {
-                // Child: isolated state copy (so cd/exports don't affect
-                // the real shell state — though the parent wouldn't see
-                // them across the fork anyway; this keeps semantics clear).
-                setup_child_io(redirs);
-                ShellState child_state = state;
-                std::vector<CommandSegment> segs = parse_command_line(inner);
-                execute_command_line(segs, child_state);
-                std::exit(child_state.last_exit_status);
-            }
-            int status;
-            waitpid(pid, &status, 0);
-            int rc = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
-            return rc;
+            // has_pipe: fall through to the pipeline branch below.
         }
     }
 
@@ -241,21 +247,85 @@ int execute_single_command(string command, ShellState &state,
         cmd.argv.insert(cmd.argv.begin() + 1, COLOR_FLAG);
     }
 
-    vector<string> pipe_segments = tokenize_string(command, "|");
-    if (pipe_segments.size() > 1) {
-        // Heredocs inside pipelines require per-segment stdin wiring
-        // that the current execute_pipeline doesn't support. Better to
-        // report clearly than to silently drop the body.
-        if (heredocs && !heredocs->empty()) {
-            write_stderr("tash: heredocs in pipelines not yet supported\n");
-            return 1;
+    // Paren- and quote-aware pipe split. `(echo a) | grep a` must stay
+    // one segment for the subshell; the generic tokenize_string would
+    // split on the `|` and break the parens.
+    vector<string> pipe_segments;
+    {
+        string cur;
+        bool in_s = false, in_d = false;
+        int depth = 0;
+        for (size_t k = 0; k < command.size(); ++k) {
+            char ch = command[k];
+            if (ch == '\'' && !in_d) in_s = !in_s;
+            else if (ch == '"' && !in_s) in_d = !in_d;
+            else if (!in_s && !in_d && ch == '(') ++depth;
+            else if (!in_s && !in_d && ch == ')') { if (depth > 0) --depth; }
+            else if (!in_s && !in_d && depth == 0 && ch == '|' &&
+                     (k + 1 >= command.size() || command[k + 1] != '|')) {
+                pipe_segments.push_back(cur);
+                cur.clear();
+                continue;
+            }
+            cur += ch;
         }
-        vector<vector<string>> pipeline_cmds;
-        string redirect_file;
-        bool redirect_flag = false;
+        pipe_segments.push_back(cur);
+    }
+    if (pipe_segments.size() > 1) {
+        vector<PipelineSegment> pipe_out;
+        size_t hd_idx = 0;  // index into *heredocs, consumed in order
 
         for (size_t i = 0; i < pipe_segments.size(); i++) {
-            Command seg_cmd = parse_redirections(pipe_segments[i]);
+            std::string seg_cmd_str = pipe_segments[i];
+            std::string trimmed = seg_cmd_str;
+            trimmed = trim(trimmed);
+
+            // Subshell segment: isolate the paren body and attach
+            // trailing redirections to this segment only.
+            if (!trimmed.empty() && trimmed.front() == '(') {
+                // Find matching ')' with quote + nesting awareness.
+                int dp = 0;
+                bool is = false, id = false;
+                size_t close_pos = std::string::npos;
+                size_t lead = trimmed.find('(');
+                for (size_t k = lead; k < trimmed.size(); ++k) {
+                    char ch = trimmed[k];
+                    if (ch == '\'' && !id) is = !is;
+                    else if (ch == '"' && !is) id = !id;
+                    else if (!is && !id && ch == '(') ++dp;
+                    else if (!is && !id && ch == ')') {
+                        if (--dp == 0) { close_pos = k; break; }
+                    }
+                }
+                if (close_pos == std::string::npos) {
+                    write_stderr("tash: unmatched '(' in pipeline subshell\n");
+                    return 1;
+                }
+                PipelineSegment ps;
+                ps.subshell_body =
+                    trimmed.substr(lead + 1, close_pos - lead - 1);
+                // Per-segment redirections come from what's after `)`.
+                std::string tail = trimmed.substr(close_pos + 1);
+                Command tail_cmd = parse_redirections(tail);
+                ps.redirections = tail_cmd.redirections;
+                pipe_out.push_back(std::move(ps));
+                continue;
+            }
+
+            // Per-segment heredoc body consumption: parse once to see
+            // how many the segment wants, then pop that many from the
+            // caller-supplied vector.
+            auto seg_pending = scan_pending_heredocs(seg_cmd_str);
+            std::vector<PendingHeredoc> seg_bodies;
+            for (size_t k = 0; k < seg_pending.size(); ++k) {
+                if (heredocs && hd_idx < heredocs->size()) {
+                    seg_bodies.push_back((*heredocs)[hd_idx++]);
+                } else {
+                    seg_bodies.push_back(seg_pending[k]);
+                }
+            }
+            Command seg_cmd = parse_redirections(
+                seg_cmd_str, seg_bodies.empty() ? nullptr : &seg_bodies);
 
             if (!seg_cmd.argv.empty() && state.aliases.count(seg_cmd.argv[0])) {
                 string expanded = state.aliases[seg_cmd.argv[0]];
@@ -272,17 +342,22 @@ int execute_single_command(string command, ShellState &state,
             if (!seg_cmd.argv.empty() && state.colorful_commands.count(seg_cmd.argv[0]))
                 seg_cmd.argv.insert(seg_cmd.argv.begin() + 1, COLOR_FLAG);
 
-            if (i == pipe_segments.size() - 1) {
-                for (const Redirection &r : seg_cmd.redirections) {
-                    if (r.fd == 1) {
-                        redirect_file = r.filename;
-                        redirect_flag = true;
-                    }
+            // Unquoted-delim heredoc bodies expand $VAR / $(...) before
+            // the child writes them to stdin.
+            for (auto &r : seg_cmd.redirections) {
+                if (r.is_heredoc && r.heredoc_expand) {
+                    r.heredoc_body = expand_variables(
+                        r.heredoc_body, state.last_exit_status);
+                    r.heredoc_body = expand_command_substitution(r.heredoc_body);
                 }
             }
-            pipeline_cmds.push_back(seg_cmd.argv);
+
+            PipelineSegment ps;
+            ps.argv = seg_cmd.argv;
+            ps.redirections = seg_cmd.redirections;
+            pipe_out.push_back(std::move(ps));
         }
-        return execute_pipeline(pipeline_cmds, redirect_file, redirect_flag, &state);
+        return execute_pipeline(pipe_out, &state);
     }
 
     const auto &builtins = get_builtins();

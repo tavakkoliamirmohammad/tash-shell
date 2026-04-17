@@ -69,6 +69,13 @@ int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
                      const std::string &filename, bool redirect_flag,
                      ShellState *state = nullptr);
 
+// Richer pipeline entry: each segment carries its own redirections
+// (including heredocs) and may declare itself a subshell via
+// subshell_body. Used when the caller has already parsed per-segment
+// structure; the legacy overload above is a thin wrapper.
+int execute_pipeline(std::vector<PipelineSegment> &segments,
+                     ShellState *state);
+
 // ── I/O primitives ─────────────────────────────────────────────
 //
 // Defined inline so plugin tests that don't link shell_lib (e.g.

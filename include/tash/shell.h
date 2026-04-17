@@ -75,6 +75,16 @@ struct Command {
     std::vector<Redirection> redirections;
 };
 
+// One stage of a pipeline. Either a normal command (argv set) or a
+// subshell (subshell_body set to the inner source between parens).
+// redirections includes heredocs; the child process consumes them via
+// setup_child_io after the pipe fds are wired.
+struct PipelineSegment {
+    std::vector<std::string> argv;
+    std::string subshell_body;
+    std::vector<Redirection> redirections;
+};
+
 
 // ── Shell state ────────────────────────────────────────────────
 
