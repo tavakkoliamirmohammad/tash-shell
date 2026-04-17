@@ -22,8 +22,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-namespace tash {
-namespace ai {
+namespace tash::ai {
 
 // Build the context-aware suggestion map from the recorded history
 // file so repl hints can offer "after X, people run Y" completions.
@@ -40,8 +39,8 @@ void offer_setup_wizard() {
     if (!isatty(STDIN_FILENO)) return;
 
     std::string provider = ai_get_provider();
-    std::string key = ai_load_provider_key(provider);
-    if (!key.empty() || provider == "ollama") return;
+    auto key = ai_load_provider_key(provider);
+    if (key || provider == "ollama") return;
 
     write_stdout(AI_LABEL + "tash ai" CAT_RESET + AI_SEPARATOR + " ─ " CAT_RESET
                  "AI features available! Set up now? [y/n] ");
@@ -64,18 +63,15 @@ void offer_setup_wizard() {
     write_stdout("\n");
 }
 
-} // namespace ai
-} // namespace tash
+} // namespace tash::ai
 
 #else  // !TASH_AI_ENABLED — provide empty stubs so callers stay clean.
 
 #include "tash/ai/bootstrap.h"
 
-namespace tash {
-namespace ai {
+namespace tash::ai {
 void build_history_context() {}
 void offer_setup_wizard() {}
-} // namespace ai
-} // namespace tash
+} // namespace tash::ai
 
 #endif // TASH_AI_ENABLED

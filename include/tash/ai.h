@@ -6,6 +6,7 @@
 #include "tash/llm_client.h"
 #include "tash/shell.h"
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -20,7 +21,7 @@ std::unique_ptr<LLMClient> ai_create_client();
 // ── AI Setup ──────────────────────────────────────────────────
 
 std::string ai_get_key_path();
-std::string ai_load_key();
+std::optional<std::string> ai_load_key();
 bool ai_save_key(const std::string &key);
 bool ai_run_setup_wizard();
 bool ai_validate_key(const std::string &key);
@@ -86,9 +87,9 @@ private:
 std::string ai_get_config_dir();
 std::string ai_get_provider();
 void ai_set_provider(const std::string &provider);
-std::string ai_get_model_override();
+std::optional<std::string> ai_get_model_override();
 void ai_set_model_override(const std::string &model);
-std::string ai_load_provider_key(const std::string &provider);
+std::optional<std::string> ai_load_provider_key(const std::string &provider);
 bool ai_save_provider_key(const std::string &provider, const std::string &key);
 std::string ai_get_ollama_url();
 void ai_set_ollama_url(const std::string &url);

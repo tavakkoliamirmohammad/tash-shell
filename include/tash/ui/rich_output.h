@@ -4,8 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace tash {
-namespace ui {
+namespace tash::ui {
 
 // ── URL Detection and OSC 8 Wrapping ─────────────────────────
 
@@ -46,7 +45,6 @@ std::string render_table(const TableData &table);
 std::string export_as_markdown(const std::string &command,
                                 const std::string &output);
 
-} // namespace ui
-} // namespace tash
+} // namespace tash::ui
 
 #endif // TASH_UI_RICH_OUTPUT_H

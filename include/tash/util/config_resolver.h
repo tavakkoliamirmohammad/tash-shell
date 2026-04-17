@@ -20,8 +20,7 @@
 
 #include <string>
 
-namespace tash {
-namespace config {
+namespace tash::config {
 
 // ── Base directories ──────────────────────────────────────────
 
@@ -72,7 +71,6 @@ std::string get_starship_config_path();
 // success or when the directory already exists.
 bool ensure_dir(const std::string &path);
 
-} // namespace config
-} // namespace tash
+} // namespace tash::config
 
 #endif // TASH_UTIL_CONFIG_RESOLVER_H

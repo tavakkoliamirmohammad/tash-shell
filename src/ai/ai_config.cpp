@@ -16,6 +16,7 @@
 #include <ctime>
 #include <iostream>
 #include <algorithm>
+#include <optional>
 
 using namespace std;
 
@@ -127,8 +128,10 @@ string ai_get_key_path() {
     return dir + "/ai_key";
 }
 
-string ai_load_key() {
-    return read_file_line(ai_get_key_path());
+std::optional<std::string> ai_load_key() {
+    std::string line = read_file_line(ai_get_key_path());
+    if (line.empty()) return std::nullopt;
+    return line;
 }
 
 bool ai_save_key(const string &key) {
@@ -153,10 +156,12 @@ void ai_set_provider(const string &provider) {
     write_file_line(dir + "/ai_provider", provider);
 }
 
-string ai_get_model_override() {
+std::optional<std::string> ai_get_model_override() {
     string dir = ai_get_config_dir();
-    if (dir.empty()) return "";
-    return read_file_line(dir + "/ai_model");
+    if (dir.empty()) return std::nullopt;
+    std::string v = read_file_line(dir + "/ai_model");
+    if (v.empty()) return std::nullopt;
+    return v;
 }
 
 void ai_set_model_override(const string &model) {
@@ -165,11 +170,13 @@ void ai_set_model_override(const string &model) {
     write_file_line(dir + "/ai_model", model);
 }
 
-string ai_load_provider_key(const string &provider) {
-    if (provider != "gemini" && provider != "openai" && provider != "ollama") return "";
+std::optional<std::string> ai_load_provider_key(const string &provider) {
+    if (provider != "gemini" && provider != "openai" && provider != "ollama") return std::nullopt;
     string dir = ai_get_config_dir();
-    if (dir.empty()) return "";
-    return read_file_line(dir + "/" + provider + "_key");
+    if (dir.empty()) return std::nullopt;
+    std::string v = read_file_line(dir + "/" + provider + "_key");
+    if (v.empty()) return std::nullopt;
+    return v;
 }
 
 bool ai_save_provider_key(const string &provider, const string &key) {

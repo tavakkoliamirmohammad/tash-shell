@@ -232,13 +232,13 @@ vector<string> expand_globs(const vector<string> &args) {
     return expand_globs(args, vector<bool>{});
 }
 
-string strip_quotes(const string &s) {
+string strip_quotes(string_view s) {
     if (s.size() >= 2) {
         if ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\'')) {
-            return s.substr(1, s.size() - 2);
+            return string(s.substr(1, s.size() - 2));
         }
     }
-    return s;
+    return string(s);
 }
 
 string expand_history_bang(const string &line, replxx::Replxx &rx) {

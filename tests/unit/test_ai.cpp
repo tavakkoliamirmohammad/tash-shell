@@ -87,8 +87,9 @@ TEST_F(AiTestFixture, SaveAndLoadKey) {
 
     EXPECT_TRUE(ai_save_key(test_key));
 
-    string loaded = ai_load_key();
-    EXPECT_EQ(loaded, test_key);
+    auto loaded = ai_load_key();
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_EQ(*loaded, test_key);
 
     // Check permissions (600)
     struct stat st;
@@ -98,7 +99,7 @@ TEST_F(AiTestFixture, SaveAndLoadKey) {
 
 TEST_F(AiTestFixture, LoadMissingKeyReturnsEmpty) {
     unlink(test_key_path.c_str());
-    EXPECT_TRUE(ai_load_key().empty());
+    EXPECT_FALSE(ai_load_key().has_value());
 }
 
 TEST_F(AiTestFixture, ValidateKey) {

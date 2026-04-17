@@ -486,7 +486,7 @@ static size_t tash_curl_buffer_cb(char *ptr, size_t size, size_t nmemb, void *us
     return total;
 }
 
-struct CurlPostResult {
+struct [[nodiscard]] CurlPostResult {
     bool reached_server;   // false on connection failure
     int http_status;       // HTTP status when reached_server is true
     string body;           // response body when reached_server is true

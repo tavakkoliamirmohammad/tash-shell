@@ -3,6 +3,7 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/ai/contextual_ai.h"
+#include <filesystem>
 #include <fstream>
 #include <cstdlib>
 #include <cstdio>
@@ -50,21 +51,12 @@ protected:
 
     void SetUp() override {
         test_dir = "/tmp/tash_test_project_" + to_string(getpid());
-        mkdir(test_dir.c_str(), 0755);
+        std::filesystem::create_directories(test_dir);
     }
 
     void TearDown() override {
-        // Clean up all possible marker files
-        const char *markers[] = {
-            "CMakeLists.txt", "Cargo.toml", "package.json",
-            "requirements.txt", "pyproject.toml", "go.mod",
-            "Makefile", "pom.xml", "build.gradle"
-        };
-        for (const char *m : markers) {
-            string path = test_dir + "/" + m;
-            unlink(path.c_str());
-        }
-        rmdir(test_dir.c_str());
+        std::error_code ec;
+        std::filesystem::remove_all(test_dir, ec);
     }
 
     void create_marker(const string &filename) {
@@ -119,14 +111,12 @@ protected:
         test_dir = "/tmp/tash_test_git_" + to_string(getpid());
         git_dir = test_dir + "/.git";
         head_path = git_dir + "/HEAD";
-        mkdir(test_dir.c_str(), 0755);
-        mkdir(git_dir.c_str(), 0755);
+        std::filesystem::create_directories(git_dir);
     }
 
     void TearDown() override {
-        unlink(head_path.c_str());
-        rmdir(git_dir.c_str());
-        rmdir(test_dir.c_str());
+        std::error_code ec;
+        std::filesystem::remove_all(test_dir, ec);
     }
 };
 

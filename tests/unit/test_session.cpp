@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <cstdlib>
 #include <cstdio>
+#include <filesystem>
 #include <unistd.h>
 #include <dirent.h>
 #include <fstream>
@@ -24,7 +25,7 @@ protected:
         // Build a unique temp directory per test.
         std::string raw_dir = "/tmp/tash_session_test_" + std::to_string(getpid())
                               + "_" + std::to_string(std::time(nullptr));
-        mkdir(raw_dir.c_str(), 0755);
+        std::filesystem::create_directories(raw_dir);
         // Resolve symlinks (on macOS /tmp -> /private/tmp).
         char *resolved = realpath(raw_dir.c_str(), nullptr);
         if (resolved) {
@@ -34,7 +35,7 @@ protected:
             tmp_dir = raw_dir;
         }
         sessions_dir = tmp_dir + "/sessions/";
-        mkdir(sessions_dir.c_str(), 0755);
+        std::filesystem::create_directories(sessions_dir);
 
         // Save and override HOME so that get_sessions_dir() (the no-arg
         // variant) does not touch the real home directory during other
@@ -44,8 +45,8 @@ protected:
     }
 
     void TearDown() override {
-        // Remove all files in sessions_dir then the directories.
-        remove_dir_recursive(tmp_dir);
+        std::error_code ec;
+        std::filesystem::remove_all(tmp_dir, ec);
     }
 
     // Build a full path for a session file inside the temp dir.
@@ -70,25 +71,6 @@ protected:
 
 private:
     std::string original_home_;
-
-    static void remove_dir_recursive(const std::string &path) {
-        DIR *dp = opendir(path.c_str());
-        if (!dp) return;
-        struct dirent *entry;
-        while ((entry = readdir(dp)) != nullptr) {
-            std::string fname = entry->d_name;
-            if (fname == "." || fname == "..") continue;
-            std::string child = path + "/" + fname;
-            struct stat st;
-            if (stat(child.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-                remove_dir_recursive(child);
-            } else {
-                std::remove(child.c_str());
-            }
-        }
-        closedir(dp);
-        rmdir(path.c_str());
-    }
 };
 
 // ═══════════════════════════════════════════════════════════════

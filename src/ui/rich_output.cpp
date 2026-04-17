@@ -4,8 +4,7 @@
 #include <sstream>
 #include <cctype>
 
-namespace tash {
-namespace ui {
+namespace tash::ui {
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -368,5 +367,4 @@ std::string export_as_markdown(const std::string &command,
     return md;
 }
 
-} // namespace ui
-} // namespace tash
+} // namespace tash::ui

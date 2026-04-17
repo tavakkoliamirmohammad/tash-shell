@@ -6,6 +6,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -61,21 +62,10 @@ static std::string unescape_value(const std::string &v) {
 // Create a directory (and parents) recursively.  Returns true on success
 // or if the directory already exists.
 static bool mkdir_p(const std::string &path) {
-    struct stat st;
-    if (stat(path.c_str(), &st) == 0) {
-        return S_ISDIR(st.st_mode);
-    }
-
-    // Find the parent directory.
-    size_t pos = path.find_last_of('/');
-    if (pos != std::string::npos && pos != 0) {
-        std::string parent = path.substr(0, pos);
-        if (!mkdir_p(parent)) {
-            return false;
-        }
-    }
-
-    return mkdir(path.c_str(), 0755) == 0;
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (!ec) return true;
+    return std::filesystem::is_directory(path, ec);
 }
 
 // Return the position of the first unescaped '=' in a line,

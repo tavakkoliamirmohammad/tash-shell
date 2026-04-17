@@ -2,6 +2,7 @@
 #include "tash/ui.h"
 #include <dirent.h>
 #include <algorithm>
+#include <optional>
 
 using namespace std;
 
@@ -79,7 +80,7 @@ bool command_exists_on_path(const string &cmd) {
     return false;
 }
 
-string suggest_command(const string &cmd) {
+std::optional<std::string> suggest_command(const string &cmd) {
     if (path_commands.empty()) build_command_cache();
 
     string best;
@@ -96,5 +97,6 @@ string suggest_command(const string &cmd) {
             best = candidate;
         }
     }
+    if (best.empty()) return std::nullopt;
     return best;
 }

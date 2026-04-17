@@ -183,16 +183,16 @@ static string build_system_context() {
 
 static unique_ptr<LLMClient> create_current_client() {
     string provider = ai_get_provider();
-    string gemini_key = ai_load_provider_key("gemini");
-    string openai_key = ai_load_provider_key("openai");
+    string gemini_key = ai_load_provider_key("gemini").value_or("");
+    string openai_key = ai_load_provider_key("openai").value_or("");
     string ollama_url = ai_get_ollama_url();
 
     unique_ptr<LLMClient> client = create_llm_client(provider, gemini_key, openai_key, ollama_url);
     if (!client) return client;
 
-    string model_override = ai_get_model_override();
-    if (!model_override.empty()) {
-        client->set_model(model_override);
+    auto model_override = ai_get_model_override();
+    if (model_override) {
+        client->set_model(*model_override);
     }
     return client;
 }
@@ -223,11 +223,11 @@ static unique_ptr<LLMClient> ensure_client(ShellState &state) {
         return unique_ptr<LLMClient>();
     }
 
-    string key = ai_load_provider_key(provider);
-    if (key.empty()) {
+    auto key = ai_load_provider_key(provider);
+    if (!key) {
         if (!ai_run_setup_wizard()) return unique_ptr<LLMClient>();
         key = ai_load_provider_key(provider);
-        if (key.empty()) return unique_ptr<LLMClient>();
+        if (!key) return unique_ptr<LLMClient>();
     }
     return create_current_client();
 }
@@ -520,16 +520,16 @@ static int handle_status(ShellState &state) {
     static const int RPM_LIMIT = 15;
 
     string provider = ai_get_provider();
-    string model_override = ai_get_model_override();
+    auto model_override = ai_get_model_override();
     unique_ptr<LLMClient> client = create_current_client();
     string current_model = client ? client->get_model() : "unknown";
-    if (!model_override.empty()) current_model = model_override;
+    if (model_override) current_model = *model_override;
 
     ai_print_label();
     write_stdout("AI Status\n\n");
 
-    string key = ai_load_provider_key(provider);
-    bool key_ok = (provider == "ollama") || !key.empty();
+    auto key = ai_load_provider_key(provider);
+    bool key_ok = (provider == "ollama") || key.has_value();
 
     write_stdout("  Provider: " + AI_CMD + provider + CAT_RESET "\n");
     write_stdout("  Model:    " + AI_CMD + current_model + CAT_RESET "\n");
@@ -586,13 +586,13 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         }
 
         string provider = ai_get_provider();
-        string model = ai_get_model_override();
+        auto model = ai_get_model_override();
         unique_ptr<LLMClient> client = create_current_client();
         string current_model = client ? client->get_model() : "unknown";
-        if (!model.empty()) current_model = model;
+        if (model) current_model = *model;
 
-        string key = ai_load_provider_key(provider);
-        bool key_ok = (provider == "ollama") || !key.empty();
+        auto key = ai_load_provider_key(provider);
+        bool key_ok = (provider == "ollama") || key.has_value();
         int usage = ai_get_today_usage();
 
         ai_print_label();

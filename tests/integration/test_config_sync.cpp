@@ -1,6 +1,7 @@
 #include "test_helpers.h"
 #include <cstdlib>
 #include <dirent.h>
+#include <filesystem>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -14,13 +15,13 @@ struct HomeGuard {
         const char *h = getenv("HOME");
         original = h ? h : "";
         tmp = "/tmp/tash_cfg_sync_test_" + std::to_string(getpid());
-        mkdir(tmp.c_str(), 0755);
+        std::error_code ec;
+        std::filesystem::create_directories(tmp, ec);
         setenv("HOME", tmp.c_str(), 1);
     }
     ~HomeGuard() {
-        std::string cmd = "rm -rf " + tmp;
-        int rc = system(cmd.c_str());
-        (void)rc;
+        std::error_code ec;
+        std::filesystem::remove_all(tmp, ec);
         if (!original.empty()) setenv("HOME", original.c_str(), 1);
         else unsetenv("HOME");
     }

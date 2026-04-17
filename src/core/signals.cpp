@@ -6,7 +6,6 @@
 #include "tash/core.h"
 
 #include <atomic>
-#include <cassert>
 #include <csignal>
 #include <sys/types.h>
 
@@ -56,7 +55,6 @@ static void trap_only_handler(int signum) {
 // ── Install ───────────────────────────────────────────────────
 
 void install_signal_handlers() {
-    assert(fg_child_pid.is_lock_free());
     struct sigaction sa_int;
     sa_int.sa_handler = sigint_handler;
     sigemptyset(&sa_int.sa_mask);

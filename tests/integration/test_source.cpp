@@ -4,6 +4,7 @@
 
 #include "test_helpers.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -78,13 +79,14 @@ TEST(Source, SourcedCommandsCanChangeDirectory) {
     // cd inside a sourced file must persist in the parent session.
     std::string tmpdir = "/tmp/tash_source_cd_" +
                          std::to_string(getpid());
-    mkdir(tmpdir.c_str(), 0755);
+    std::filesystem::create_directories(tmpdir);
     std::string s = tmp_script("cd", "cd " + tmpdir + "\n");
     auto r = run_shell(
         "source " + s + "\n"
         "pwd\n"
         "exit\n");
     unlink(s.c_str());
-    rmdir(tmpdir.c_str());
+    std::error_code ec;
+    std::filesystem::remove_all(tmpdir, ec);
     EXPECT_NE(r.output.find(tmpdir), std::string::npos);
 }

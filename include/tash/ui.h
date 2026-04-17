@@ -5,6 +5,8 @@
 
 #include "replxx.hxx"
 
+#include <optional>
+
 // ── prompt.cpp ─────────────────────────────────────────────────
 
 std::string write_shell_prefix(const ShellState &state);
@@ -20,7 +22,7 @@ replxx::Replxx::completions_t completion_callback(const std::string &input, int 
 
 void build_command_cache();
 const std::vector<std::string>& get_path_commands();
-std::string suggest_command(const std::string &cmd);
+std::optional<std::string> suggest_command(const std::string &cmd);
 bool command_exists_on_path(const std::string &cmd);
 
 // ── highlight.cpp ─────────────────────────────────────────────

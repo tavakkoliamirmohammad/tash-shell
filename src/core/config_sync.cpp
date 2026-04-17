@@ -4,14 +4,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <array>
 
-namespace tash {
-namespace config_sync {
+namespace tash::config_sync {
 
 // ── Gitignore template ───────────────────────────────────────
 
@@ -32,7 +32,10 @@ static bool directory_exists(const std::string &path) {
 }
 
 static bool create_directory(const std::string &path) {
-    return mkdir(path.c_str(), 0755) == 0 || directory_exists(path);
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (!ec) return true;
+    return directory_exists(path);
 }
 
 static bool write_file(const std::string &path, const std::string &content) {
@@ -226,5 +229,4 @@ bool sync_is_initialized(const std::string &config_dir) {
     return directory_exists(git_dir);
 }
 
-} // namespace config_sync
-} // namespace tash
+} // namespace tash::config_sync
