@@ -11,6 +11,7 @@
 #include "theme.h"
 
 #include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <sys/stat.h>
 
@@ -148,6 +149,12 @@ HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
         ::close(pfd[0]);
         ::dup2(pfd[1], STDOUT_FILENO);
         ::close(pfd[1]);
+        // Reset signal dispositions that the parent shell customizes.
+        // POSIX shells do this in command substitution children so SIGINT
+        // from the terminal reaches the child instead of being caught by
+        // the parent's handler inherited across fork.
+        ::signal(SIGINT, SIG_DFL);
+        ::signal(SIGQUIT, SIG_DFL);
         ::execl("/bin/sh", "sh", "-c", raw_cmd.c_str(), (char *)nullptr);
         _exit(127);
     }
@@ -167,7 +174,9 @@ HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
         if (errno != EINTR) break;
     }
 
-    // Exit-code convention matches foreground_process (process.cpp:220).
+    // Convert wait status to exit code using the same convention as
+    // foreground_process in src/core/process.cpp: WEXITSTATUS for normal
+    // exits, 128 + signal for termination by signal, 0 otherwise (stopped).
     if (WIFEXITED(status))       result.exit_code = WEXITSTATUS(status);
     else if (WIFSIGNALED(status)) result.exit_code = 128 + WTERMSIG(status);
     else                          result.exit_code = 0;

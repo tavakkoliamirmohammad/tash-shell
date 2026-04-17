@@ -171,6 +171,14 @@ string expand_command_substitution(const string &input, ShellState &state) {
                 // command before it runs. Previously this used popen(),
                 // which bypassed hooks and let `ls $(rm -rf .)` execute
                 // the dangerous inner command unseen.
+                //
+                // Security note: we hook the IMMEDIATE inner command here. Deeper
+                // nesting like `$(echo $(echo x))` is expanded by /bin/sh inside the
+                // helper's child, so the innermost substitution does not traverse the
+                // tash hook registry — only the first level is inspected. Acceptable
+                // boundary because once we hand off to /bin/sh, that's the delegation
+                // point; any safety logic that must apply at deeper levels should live
+                // in the shell the child invokes.
                 auto hooked = run_command_with_hooks_capture(cmd, state);
                 string output = hooked.captured_stdout;
                 while (!output.empty() && output.back() == '\n') {

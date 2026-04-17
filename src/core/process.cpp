@@ -21,10 +21,21 @@ int open_heredoc_fd(const std::string &body) {
     std::vector<char> buf(pattern.begin(), pattern.end());
     buf.push_back('\0');
     int fd = ::mkstemp(buf.data());
+    if (fd < 0 && errno == ENOENT && tmpdir && *tmpdir) {
+        // Fallback: user-set TMPDIR is invalid, try /tmp.
+        std::string fallback = "/tmp/tash-hd-XXXXXX";
+        std::vector<char> fb(fallback.begin(), fallback.end());
+        fb.push_back('\0');
+        fd = ::mkstemp(fb.data());
+        if (fd < 0) return -1;
+        buf = std::move(fb);  // for the unlink below
+    }
     if (fd < 0) return -1;
     // Unlink immediately: the file is now private to our process tree.
     ::unlink(buf.data());
-    // CLOEXEC defensively; any fork+exec that needs stdin will dup2 first.
+    // CLOEXEC via fcntl (two-step F_GETFD + F_SETFD). Linux offers
+    // O_CLOEXEC via mkostemp, but macOS lacks mkostemp as of this writing,
+    // so we stick with the portable path.
     int flags = ::fcntl(fd, F_GETFD);
     if (flags >= 0) ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
 
@@ -38,7 +49,7 @@ int open_heredoc_fd(const std::string &body) {
         }
         off += static_cast<size_t>(w);
     }
-    if (::lseek(fd, 0, SEEK_SET) == (off_t)-1) {
+    if (::lseek(fd, 0, SEEK_SET) == static_cast<off_t>(-1)) {
         ::close(fd);
         return -1;
     }

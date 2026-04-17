@@ -5,7 +5,10 @@
 #include "tash/core.h"
 
 TEST(HeredocLarge, BodyAbovePipeBufferRoundTrips) {
-    std::string body(256 * 1024, 'x');  // 256 KB — above Linux 64 KB pipe buffer
+    std::string body(256 * 1024, '\0');  // 256 KB — above Linux 64 KB pipe buffer
+    for (size_t i = 0; i < body.size(); ++i) {
+        body[i] = static_cast<char>(i % 251);  // cycle through a prime window
+    }
     int fd = open_heredoc_fd(body);
     ASSERT_GE(fd, 0);
 

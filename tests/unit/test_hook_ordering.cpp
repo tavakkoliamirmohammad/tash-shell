@@ -57,6 +57,13 @@ public:
     std::vector<int> after_exit_codes;
 };
 
+// Known limitation: install_recorder leaks a RecordingHookProvider into
+// the registry for the lifetime of this test binary. The registry has
+// no unregister API. With GoogleTest running tests serially in one
+// process and each test inspecting only the recorder it just installed,
+// this is correct. If a future test depends on the FULL set of hooks
+// for a given command (not just its own recorder), it must account for
+// all prior tests' recorders firing too.
 RecordingHookProvider *install_recorder() {
     auto rec = std::unique_ptr<RecordingHookProvider>(
         new RecordingHookProvider());
