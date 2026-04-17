@@ -256,18 +256,13 @@ echo "Tash shell installed successfully!"
 echo "Run 'tash' to start the shell, or restart your shell to pick up PATH changes."
 
 # Show which optional features are compiled into the installed binary.
-# AI and SQLite history auto-disable when their headers are missing, so
-# this line is the user's only hint they didn't get a full-featured
-# build. Parse the feature line so we can call out anything compiled
-# out (e.g. `-ai`) in a way that stands out.
+# SQLite history auto-disables when its headers are missing, so this
+# line is the user's only hint they didn't get a full-featured build.
+# (libcurl is now a hard requirement — builds without it fail at
+# configure time, so AI is always compiled in.)
 if INSTALLED_INFO=$("${INSTALL_DIR}/${BINARY_NAME}" --version 2>/dev/null); then
     echo ""
     echo "${INSTALLED_INFO}"
-    if echo "${INSTALLED_INFO}" | grep -q '\-ai'; then
-        echo ""
-        echo "WARNING: AI features (@ai, ? suffix, error recovery) are NOT compiled in."
-        echo "Reinstall after installing libssl-dev + libcurl dev headers to enable them."
-    fi
     if echo "${INSTALLED_INFO}" | grep -q '\-sqlite-history'; then
         echo ""
         echo "NOTE: SQLite history is not compiled in — falling back to plain ~/.tash_history."

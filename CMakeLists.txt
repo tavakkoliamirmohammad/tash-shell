@@ -50,19 +50,16 @@ else()
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
-# ── AI features (optional, requires libcurl) ─────────────────
+# ── AI features (libcurl hard dependency) ────────────────────
 # libcurl handles HTTPS; its SSL backend (OpenSSL 1.1, OpenSSL 3,
 # NSS, GnuTLS — distro's choice) is abstracted away from us. No
 # direct OpenSSL link needed anymore now that cpp-httplib is gone.
-find_package(CURL QUIET)
-if(CURL_FOUND)
-    set(TASH_AI_ENABLED ON)
-    find_package(Threads REQUIRED)
-    message(STATUS "AI features enabled (libcurl found)")
-else()
-    set(TASH_AI_ENABLED OFF)
-    message(STATUS "AI features disabled (libcurl not found)")
-endif()
+# Minimum 7.61 matches AlmaLinux 8 / manylinux_2_28 baseline —
+# every supported distro ships at least this.
+find_package(CURL 7.61 REQUIRED)
+find_package(Threads REQUIRED)
+set(TASH_AI_ENABLED ON)
+message(STATUS "AI features enabled (libcurl ${CURL_VERSION_STRING})")
 
 # ── SQLite history (optional) ─────────────────────────────────
 find_package(SQLite3 QUIET)
@@ -146,10 +143,8 @@ target_compile_definitions(tash.out PRIVATE
     TASH_VERSION_STRING="${PROJECT_VERSION}"
     TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
 
-if(TASH_AI_ENABLED)
-    target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
-    target_link_libraries(tash.out PRIVATE CURL::libcurl Threads::Threads)
-endif()
+target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
+target_link_libraries(tash.out PRIVATE CURL::libcurl Threads::Threads)
 
 if(TASH_SQLITE_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_SQLITE_ENABLED)
@@ -176,10 +171,8 @@ if(BUILD_TESTS)
         TASH_VERSION_STRING="${PROJECT_VERSION}"
         TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
 
-    if(TASH_AI_ENABLED)
-        target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
-        target_link_libraries(shell_lib PRIVATE CURL::libcurl Threads::Threads)
-    endif()
+    target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
+    target_link_libraries(shell_lib PRIVATE CURL::libcurl Threads::Threads)
 
     if(TASH_SQLITE_ENABLED)
         target_compile_definitions(shell_lib PRIVATE TASH_SQLITE_ENABLED)

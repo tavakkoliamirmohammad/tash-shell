@@ -68,7 +68,7 @@ cmake -B build && cmake --build build
 
 ### Prerequisites
 
-- **libcurl** (for AI features) and **libsqlite3** (for smart history) — available on all macOS and Linux systems via the package manager
+- **libcurl 7.61+** (required — powers AI features) and **libsqlite3** (optional — for smart history) — available out of the box on every supported platform: AlmaLinux 8+, Alpine 3.19+, Ubuntu 22.04+, macOS 14+
 - The build system fetches [replxx](https://github.com/AmokHuginnsson/replxx), [nlohmann/json](https://github.com/nlohmann/json), and [Google Test](https://github.com/google/googletest) automatically via CMake FetchContent
 
 ```sh
