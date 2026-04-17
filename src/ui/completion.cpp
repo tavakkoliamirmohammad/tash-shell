@@ -5,8 +5,10 @@
 #include "theme.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unordered_set>
 
 using namespace std;
 using namespace replxx;
@@ -144,6 +146,58 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
         }
     }
 
+    // PID completion for kill-family builtins. Try `ps` first for the
+    // command name in the output; fall back to /proc scan (Linux) when
+    // ps is missing — minimal container images often have neither ps
+    // nor procps installed.
+    static const std::unordered_set<std::string> kill_cmds = {
+        "kill", "bgkill", "bgstop", "bgstart"
+    };
+    if (kill_cmds.count(cmd)) {
+        FILE *p = popen("ps -eo pid,comm= 2>/dev/null", "r");
+        if (p) {
+            char buf[512];
+            while (fgets(buf, sizeof(buf), p)) {
+                char *s = buf;
+                while (*s == ' ' || *s == '\t') s++;
+                char *space = s;
+                while (*space && *space != ' ' && *space != '\t') space++;
+                if (space == s) continue;
+                std::string pid_str(s, space - s);
+                if (pid_str.compare(0, prefix.size(), prefix) != 0) continue;
+                completions.emplace_back(pid_str, comp_subcmd());
+            }
+            pclose(p);
+        }
+        // /proc fallback — if ps produced nothing (e.g. minimal Linux
+        // container), list numeric directories under /proc.
+        if (completions.empty()) {
+            DIR *proc = opendir("/proc");
+            if (proc) {
+                struct dirent *entry;
+                while ((entry = readdir(proc)) != nullptr) {
+                    const char *n = entry->d_name;
+                    bool all_digits = *n != '\0';
+                    for (const char *c = n; *c; ++c) {
+                        if (*c < '0' || *c > '9') { all_digits = false; break; }
+                    }
+                    if (!all_digits) continue;
+                    std::string pid_str(n);
+                    if (pid_str.compare(0, prefix.size(), prefix) != 0) continue;
+                    completions.emplace_back(pid_str, comp_subcmd());
+                }
+                closedir(proc);
+            }
+        }
+        return completions;
+    }
+
+    // cd/pushd: directories only.
+    static const std::unordered_set<std::string> dir_only_cmds = {
+        "cd", "pushd"
+    };
+    bool dirs_only = dir_only_cmds.count(cmd) > 0;
+
     // File/directory completion
     string dir_part;
     string name_prefix;
@@ -176,9 +230,11 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
             if (name.compare(0, name_prefix.size(), name_prefix) == 0) {
                 string full_path = search_dir + "/" + name;
                 struct stat st;
-                if (stat(full_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+                bool is_dir = stat(full_path.c_str(), &st) == 0 &&
+                              S_ISDIR(st.st_mode);
+                if (is_dir) {
                     completions.emplace_back(name + "/", comp_dir());
-                } else {
+                } else if (!dirs_only) {
                     completions.emplace_back(name, comp_file());
                 }
             }

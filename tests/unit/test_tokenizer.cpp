@@ -816,3 +816,78 @@ TEST(CompletionCallback, HiddenFilesOnlyWhenDotPrefix) {
     rmdir(tmpdir.c_str());
 }
 
+// -- cd / pushd directory-only completion --
+
+TEST(CompletionCallback, CdCompletesDirectoriesOnly) {
+    string tmpdir = "/tmp/tash_cd_comp_" + to_string(getpid());
+    mkdir(tmpdir.c_str(), 0755);
+    // Mix of a file and a directory.
+    string file1 = tmpdir + "/some_file.txt";
+    FILE *f = fopen(file1.c_str(), "w"); if (f) fclose(f);
+    string sub = tmpdir + "/some_dir";
+    mkdir(sub.c_str(), 0755);
+
+    char *old_cwd = getcwd(nullptr, 0);
+    chdir(tmpdir.c_str());
+
+    int ctx = 0;
+    auto results = completion_callback("cd some", ctx);
+    EXPECT_TRUE(completions_contain(results, "some_dir/"))
+        << "cd should suggest the directory";
+    EXPECT_FALSE(completions_contain(results, "some_file.txt"))
+        << "cd should NOT suggest the plain file";
+
+    // pushd gets the same treatment.
+    ctx = 0;
+    auto presults = completion_callback("pushd some", ctx);
+    EXPECT_TRUE(completions_contain(presults, "some_dir/"));
+    EXPECT_FALSE(completions_contain(presults, "some_file.txt"));
+
+    chdir(old_cwd);
+    free(old_cwd);
+    remove(file1.c_str());
+    rmdir(sub.c_str());
+    rmdir(tmpdir.c_str());
+}
+
+// -- kill / bgkill / bgstop / bgstart PID completion --
+
+TEST(CompletionCallback, KillCompletesPids) {
+    // Our own pid must appear (it's in ps output) and matches the
+    // numeric prefix we type.
+    string own_pid = to_string(getpid());
+    string prefix = own_pid.substr(0, 1);
+
+    int ctx = 0;
+    auto results = completion_callback("kill " + prefix, ctx);
+
+    // At least one completion should be a numeric PID starting with
+    // the typed prefix. We don't require own_pid specifically because
+    // some CI sandboxes may hide it; we just check the shape.
+    bool any_pid_match = false;
+    for (const auto &r : results) {
+        const std::string &t = r.text();
+        if (t.empty() || t.compare(0, prefix.size(), prefix) != 0) continue;
+        bool all_digits = true;
+        for (char c : t) if (c < '0' || c > '9') { all_digits = false; break; }
+        if (all_digits) { any_pid_match = true; break; }
+    }
+    EXPECT_TRUE(any_pid_match) << "kill should produce at least one numeric PID completion";
+}
+
+TEST(CompletionCallback, KillFamilyAllGetPidCompletion) {
+    for (const char *cmd : {"bgkill", "bgstop", "bgstart"}) {
+        int ctx = 0;
+        auto results = completion_callback(std::string(cmd) + " 1", ctx);
+        // Completions (if any) must be all-digit PIDs, not filenames.
+        for (const auto &r : results) {
+            const std::string &t = r.text();
+            ASSERT_FALSE(t.empty()) << cmd << " produced an empty completion";
+            for (char c : t) {
+                ASSERT_TRUE(c >= '0' && c <= '9')
+                    << cmd << " produced non-PID completion: " << t;
+            }
+        }
+    }
+}
+
