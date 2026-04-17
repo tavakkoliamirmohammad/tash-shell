@@ -9,8 +9,7 @@
 
 struct ShellState;
 
-namespace tash {
-namespace structured_pipe {
+namespace tash::structured_pipe {
 
 using JsonValue = nlohmann::json;
 
@@ -80,8 +79,7 @@ std::string render_table(const JsonValue &data);
 /// operator is applied in order.  Returns the final rendered output.
 std::string execute_pipeline(const std::string &command_line, ::ShellState &state);
 
-} // namespace structured_pipe
-} // namespace tash
+} // namespace tash::structured_pipe
 
 #endif // TASH_AI_ENABLED
 #endif // TASH_CORE_STRUCTURED_PIPE_H

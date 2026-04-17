@@ -11,8 +11,7 @@
 #include <sys/types.h>
 #include <array>
 
-namespace tash {
-namespace config_sync {
+namespace tash::config_sync {
 
 // ── Gitignore template ───────────────────────────────────────
 
@@ -230,5 +229,4 @@ bool sync_is_initialized(const std::string &config_dir) {
     return directory_exists(git_dir);
 }
 
-} // namespace config_sync
-} // namespace tash
+} // namespace tash::config_sync

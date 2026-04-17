@@ -8,8 +8,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace tash {
-namespace config {
+namespace tash::config {
 namespace {
 
 std::string env_or_empty(const char *name) {
@@ -62,5 +61,4 @@ bool ensure_dir(const std::string &path) {
     return std::filesystem::is_directory(path, ec);
 }
 
-} // namespace config
-} // namespace tash
+} // namespace tash::config

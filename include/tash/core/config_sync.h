@@ -3,8 +3,7 @@
 
 #include <string>
 
-namespace tash {
-namespace config_sync {
+namespace tash::config_sync {
 
 // ── Command result from git operations ────────────────────────
 
@@ -47,7 +46,6 @@ std::string sync_diff(const std::string &config_dir);
 /// Check whether config_dir has been initialized (i.e. .git/ exists).
 bool sync_is_initialized(const std::string &config_dir);
 
-} // namespace config_sync
-} // namespace tash
+} // namespace tash::config_sync
 
 #endif // TASH_CORE_CONFIG_SYNC_H

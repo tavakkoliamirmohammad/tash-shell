@@ -5,8 +5,7 @@
 // TASH_AI_ENABLED these become no-op stubs so main.cpp stays free of
 // #ifdefs around the call sites.
 
-namespace tash {
-namespace ai {
+namespace tash::ai {
 
 // Build the context-aware suggestion map from the recorded history file.
 // Safe to call before the REPL starts; ignored when no history exists.
@@ -16,7 +15,6 @@ void build_history_context();
 // TTY-only; no-op when stdin is a pipe or the user is already set up.
 void offer_setup_wizard();
 
-} // namespace ai
-} // namespace tash
+} // namespace tash::ai
 
 #endif // TASH_AI_BOOTSTRAP_H

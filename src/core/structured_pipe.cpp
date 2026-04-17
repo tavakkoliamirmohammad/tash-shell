@@ -11,8 +11,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace tash {
-namespace structured_pipe {
+namespace tash::structured_pipe {
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -705,7 +704,6 @@ std::string execute_pipeline(const std::string &command_line, ::ShellState &stat
     return table;
 }
 
-} // namespace structured_pipe
-} // namespace tash
+} // namespace tash::structured_pipe
 
 #endif // TASH_AI_ENABLED
