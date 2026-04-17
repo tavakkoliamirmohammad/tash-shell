@@ -40,8 +40,8 @@ void offer_setup_wizard() {
     if (!isatty(STDIN_FILENO)) return;
 
     std::string provider = ai_get_provider();
-    std::string key = ai_load_provider_key(provider);
-    if (!key.empty() || provider == "ollama") return;
+    auto key = ai_load_provider_key(provider);
+    if (key || provider == "ollama") return;
 
     write_stdout(AI_LABEL + "tash ai" CAT_RESET + AI_SEPARATOR + " ─ " CAT_RESET
                  "AI features available! Set up now? [y/n] ");

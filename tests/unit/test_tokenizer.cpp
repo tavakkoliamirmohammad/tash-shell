@@ -565,20 +565,23 @@ TEST(InputComplete, PipeWithCommandIsComplete) {
 
 TEST(SuggestCommand, FindsCloseMatch) {
     build_command_cache();
-    string suggestion = suggest_command("ech");
-    EXPECT_EQ(suggestion, "echo") << "Should suggest 'echo' for 'ech'";
+    auto suggestion = suggest_command("ech");
+    ASSERT_TRUE(suggestion.has_value()) << "Should suggest something for 'ech'";
+    EXPECT_EQ(*suggestion, "echo") << "Should suggest 'echo' for 'ech'";
 }
 
 TEST(SuggestCommand, NoMatchForGibberish) {
     build_command_cache();
-    string suggestion = suggest_command("xyzzy_not_a_command_99");
-    EXPECT_TRUE(suggestion.empty()) << "Should not suggest for gibberish";
+    auto suggestion = suggest_command("xyzzy_not_a_command_99");
+    EXPECT_FALSE(suggestion.has_value()) << "Should not suggest for gibberish";
 }
 
 TEST(SuggestCommand, ExactMatchNotSuggested) {
     build_command_cache();
-    string suggestion = suggest_command("echo");
-    EXPECT_NE(suggestion, "echo") << "Exact match should not be suggested as itself";
+    auto suggestion = suggest_command("echo");
+    if (suggestion.has_value()) {
+        EXPECT_NE(*suggestion, "echo") << "Exact match should not be suggested as itself";
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════

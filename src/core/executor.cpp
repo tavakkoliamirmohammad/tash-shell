@@ -467,10 +467,10 @@ int execute_single_command(string command, ShellState &state,
     int result = foreground_process(cmd.argv, cmd.redirections, &state.last_stderr_output);
 
     if (result == 127) {
-        string suggestion = suggest_command(cmd.argv[0]);
-        if (!suggestion.empty()) {
+        auto suggestion = suggest_command(cmd.argv[0]);
+        if (suggestion) {
             write_stderr(SUGGEST_TEXT + "tash: did you mean '" CAT_RESET + SUGGEST_CMD +
-                        suggestion + CAT_RESET + SUGGEST_TEXT + "'?" CAT_RESET "\n");
+                        *suggestion + CAT_RESET + SUGGEST_TEXT + "'?" CAT_RESET "\n");
         }
     }
 
