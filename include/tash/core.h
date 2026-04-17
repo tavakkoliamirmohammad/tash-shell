@@ -58,8 +58,10 @@ void write_stderr(const std::string &message);
 void write_stdout(const std::string &message);
 int execute_single_command(std::string command, ShellState &state);
 void execute_command_line(const std::vector<CommandSegment> &segments, ShellState &state);
-void sigint_handler(int signum);
-void sigchld_handler(int signum);
 int execute_script_file(const std::string &path, ShellState &state);
+
+// Install SIGINT + SIGCHLD handlers. Idempotent-safe to call once per
+// process lifetime (main/startup does this).
+void install_signal_handlers();
 
 #endif // TASH_CORE_H
