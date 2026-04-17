@@ -5,10 +5,17 @@
 
 #include "tash/llm_client.h"
 #include "tash/shell.h"
+#include <memory>
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <ctime>
+
+// Build an LLMClient from the user's current AI configuration (provider,
+// model, API key). Returns nullptr when the config is incomplete or the
+// selected provider isn't supported. Used by AiErrorHookProvider for
+// lazy activation.
+std::unique_ptr<LLMClient> ai_create_client();
 
 // ── AI Setup ──────────────────────────────────────────────────
 

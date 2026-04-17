@@ -390,42 +390,67 @@ int main(int argc, char *argv[]) {
 
     if (benchmark_mode) { bench.end(); bench.start("Plugin registration"); }
 
-    // Register built-in hook providers.
-    global_plugin_registry().register_hook_provider(
-        std::make_unique<SafetyHookProvider>());
-    global_plugin_registry().register_hook_provider(
-        std::make_unique<AliasSuggestProvider>());
+    // Each plugin honours a TASH_DISABLE_<NAME> env var so users can opt
+    // out without rebuilding. Non-empty (and not "0") means disabled.
+    auto disabled = [](const char *env) {
+        const char *v = getenv(env);
+        return v && *v && string(v) != "0";
+    };
+
+    // Hook providers.
+    if (!disabled("TASH_DISABLE_SAFETY_HOOK")) {
+        global_plugin_registry().register_hook_provider(
+            std::make_unique<SafetyHookProvider>());
+    }
+    if (!disabled("TASH_DISABLE_ALIAS_SUGGEST")) {
+        global_plugin_registry().register_hook_provider(
+            std::make_unique<AliasSuggestProvider>());
+    }
 #ifdef TASH_AI_ENABLED
-    // LLMClient is created on demand by the AI handler; pass nullptr and
-    // let the hook become a no-op until AI is configured.
-    global_plugin_registry().register_hook_provider(
-        std::make_unique<AiErrorHookProvider>(nullptr));
+    if (!disabled("TASH_DISABLE_AI_ERROR_HOOK")) {
+        // Lazy factory: the hook calls ai_create_client() on first use,
+        // after the AI config has been loaded. Returns nullptr when AI
+        // isn't set up, which the hook treats as "stay dormant".
+        global_plugin_registry().register_hook_provider(
+            std::make_unique<AiErrorHookProvider>(
+                []() -> std::unique_ptr<LLMClient> { return ai_create_client(); }));
+    }
 #endif
 
     // Completion providers (priority decides order; manpage is the generic
     // fallback, fish & fig override it when specs exist).
-    global_plugin_registry().register_completion_provider(
-        std::make_unique<ManpageCompletionProvider>());
-    global_plugin_registry().register_completion_provider(
-        std::make_unique<FishCompletionProvider>());
-    global_plugin_registry().register_completion_provider(
-        std::make_unique<FigCompletionProvider>());
+    if (!disabled("TASH_DISABLE_MANPAGE_COMPLETION")) {
+        global_plugin_registry().register_completion_provider(
+            std::make_unique<ManpageCompletionProvider>());
+    }
+    if (!disabled("TASH_DISABLE_FISH_COMPLETION")) {
+        global_plugin_registry().register_completion_provider(
+            std::make_unique<FishCompletionProvider>());
+    }
+    if (!disabled("TASH_DISABLE_FIG_COMPLETION")) {
+        global_plugin_registry().register_completion_provider(
+            std::make_unique<FigCompletionProvider>());
+    }
 
     // Prompt: Starship overrides the builtin prompt only when the binary
     // is on PATH and the user has a config. When it isn't we still register
     // the provider so tests can exercise the code path; render_prompt
     // returns "" and the builtin prompt runs.
-    global_plugin_registry().register_prompt_provider(
-        std::make_unique<StarshipPromptProvider>());
+    if (!disabled("TASH_DISABLE_STARSHIP")) {
+        global_plugin_registry().register_prompt_provider(
+            std::make_unique<StarshipPromptProvider>());
+    }
 
     // History: SQLite-backed provider writes every executed command into
     // ~/.tash/history.db so `history` sees entries across sessions.
 #ifdef TASH_SQLITE_ENABLED
-    try {
-        global_plugin_registry().register_history_provider(
-            std::make_unique<SqliteHistoryProvider>());
-    } catch (const std::exception &e) {
-        write_stderr(string("tash: sqlite history disabled: ") + e.what() + "\n");
+    if (!disabled("TASH_DISABLE_SQLITE_HISTORY")) {
+        try {
+            global_plugin_registry().register_history_provider(
+                std::make_unique<SqliteHistoryProvider>());
+        } catch (const std::exception &e) {
+            write_stderr(string("tash: sqlite history disabled: ") + e.what() + "\n");
+        }
     }
 #endif
 

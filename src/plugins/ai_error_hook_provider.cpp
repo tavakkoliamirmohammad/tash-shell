@@ -43,6 +43,20 @@ AiErrorHookProvider::AiErrorHookProvider(LLMClient *client)
     , last_call_time_(0)
     , call_count_(0) {}
 
+AiErrorHookProvider::AiErrorHookProvider(ClientFactory factory)
+    : client_(nullptr)
+    , factory_(std::move(factory))
+    , last_call_time_(0)
+    , call_count_(0) {}
+
+LLMClient *AiErrorHookProvider::ensure_client() {
+    if (client_) return client_;           // legacy injected pointer
+    if (owned_)  return owned_.get();       // already built
+    if (!factory_) return nullptr;          // dormant
+    owned_ = factory_();
+    return owned_.get();
+}
+
 // ── IHookProvider interface ───────────────────────────────────
 
 string AiErrorHookProvider::name() const {
@@ -58,10 +72,6 @@ void AiErrorHookProvider::on_after_command(
     const string &command, int exit_code,
     const string &stderr_output, ShellState &state) {
 
-    // The hook may be registered with a null client when the AI
-    // infrastructure isn't configured yet; become dormant in that case.
-    if (!client_) return;
-
     if (!should_trigger(exit_code, stderr_output, state)) {
         return;
     }
@@ -70,13 +80,16 @@ void AiErrorHookProvider::on_after_command(
         return;
     }
 
+    LLMClient *cl = ensure_client();
+    if (!cl) return;  // no AI configured yet; silently dormant
+
     // Update rate limiter
     last_call_time_ = time(nullptr);
     call_count_++;
 
     // Build context and query LLM
     string context = build_context_json(command, exit_code, stderr_output, state);
-    LLMResponse resp = client_->generate(system_prompt(), context);
+    LLMResponse resp = cl->generate(system_prompt(), context);
 
     if (!resp.success) {
         return;

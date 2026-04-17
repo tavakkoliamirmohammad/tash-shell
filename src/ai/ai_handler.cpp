@@ -197,6 +197,11 @@ static unique_ptr<LLMClient> create_current_client() {
     return client;
 }
 
+// Public re-export for consumers outside ai_handler.cpp (e.g. hooks).
+std::unique_ptr<LLMClient> ai_create_client() {
+    return create_current_client();
+}
+
 static unique_ptr<LLMClient> ensure_client(ShellState &state) {
     if (!state.ai_enabled) {
         ai_print_error("AI is disabled. Run @ai on to enable.");

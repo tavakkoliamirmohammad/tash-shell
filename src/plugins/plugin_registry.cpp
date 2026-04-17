@@ -74,25 +74,25 @@ std::vector<Completion> PluginRegistry::complete(
 // ── Prompt dispatch ───────────────────────────────────────────
 
 std::string PluginRegistry::render_prompt(const ShellState &state) {
-    if (prompt_providers_.empty()) {
-        return "$ ";
-    }
+    // Empty list or all providers returning "" means "no plugin wants
+    // to override the prompt" — callers fall through to their builtin.
+    if (prompt_providers_.empty()) return "";
 
-    // Find highest-priority provider
-    IPromptProvider *best = nullptr;
-    int best_priority = -1;
+    // Sort by priority (highest first) so registration order doesn't
+    // accidentally hide a high-priority provider.
+    std::vector<IPromptProvider *> ordered;
+    ordered.reserve(prompt_providers_.size());
+    for (const auto &p : prompt_providers_) ordered.push_back(p.get());
+    std::sort(ordered.begin(), ordered.end(),
+              [](IPromptProvider *a, IPromptProvider *b) {
+                  return a->priority() > b->priority();
+              });
 
-    for (const auto &provider : prompt_providers_) {
-        if (provider->priority() > best_priority) {
-            best_priority = provider->priority();
-            best = provider.get();
-        }
+    for (IPromptProvider *p : ordered) {
+        std::string out = p->render(state);
+        if (!out.empty()) return out;
     }
-
-    if (best) {
-        return best->render(state);
-    }
-    return "$ ";
+    return "";
 }
 
 // ── History dispatch ──────────────────────────────────────────
