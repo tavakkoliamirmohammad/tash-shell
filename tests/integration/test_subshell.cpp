@@ -81,13 +81,21 @@ TEST(Subshell, UnmatchedParenReportsError) {
     EXPECT_NE(r.output.find("after_error"), std::string::npos);
 }
 
-TEST(Subshell, InPipelineReportsError) {
+TEST(Subshell, InPipelineFeedsIntoNextStage) {
     auto r = run_shell(
-        "(echo a; echo b) | grep a\n"
-        "echo marker_after\n"
+        "(echo a; echo b; echo c) | grep b\n"
         "exit\n");
-    EXPECT_NE(r.output.find("not yet supported"), std::string::npos);
-    EXPECT_NE(r.output.find("marker_after"),       std::string::npos);
+    EXPECT_NE(r.output.find("b"), std::string::npos);
+    EXPECT_EQ(r.output.find("\na\n"), std::string::npos);
+    EXPECT_EQ(r.output.find("\nc\n"), std::string::npos);
+}
+
+TEST(Subshell, MidPipelineStage) {
+    auto r = run_shell(
+        "echo hello | (grep hello) | wc -l\n"
+        "exit\n");
+    // grep hello passes through; wc -l should report 1.
+    EXPECT_NE(r.output.find("1"), std::string::npos);
 }
 
 TEST(Subshell, InScriptFile) {

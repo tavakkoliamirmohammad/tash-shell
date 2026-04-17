@@ -86,16 +86,18 @@ TEST(Heredoc, CustomDelimiter) {
     EXPECT_NE(r.output.find("EOF should not end"), std::string::npos);
 }
 
-TEST(Heredoc, InPipelineReportsError) {
+TEST(Heredoc, InPipelineFeedsIntoNextStage) {
+    // Heredoc body becomes stdin of the first pipeline stage.
     auto r = run_shell(
         "cat <<EOF | grep line\n"
         "line one\n"
         "line two\n"
+        "other\n"
         "EOF\n"
-        "echo marker_after\n"
         "exit\n");
-    EXPECT_NE(r.output.find("not yet supported"), std::string::npos);
-    EXPECT_NE(r.output.find("marker_after"),       std::string::npos);
+    EXPECT_NE(r.output.find("line one"), std::string::npos);
+    EXPECT_NE(r.output.find("line two"), std::string::npos);
+    EXPECT_EQ(r.output.find("other"),    std::string::npos);
 }
 
 TEST(Heredoc, EmptyBody) {

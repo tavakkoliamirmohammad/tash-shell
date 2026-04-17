@@ -254,10 +254,8 @@ void reap_background_processes(unordered_map<pid_t, string> &background_processe
     }
 }
 
-int execute_pipeline(vector<vector<string>> &pipeline_cmds,
-                     const string &filename, bool redirect_flag,
-                     ShellState *state) {
-    int num_cmds = pipeline_cmds.size();
+int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
+    int num_cmds = (int)segments.size();
     vector<int> pipefds(2 * (num_cmds - 1));
     for (int i = 0; i < num_cmds - 1; i++) {
         if (pipe(&pipefds[2 * i]) < 0) {
@@ -267,48 +265,51 @@ int execute_pipeline(vector<vector<string>> &pipeline_cmds,
 
     vector<pid_t> pids(num_cmds);
     for (int i = 0; i < num_cmds; i++) {
-        // Build C-style args
-        vector<const char *> c_args;
-        for (const string &a : pipeline_cmds[i]) c_args.push_back(a.c_str());
-        c_args.push_back(nullptr);
-
         pids[i] = fork();
         if (pids[i] < 0) {
             exit_with_message("Error: Fork failed!\n", 1);
         } else if (pids[i] == 0) {
+            // Wire pipe stdin/stdout first so per-segment redirections
+            // (applied after) can still override (e.g. 2>/dev/null).
             if (i > 0) {
                 dup2(pipefds[2 * (i - 1)], STDIN_FILENO);
             }
             if (i < num_cmds - 1) {
                 dup2(pipefds[2 * i + 1], STDOUT_FILENO);
             }
-            if (i == num_cmds - 1 && redirect_flag) {
-                int out = open(filename.c_str(), O_RDWR | O_CREAT, 0666);
-                if (out < 0) {
-                    write_stderr("An error has occurred\n");
-                    exit(1);
-                }
-                dup2(out, STDOUT_FILENO);
-                close(out);
-            }
             for (int j = 0; j < 2 * (num_cmds - 1); j++) {
                 close(pipefds[j]);
             }
-            // child so `echo foo | copy`, `history | grep x`, etc. work.
-            const auto &builtins = get_builtins();
-            auto bit = builtins.find(pipeline_cmds[i][0]);
-            if (bit != builtins.end()) {
-                // Share the parent state by reference via the copied memory
-                // from fork(); fall back to a fresh state when no context
-                // was supplied (e.g. older call sites).
+            setup_child_io(segments[i].redirections);
+
+            // Subshell segment: parse + run the inner source as a
+            // command line, exit with its last status.
+            if (!segments[i].subshell_body.empty()) {
                 ShellState fallback;
                 ShellState &st = state ? *state : fallback;
-                exit(bit->second(pipeline_cmds[i], st));
+                std::vector<CommandSegment> segs =
+                    parse_command_line(segments[i].subshell_body);
+                execute_command_line(segs, st);
+                std::exit(st.last_exit_status);
             }
+
+            // Normal segment: builtin or external.
+            const vector<string> &argv = segments[i].argv;
+            if (argv.empty()) std::exit(0);
+            const auto &builtins = get_builtins();
+            auto bit = builtins.find(argv[0]);
+            if (bit != builtins.end()) {
+                ShellState fallback;
+                ShellState &st = state ? *state : fallback;
+                std::exit(bit->second(argv, st));
+            }
+            vector<const char *> c_args;
+            for (const string &a : argv) c_args.push_back(a.c_str());
+            c_args.push_back(nullptr);
             execvp(c_args[0], const_cast<char *const *>(c_args.data()));
             string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
             if (write(STDERR_FILENO, err_msg.c_str(), err_msg.size())) {}
-            exit(127);
+            std::exit(127);
         }
     }
 
@@ -326,4 +327,27 @@ int execute_pipeline(vector<vector<string>> &pipeline_cmds,
         }
     }
     return last_status;
+}
+
+// Back-compat overload. Wraps each argv in a PipelineSegment and
+// attaches a single stdout redirect to the last stage when requested.
+int execute_pipeline(vector<vector<string>> &pipeline_cmds,
+                     const string &filename, bool redirect_flag,
+                     ShellState *state) {
+    vector<PipelineSegment> segs;
+    segs.reserve(pipeline_cmds.size());
+    for (auto &argv : pipeline_cmds) {
+        PipelineSegment s;
+        s.argv = argv;
+        segs.push_back(std::move(s));
+    }
+    if (redirect_flag && !segs.empty()) {
+        Redirection r;
+        r.fd = 1;
+        r.filename = filename;
+        r.append = false;
+        r.dup_to_stdout = false;
+        segs.back().redirections.push_back(r);
+    }
+    return execute_pipeline(segs, state);
 }
