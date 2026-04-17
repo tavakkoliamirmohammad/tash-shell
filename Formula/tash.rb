@@ -17,7 +17,7 @@ class Tash < Formula
 
   depends_on "cmake" => :build
   depends_on "curl"
-  depends_on "openssl@3"
+  depends_on "nlohmann-json"
   depends_on "sqlite"
 
   def install

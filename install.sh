@@ -54,26 +54,27 @@ fi
 # things differently; that failure is strictly better than a silent
 # degraded build (no AI, no SQLite history) that the user never notices.
 install_build_deps() {
-    echo "Installing build dependencies (cmake + OpenSSL + libcurl + SQLite)..."
+    echo "Installing build dependencies (cmake + libcurl + SQLite + nlohmann-json)..."
     if command -v apt-get >/dev/null 2>&1; then
         ${SUDO} apt-get update -y
         ${SUDO} apt-get install -y cmake g++ make \
-            libssl-dev libcurl4-openssl-dev libsqlite3-dev
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev
     elif command -v dnf >/dev/null 2>&1; then
         ${SUDO} dnf install -y cmake gcc-c++ make \
-            openssl-devel libcurl-devel sqlite-devel
+            libcurl-devel sqlite-devel json-devel
     elif command -v yum >/dev/null 2>&1; then
         ${SUDO} yum install -y cmake gcc-c++ make \
-            openssl-devel libcurl-devel sqlite-devel
+            libcurl-devel sqlite-devel json-devel
     elif command -v apk >/dev/null 2>&1; then
         ${SUDO} apk add --no-cache g++ cmake make linux-headers git \
-            openssl-dev curl-dev sqlite-dev
+            curl-dev sqlite-dev nlohmann-json
     elif command -v pacman >/dev/null 2>&1; then
-        ${SUDO} pacman -Sy --noconfirm cmake gcc make openssl curl sqlite
+        ${SUDO} pacman -Sy --noconfirm cmake gcc make curl sqlite nlohmann-json
     elif command -v brew >/dev/null 2>&1; then
-        brew install cmake openssl@3 curl sqlite
+        brew install cmake curl sqlite nlohmann-json
     else
-        echo "Warning: unknown package manager; install cmake + OpenSSL + libcurl + SQLite manually."
+        echo "Warning: unknown package manager; install cmake + libcurl + SQLite + nlohmann-json manually."
+        echo "(nlohmann-json is optional — if absent, the build will fetch it.)"
         echo "See README.md 'Prerequisites' for distro-specific commands."
     fi
 }

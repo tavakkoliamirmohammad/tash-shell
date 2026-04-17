@@ -1,7 +1,5 @@
 #ifdef TASH_AI_ENABLED
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include "httplib.h"
 #include "tash/llm_client.h"
 #include "tash/ai.h"
 #include <nlohmann/json.hpp>
@@ -434,6 +432,84 @@ static size_t tash_curl_write_cb(char *ptr, size_t size, size_t nmemb, void *use
     return total;
 }
 
+// ═════════════════════════════════════════════════════════════════
+// Non-streaming POST — mirrors curl_streaming_post but buffers the
+// whole response body into a string instead of streaming line-by-line.
+// This replaces cpp-httplib, which required OpenSSL 3 and pulled in a
+// second HTTP stack alongside libcurl. libcurl covers both paths now.
+// ═════════════════════════════════════════════════════════════════
+
+struct CurlBufferContext {
+    string body;
+};
+
+static size_t tash_curl_buffer_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    size_t total = size * nmemb;
+    static_cast<CurlBufferContext*>(userdata)->body.append(ptr, total);
+    return total;
+}
+
+struct CurlPostResult {
+    bool reached_server;   // false on connection failure
+    int http_status;       // HTTP status when reached_server is true
+    string body;           // response body when reached_server is true
+    string error_message;  // set when reached_server is false
+};
+
+static CurlPostResult curl_post(
+    const string &url,
+    const string &body,
+    const vector<string> &extra_headers,
+    int connect_timeout,
+    int read_timeout)
+{
+    CurlPostResult out;
+    out.reached_server = false;
+    out.http_status = 0;
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        out.error_message = "failed to initialize curl.";
+        return out;
+    }
+
+    CurlBufferContext ctx;
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    for (size_t i = 0; i < extra_headers.size(); i++) {
+        headers = curl_slist_append(headers, extra_headers[i].c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, tash_curl_buffer_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long)connect_timeout);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)read_timeout);
+
+    CURLcode res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        out.error_message = string("connection failed: ") + curl_easy_strerror(res);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return out;
+    }
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    out.reached_server = true;
+    out.http_status = (int)http_code;
+    out.body = std::move(ctx.body);
+    return out;
+}
+
 static LLMResponse curl_streaming_post(
     const string &url,
     const string &body,
@@ -548,30 +624,27 @@ LLMResponse GeminiClient::call_model(const string &model, const string &body) {
     resp.success = false;
     resp.http_status = 0;
 
-    httplib::Client cli("https://generativelanguage.googleapis.com");
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
+    string url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+                 model + ":generateContent?key=" + api_key_;
 
-    string path = "/v1beta/models/" + model + ":generateContent?key=" + api_key_;
+    auto result = curl_post(url, body, {}, connect_timeout_, read_timeout_);
 
-    auto result = cli.Post(path, body, "application/json");
-
-    if (!result) {
+    if (!result.reached_server) {
         resp.error_message = "couldn't reach Gemini API. Check your connection.";
         return resp;
     }
 
-    resp.http_status = result->status;
+    resp.http_status = result.http_status;
 
-    if (result->status == 200) {
-        resp.text = extract_gemini_text(result->body);
+    if (result.http_status == 200) {
+        resp.text = extract_gemini_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response. Try again.";
         }
     } else {
-        resp.error_message = map_gemini_error(result->status, result->body);
+        resp.error_message = map_gemini_error(result.http_status, result.body);
     }
 
     return resp;
@@ -779,26 +852,21 @@ LLMResponse OpenAIClient::generate(const string &system_prompt, const string &us
     for (int attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) retry_sleep();
 
-        httplib::Client cli("https://api.openai.com");
-        cli.set_connection_timeout(connect_timeout_);
-        cli.set_read_timeout(read_timeout_);
+        vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+        auto result = curl_post(
+            "https://api.openai.com/v1/chat/completions",
+            body, hdrs, connect_timeout_, read_timeout_);
 
-        httplib::Headers headers = {
-            {"Authorization", "Bearer " + api_key_}
-        };
-
-        auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
-
-        if (!result) {
+        if (!result.reached_server) {
             resp.error_message = "couldn't reach OpenAI API. Check your connection.";
             resp.http_status = 0;
             continue;
         }
 
-        resp.http_status = result->status;
+        resp.http_status = result.http_status;
 
-        if (result->status == 200) {
-            resp.text = extract_openai_text(result->body);
+        if (result.http_status == 200) {
+            resp.text = extract_openai_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
@@ -807,7 +875,7 @@ LLMResponse OpenAIClient::generate(const string &system_prompt, const string &us
             return resp;
         }
 
-        resp.error_message = map_openai_error(result->status, result->body);
+        resp.error_message = map_openai_error(result.http_status, result.body);
         if (!is_retryable(resp)) return resp;
     }
 
@@ -847,34 +915,29 @@ LLMResponse OpenAIClient::generate_with_context(const string &system_prompt,
     resp.success = false;
     resp.http_status = 0;
 
-    httplib::Client cli("https://api.openai.com");
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
-
-    httplib::Headers headers = {
-        {"Authorization", "Bearer " + api_key_}
-    };
-
     string body = build_openai_context_json(model_, system_prompt, history, user_prompt, false);
 
-    auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
+    vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+    auto result = curl_post(
+        "https://api.openai.com/v1/chat/completions",
+        body, hdrs, connect_timeout_, read_timeout_);
 
-    if (!result) {
+    if (!result.reached_server) {
         resp.error_message = "couldn't reach OpenAI API. Check your connection.";
         return resp;
     }
 
-    resp.http_status = result->status;
+    resp.http_status = result.http_status;
 
-    if (result->status == 200) {
-        resp.text = extract_openai_text(result->body);
+    if (result.http_status == 200) {
+        resp.text = extract_openai_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response. Try again.";
         }
     } else {
-        resp.error_message = map_openai_error(result->status, result->body);
+        resp.error_message = map_openai_error(result.http_status, result.body);
     }
 
     return resp;
@@ -891,26 +954,21 @@ LLMResponse OpenAIClient::generate_structured(const string &system_prompt,
     for (int attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) retry_sleep();
 
-        httplib::Client cli("https://api.openai.com");
-        cli.set_connection_timeout(connect_timeout_);
-        cli.set_read_timeout(read_timeout_);
+        vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+        auto result = curl_post(
+            "https://api.openai.com/v1/chat/completions",
+            body, hdrs, connect_timeout_, read_timeout_);
 
-        httplib::Headers headers = {
-            {"Authorization", "Bearer " + api_key_}
-        };
-
-        auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
-
-        if (!result) {
+        if (!result.reached_server) {
             resp.error_message = "couldn't reach OpenAI API. Check your connection.";
             resp.http_status = 0;
             continue;
         }
 
-        resp.http_status = result->status;
+        resp.http_status = result.http_status;
 
-        if (result->status == 200) {
-            resp.text = extract_openai_text(result->body);
+        if (result.http_status == 200) {
+            resp.text = extract_openai_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
@@ -919,7 +977,7 @@ LLMResponse OpenAIClient::generate_structured(const string &system_prompt,
             return resp;
         }
 
-        resp.error_message = map_openai_error(result->status, result->body);
+        resp.error_message = map_openai_error(result.http_status, result.body);
         if (!is_retryable(resp)) return resp;
     }
 
@@ -934,34 +992,29 @@ LLMResponse OpenAIClient::generate_structured_with_context(
     resp.success = false;
     resp.http_status = 0;
 
-    httplib::Client cli("https://api.openai.com");
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
-
-    httplib::Headers headers = {
-        {"Authorization", "Bearer " + api_key_}
-    };
-
     string body = build_openai_structured_context_json(model_, system_prompt, history, user_prompt);
 
-    auto result = cli.Post("/v1/chat/completions", headers, body, "application/json");
+    vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+    auto result = curl_post(
+        "https://api.openai.com/v1/chat/completions",
+        body, hdrs, connect_timeout_, read_timeout_);
 
-    if (!result) {
+    if (!result.reached_server) {
         resp.error_message = "couldn't reach OpenAI API. Check your connection.";
         return resp;
     }
 
-    resp.http_status = result->status;
+    resp.http_status = result.http_status;
 
-    if (result->status == 200) {
-        resp.text = extract_openai_text(result->body);
+    if (result.http_status == 200) {
+        resp.text = extract_openai_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response. Try again.";
         }
     } else {
-        resp.error_message = map_openai_error(result->status, result->body);
+        resp.error_message = map_openai_error(result.http_status, result.body);
     }
 
     return resp;
@@ -1030,22 +1083,19 @@ LLMResponse OllamaClient::generate(const string &system_prompt, const string &us
     for (int attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) retry_sleep();
 
-        httplib::Client cli(client_url);
-        cli.set_connection_timeout(connect_timeout_);
-        cli.set_read_timeout(read_timeout_);
+        auto result = curl_post(client_url + "/api/chat", body, {},
+                                 connect_timeout_, read_timeout_);
 
-        auto result = cli.Post("/api/chat", body, "application/json");
-
-        if (!result) {
+        if (!result.reached_server) {
             resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
             resp.http_status = 0;
             continue;
         }
 
-        resp.http_status = result->status;
+        resp.http_status = result.http_status;
 
-        if (result->status == 200) {
-            resp.text = extract_ollama_text(result->body);
+        if (result.http_status == 200) {
+            resp.text = extract_ollama_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
@@ -1054,7 +1104,7 @@ LLMResponse OllamaClient::generate(const string &system_prompt, const string &us
             return resp;
         }
 
-        resp.error_message = "Ollama error (HTTP " + to_string(result->status) + "). Try again.";
+        resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
         if (!is_retryable(resp)) return resp;
     }
 
@@ -1095,30 +1145,27 @@ LLMResponse OllamaClient::generate_with_context(const string &system_prompt,
     resp.http_status = 0;
 
     string client_url = host_ + ":" + to_string(port_);
-    httplib::Client cli(client_url);
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
-
     string body = build_ollama_context_json(model_, system_prompt, history, user_prompt, false);
 
-    auto result = cli.Post("/api/chat", body, "application/json");
+    auto result = curl_post(client_url + "/api/chat", body, {},
+                             connect_timeout_, read_timeout_);
 
-    if (!result) {
+    if (!result.reached_server) {
         resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
         return resp;
     }
 
-    resp.http_status = result->status;
+    resp.http_status = result.http_status;
 
-    if (result->status == 200) {
-        resp.text = extract_ollama_text(result->body);
+    if (result.http_status == 200) {
+        resp.text = extract_ollama_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response from Ollama. Try again.";
         }
     } else {
-        resp.error_message = "Ollama error (HTTP " + to_string(result->status) + "). Try again.";
+        resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
     }
 
     return resp;
@@ -1136,22 +1183,19 @@ LLMResponse OllamaClient::generate_structured(const string &system_prompt,
     for (int attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) retry_sleep();
 
-        httplib::Client cli(client_url);
-        cli.set_connection_timeout(connect_timeout_);
-        cli.set_read_timeout(read_timeout_);
+        auto result = curl_post(client_url + "/api/chat", body, {},
+                                 connect_timeout_, read_timeout_);
 
-        auto result = cli.Post("/api/chat", body, "application/json");
-
-        if (!result) {
+        if (!result.reached_server) {
             resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
             resp.http_status = 0;
             continue;
         }
 
-        resp.http_status = result->status;
+        resp.http_status = result.http_status;
 
-        if (result->status == 200) {
-            resp.text = extract_ollama_text(result->body);
+        if (result.http_status == 200) {
+            resp.text = extract_ollama_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
@@ -1160,7 +1204,7 @@ LLMResponse OllamaClient::generate_structured(const string &system_prompt,
             return resp;
         }
 
-        resp.error_message = "Ollama error (HTTP " + to_string(result->status) + "). Try again.";
+        resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
         if (!is_retryable(resp)) return resp;
     }
 
@@ -1176,30 +1220,27 @@ LLMResponse OllamaClient::generate_structured_with_context(
     resp.http_status = 0;
 
     string client_url = host_ + ":" + to_string(port_);
-    httplib::Client cli(client_url);
-    cli.set_connection_timeout(connect_timeout_);
-    cli.set_read_timeout(read_timeout_);
-
     string body = build_ollama_structured_context_json(model_, system_prompt, history, user_prompt);
 
-    auto result = cli.Post("/api/chat", body, "application/json");
+    auto result = curl_post(client_url + "/api/chat", body, {},
+                             connect_timeout_, read_timeout_);
 
-    if (!result) {
+    if (!result.reached_server) {
         resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
         return resp;
     }
 
-    resp.http_status = result->status;
+    resp.http_status = result.http_status;
 
-    if (result->status == 200) {
-        resp.text = extract_ollama_text(result->body);
+    if (result.http_status == 200) {
+        resp.text = extract_ollama_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response from Ollama. Try again.";
         }
     } else {
-        resp.error_message = "Ollama error (HTTP " + to_string(result->status) + "). Try again.";
+        resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
     }
 
     return resp;

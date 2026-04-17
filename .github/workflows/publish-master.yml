@@ -68,7 +68,7 @@ jobs:
         if: matrix.kind == 'linux-manylinux'
         run: |
           dnf install -y cmake gcc-c++ make \
-            openssl-devel libcurl-devel sqlite-devel
+            libcurl-devel sqlite-devel json-devel
 
       - name: Build Release
         run: |
