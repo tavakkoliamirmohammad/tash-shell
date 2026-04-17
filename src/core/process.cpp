@@ -1,5 +1,6 @@
 #include "tash/core.h"
 #include "tash/ui/rich_output.h"
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <unordered_set>
@@ -147,7 +148,7 @@ int foreground_process(const vector<string> &argv,
         if (stderr_pipe[1] >= 0) close(stderr_pipe[1]); // close write end
         if (intercept_stdout) close(stdout_pipe[1]);
 
-        fg_child_pid = pid;
+        fg_child_pid.store(pid, std::memory_order_release);
 
         // Drain stdout first (line-buffered linkify) so stderr capture below
         // doesn't deadlock on a child that writes a lot of stdout.
@@ -193,7 +194,7 @@ int foreground_process(const vector<string> &argv,
         }
 
         waitpid(pid, &status, WUNTRACED);
-        fg_child_pid = 0;
+        fg_child_pid.store(0, std::memory_order_release);
 
         // Check exit status properly
         if (WIFEXITED(status)) return WEXITSTATUS(status);

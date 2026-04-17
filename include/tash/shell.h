@@ -6,6 +6,7 @@
 #include <vector>
 #include <signal.h>
 #include <sys/types.h>
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
@@ -126,7 +127,7 @@ struct ShellState {
 // ── Signal-related globals (must be global for signal handlers) ─
 
 extern volatile sig_atomic_t sigchld_received;
-extern volatile sig_atomic_t fg_child_pid;
+extern std::atomic<pid_t> fg_child_pid;
 
 // ── Builtin function type ──────────────────────────────────────
 
