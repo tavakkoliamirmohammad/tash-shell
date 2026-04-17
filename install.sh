@@ -31,8 +31,20 @@ esac
 
 mkdir -p "${INSTALL_DIR}"
 
-# Get latest release
-LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+# Channel selection:
+#   default        → newest tagged release (stable)
+#   TASH_USE_MASTER=1 → rolling master-latest pre-release (bleeding edge)
+USE_MASTER="${TASH_USE_MASTER:-0}"
+
+if [ "${USE_MASTER}" = "1" ]; then
+    # master-latest is a pre-release, so `releases/latest` skips it.
+    # Pin to the known tag name published by .github/workflows/publish-master.yml.
+    LATEST="master-latest"
+    echo "Using rolling master build (TASH_USE_MASTER=1)"
+else
+    # Newest tagged release; GitHub's endpoint already skips pre-releases.
+    LATEST=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+fi
 
 if [ -z "${LATEST}" ]; then
     echo "No releases found. Building from source..."
@@ -68,7 +80,12 @@ else
 
         TMPDIR=$(mktemp -d)
         cd "${TMPDIR}"
-        curl -sL "https://github.com/${REPO}/archive/refs/tags/${LATEST}.tar.gz" | tar xz
+        # master channel → master branch tarball; tag channel → tag tarball.
+        if [ "${USE_MASTER}" = "1" ]; then
+            curl -sL "https://github.com/${REPO}/archive/refs/heads/master.tar.gz" | tar xz
+        else
+            curl -sL "https://github.com/${REPO}/archive/refs/tags/${LATEST}.tar.gz" | tar xz
+        fi
         cd tash-shell-*
         cmake -B build -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
         cmake --build build

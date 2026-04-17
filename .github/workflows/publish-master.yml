@@ -1,0 +1,88 @@
+name: Publish master binaries
+
+# On every push to master, rebuild Release binaries and publish them
+# to a rolling GitHub pre-release tagged `master-latest`. Users can
+# always grab the most recent master build from the Releases page —
+# no login, no Actions-UI dive.
+#
+# Complements .github/workflows/release.yml (which handles tagged
+# versioned releases on `v*` tags). That workflow keeps producing
+# real releases; this one just refreshes the master-latest tag.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # required for softprops/action-gh-release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            container: alpine:latest
+            artifact: tash-linux-amd64
+            static: true
+          - os: macos-14
+            artifact: tash-macos-arm64
+            static: false
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies (Alpine - static musl)
+        if: matrix.static
+        run: apk add --no-cache g++ cmake make linux-headers openssl-dev openssl-libs-static curl-dev sqlite-dev git zlib-static
+      - name: Build Release
+        env:
+          STATIC: ${{ matrix.static }}
+        run: |
+          if [ "$STATIC" = "true" ]; then
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
+              -DCMAKE_EXE_LINKER_FLAGS="-static"
+          else
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          fi
+          cmake --build build -j
+      - name: Smoke test built binary
+        run: echo -e "echo publish_master_ok\nexit" | ./build/tash.out
+      - name: Stage binary with final name
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          mkdir -p artifacts
+          cp build/tash.out "artifacts/$ARTIFACT"
+          chmod +x "artifacts/$ARTIFACT"
+
+      # Two delivery paths so users can pick whichever fits their flow.
+
+      # 1. Actions artifact — downloadable from the workflow run page,
+      #    scoped to the commit SHA. Retained 90 days.
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: artifacts/${{ matrix.artifact }}
+          retention-days: 90
+
+      # 2. Rolling pre-release — the stable "latest master" download
+      #    URL on the Releases page. softprops handles create-or-update.
+      - name: Publish to master-latest pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: master-latest
+          name: Latest master build
+          body: |
+            Rolling build of the latest commit on `master`.
+
+            This is a snapshot, not a tagged release. For stable
+            versioned builds, see the tags page.
+
+            Commit: ${{ github.sha }}
+          prerelease: true
+          files: artifacts/${{ matrix.artifact }}
+          fail_on_unmatched_files: true
