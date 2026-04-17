@@ -7,6 +7,8 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 
+struct ShellState;
+
 namespace tash {
 namespace structured_pipe {
 
@@ -76,7 +78,7 @@ std::string render_table(const JsonValue &data);
 /// Execute a full structured pipeline.  The first segment's command is
 /// run as a shell command (stdout captured), then each subsequent
 /// operator is applied in order.  Returns the final rendered output.
-std::string execute_pipeline(const std::string &command_line);
+std::string execute_pipeline(const std::string &command_line, ::ShellState &state);
 
 } // namespace structured_pipe
 } // namespace tash

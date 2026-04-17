@@ -207,6 +207,7 @@ tash_register_plugin(
 
 tash_register_plugin(
     NAME hook_ordering
+    TEST_AI_AWARE
     TEST_SOURCES tests/unit/test_hook_ordering.cpp
     TEST_PREFIX "unit/core/"
 )

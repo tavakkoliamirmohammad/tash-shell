@@ -13,6 +13,9 @@
 #include "tash/core.h"
 #include "tash/plugin.h"
 #include "tash/shell.h"
+#ifdef TASH_AI_ENABLED
+#include "tash/core/structured_pipe.h"
+#endif
 
 namespace {
 
@@ -106,3 +109,34 @@ TEST(HookOrdering, CommandSubstitutionRespectsSkip) {
     // Disable force_skip so later tests in this binary aren't affected.
     rec->force_skip = false;
 }
+
+#ifdef TASH_AI_ENABLED
+TEST(HookOrdering, StructuredPipeFirstSegmentInvokesBeforeHook) {
+    auto *rec = install_recorder();
+    ShellState state;
+    std::string out = tash::structured_pipe::execute_pipeline(
+        "echo hello |> to-json", state);
+    // Hook must have seen the first segment as a before_command.
+    bool saw_first_segment = false;
+    for (const auto &c : rec->before_commands) {
+        if (c == "echo hello") saw_first_segment = true;
+    }
+    EXPECT_TRUE(saw_first_segment);
+    // Output should be valid JSON containing "hello"
+    EXPECT_NE(out.find("hello"), std::string::npos);
+
+    // Hook contract: after_command fires on happy path with exit code 0.
+    ASSERT_FALSE(rec->after_exit_codes.empty());
+    EXPECT_EQ(rec->after_exit_codes.back(), 0);
+}
+
+TEST(HookOrdering, StructuredPipeRespectsSkip) {
+    auto *rec = install_recorder();
+    rec->force_skip = true;
+    ShellState state;
+    std::string out = tash::structured_pipe::execute_pipeline(
+        "rm -rf /fake |> to-json", state);
+    EXPECT_TRUE(out.empty());
+    rec->force_skip = false;
+}
+#endif

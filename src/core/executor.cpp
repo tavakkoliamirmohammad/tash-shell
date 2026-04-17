@@ -276,7 +276,7 @@ int execute_single_command(string command, ShellState &state,
     // Structured pipeline (`cmd |> where ... |> sort-by ...`) short-circuits
     // before normal parsing so the `|>` operator isn't confused with `|`.
     if (tash::structured_pipe::has_structured_pipe(command)) {
-        string out = tash::structured_pipe::execute_pipeline(command);
+        string out = tash::structured_pipe::execute_pipeline(command, state);
         write_stdout(out);
         if (!out.empty() && out.back() != '\n') write_stdout("\n");
         return 0;
