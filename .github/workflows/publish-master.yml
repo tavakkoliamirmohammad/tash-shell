@@ -14,6 +14,13 @@ on:
     branches: [master]
   workflow_dispatch:
 
+# Rapid consecutive pushes to master (e.g., a merge train) only need the
+# last one to publish. Cancel any earlier in-flight run so the rolling
+# `master-latest` tag ends up pointing at the most recent commit.
+concurrency:
+  group: publish-master
+  cancel-in-progress: true
+
 permissions:
   contents: write   # required for softprops/action-gh-release
 

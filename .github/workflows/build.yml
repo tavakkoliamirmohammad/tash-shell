@@ -7,6 +7,14 @@ on:
     branches: [master]
   workflow_dispatch:
 
+# Cancel in-progress runs when a newer commit lands on the same ref.
+# Keeps us from wasting runner time on commits a user has already
+# superseded — and prevents a slow macOS lane from blocking a merge
+# by being "still running from 20 minutes ago".
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:
