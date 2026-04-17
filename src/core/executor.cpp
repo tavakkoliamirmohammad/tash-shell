@@ -136,6 +136,66 @@ int execute_single_command(string command, ShellState &state,
         }
     }
 
+    // Subshell: `(cmd1; cmd2)` runs in a forked child so cd/exports
+    // don't leak into the parent shell. Must come before structured
+    // pipe and redirection parsing so the parens aren't misread.
+    {
+        size_t first = command.find_first_not_of(" \t");
+        if (first != string::npos && command[first] == '(') {
+            // Find matching ')' respecting quotes + nesting.
+            int depth = 0;
+            bool in_s = false, in_d = false;
+            size_t close = string::npos;
+            for (size_t k = first; k < command.size(); ++k) {
+                char ch = command[k];
+                if (ch == '\'' && !in_d) in_s = !in_s;
+                else if (ch == '"' && !in_s) in_d = !in_d;
+                else if (!in_s && !in_d && ch == '(') ++depth;
+                else if (!in_s && !in_d && ch == ')') {
+                    if (--depth == 0) { close = k; break; }
+                }
+            }
+            if (close == string::npos) {
+                write_stderr("tash: unmatched '(' in subshell\n");
+                return 1;
+            }
+            // Reject pipelined subshells for now; execute_pipeline
+            // doesn't thread per-segment stdio. Standalone + trailing
+            // redirections are supported.
+            string trailing = command.substr(close + 1);
+            for (char ch : trailing) {
+                if (ch == '|') {
+                    write_stderr("tash: subshells in pipelines not yet supported\n");
+                    return 1;
+                }
+            }
+
+            string inner = command.substr(first + 1, close - first - 1);
+            Command redirs_only = parse_redirections(trailing);
+            const std::vector<Redirection> &redirs = redirs_only.redirections;
+
+            pid_t pid = fork();
+            if (pid < 0) {
+                write_stderr("tash: fork failed for subshell\n");
+                return 1;
+            }
+            if (pid == 0) {
+                // Child: isolated state copy (so cd/exports don't affect
+                // the real shell state — though the parent wouldn't see
+                // them across the fork anyway; this keeps semantics clear).
+                setup_child_io(redirs);
+                ShellState child_state = state;
+                std::vector<CommandSegment> segs = parse_command_line(inner);
+                execute_command_line(segs, child_state);
+                std::exit(child_state.last_exit_status);
+            }
+            int status;
+            waitpid(pid, &status, 0);
+            int rc = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+            return rc;
+        }
+    }
+
 #ifdef TASH_AI_ENABLED
     // Structured pipeline (`cmd |> where ... |> sort-by ...`) short-circuits
     // before normal parsing so the `|>` operator isn't confused with `|`.
