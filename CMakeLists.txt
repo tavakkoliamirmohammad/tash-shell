@@ -75,6 +75,11 @@ set(TASH_INCLUDE_DIRS
 # ── Core shell sources (non-plugin) ────────────────────────────
 set(SHELL_SOURCES
     src/main.cpp
+    src/repl.cpp
+    src/startup.cpp
+    src/ai/ai_bootstrap.cpp
+    src/core/executor.cpp
+    src/core/signals.cpp
     src/core/parser.cpp
     src/core/process.cpp
     src/core/builtins.cpp
