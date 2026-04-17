@@ -1,6 +1,7 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/plugins/fig_completion_provider.h"
+#include "tash/util/config_resolver.h"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -19,16 +20,10 @@ static std::string expand_home(const std::string &path) {
     return path;
 }
 
-// ── Default spec directory ───────────────────────────────────
-
-static std::string default_spec_dir() {
-    return "~/.tash/completions/fig/";
-}
-
 // ── Constructor (default dir) ────────────────────────────────
 
 FigCompletionProvider::FigCompletionProvider()
-    : spec_dir_(expand_home(default_spec_dir())) {
+    : spec_dir_(tash::config::get_fig_completions_dir() + "/") {
     // Build index of available spec files
     DIR *dp = opendir(spec_dir_.c_str());
     if (!dp) return;

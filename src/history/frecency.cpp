@@ -1,4 +1,5 @@
 #include "tash/history.h"
+#include "tash/util/config_resolver.h"
 #include <cmath>
 #include <ctime>
 #include <algorithm>
@@ -15,9 +16,7 @@ struct DirEntry {
 };
 
 static string z_data_path() {
-    const char *home = getenv("HOME");
-    if (!home) return "";
-    return string(home) + "/.tash_z";
+    return tash::config::get_frecency_path();
 }
 
 static vector<DirEntry> load_z_data() {

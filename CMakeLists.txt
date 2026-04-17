@@ -85,6 +85,7 @@ set(SHELL_SOURCES
     src/history/history.cpp
     src/history/frecency.cpp
     src/util/colors.cpp
+    src/util/config_resolver.cpp
     src/util/theme.cpp
 )
 
@@ -202,6 +203,7 @@ if(BUILD_TESTS)
         tests/integration/test_config_sync.cpp
         tests/integration/test_pipeline.cpp
         tests/integration/test_live_providers.cpp
+        tests/integration/test_config_override.cpp
     )
     target_include_directories(test_integration PRIVATE
         ${CMAKE_SOURCE_DIR}/tests

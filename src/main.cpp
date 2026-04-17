@@ -9,6 +9,7 @@
 #include "tash/plugins/safety_hook_provider.h"
 #include "tash/plugins/starship_prompt_provider.h"
 #include "tash/util/benchmark.h"
+#include "tash/util/config_resolver.h"
 #include "theme.h"
 
 #ifdef TASH_SQLITE_ENABLED
@@ -500,10 +501,10 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    // Load ~/.tashrc
-    const char *home_env = getenv("HOME");
-    if (home_env) {
-        string tashrc_path = string(home_env) + "/.tashrc";
+    // Load ~/.tashrc (resolved via the config helper so $TASH_*_HOME and
+    // $XDG_* overrides apply consistently).
+    {
+        string tashrc_path = tash::config::get_tashrc_path();
         ifstream tashrc(tashrc_path);
         if (tashrc.is_open()) {
             string rc_line;

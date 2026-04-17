@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "tash/util/config_resolver.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -104,15 +105,11 @@ void apply_theme(const Theme &t, const std::string &name) {
 // ── Theme discovery ───────────────────────────────────────────
 
 static std::string home_theme_dir() {
-    const char *home = getenv("HOME");
-    if (!home) return "";
-    return std::string(home) + "/.config/tash/themes";
+    return tash::config::get_user_themes_dir();
 }
 
 static std::string user_theme_file() {
-    const char *home = getenv("HOME");
-    if (!home) return "";
-    return std::string(home) + "/.config/tash/theme.toml";
+    return tash::config::get_theme_toml_path();
 }
 
 std::vector<std::string> theme_search_dirs() {
@@ -186,9 +183,7 @@ static bool copy_file(const std::string &src, const std::string &dst) {
 }
 
 static std::string name_marker_file() {
-    const char *home = getenv("HOME");
-    if (!home) return "";
-    return std::string(home) + "/.config/tash/theme.name";
+    return tash::config::get_theme_name_path();
 }
 
 void load_user_theme() {

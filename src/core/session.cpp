@@ -1,5 +1,6 @@
 #include "tash/core/session.h"
 #include "tash/shell.h"
+#include "tash/util/config_resolver.h"
 
 #include <fstream>
 #include <sstream>
@@ -188,11 +189,8 @@ SessionInfo load_session(const std::string &path) {
 // ── Session directory management ──────────────────────────────
 
 std::string get_sessions_dir() {
-    const char *home = std::getenv("HOME");
-    if (!home) {
-        return "";
-    }
-    std::string base = std::string(home) + "/.tash/sessions";
+    std::string base = tash::config::get_sessions_dir();
+    if (base.empty()) return "";
     mkdir_p(base);
     return base + "/";
 }

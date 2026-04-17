@@ -1,12 +1,11 @@
 #include "tash/history.h"
+#include "tash/util/config_resolver.h"
 
 using namespace std;
 using namespace replxx;
 
 string history_file_path() {
-    const char *home = getenv("HOME");
-    if (!home) return "";
-    return string(home) + "/.tash_history";
+    return tash::config::get_history_file_path();
 }
 
 bool should_record_history(const string &line, Replxx &rx) {
