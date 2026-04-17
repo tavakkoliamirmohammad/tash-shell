@@ -133,15 +133,23 @@ jobs:
           lcov --list coverage.info
       - name: Enforce coverage threshold
         # Fail the job when line coverage drops below the floor. Start
-        # conservative — the bar is "don't backslide from where we are
-        # today", not "achieve 95%". Raise this over time.
+        # intentionally loose — the bar is "don't gut the tests", not
+        # "achieve 95%". Large parts of the repo (plugins, AI stack,
+        # live providers) are integration-testable only and weigh the
+        # denominator down; the number below reflects reality today
+        # and exists to catch *regressions*. Ratchet up over time.
         env:
-          COVERAGE_FLOOR: 60
+          COVERAGE_FLOOR: 10
         run: |
-          # `lcov --list` prints a Total line at the end; pull its
-          # line-coverage percentage (column ending with %).
+          # `lcov --list` uses `|` as an unspaced column separator:
+          #   Total:|11.7% 4063| 0.0% 397|   -   0
+          # Split on `|`, take the second field, strip everything
+          # from the first whitespace-or-% onward to leave just "11.7".
           PCT=$(lcov --list coverage.info 2>/dev/null \
-                | awk '/Total:/ {for (i=1;i<=NF;i++) if ($i ~ /%$/) {gsub("%","",$i); print $i; exit}}')
+                | awk -F'|' '/Total:/ {
+                    sub(/[[:space:]%].*/, "", $2);
+                    print $2; exit
+                  }')
           if [ -z "$PCT" ]; then
             echo "WARNING: could not parse coverage summary — skipping threshold check"
             lcov --list coverage.info | tail -20
