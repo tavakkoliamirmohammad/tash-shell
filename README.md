@@ -310,51 +310,6 @@ Input → Replxx (highlighting + hints + completion)
       → "Did you mean?" on exit code 127
 ```
 
-### Source Files
-
-The tree is organized into layers: `src/core/` for shell execution, `src/ui/` for interactive features, `src/plugins/` for provider implementations, `src/util/` for shared infrastructure, and `src/ai/` for LLM integration.
-
-| Layer | File | Purpose |
-|-------|------|---------|
-| **Core** | `src/core/parser.cpp` | Tokenizer, variable/command expansion, redirection parsing (including heredocs) |
-| | `src/core/executor.cpp` | Command-line execution, subshells, per-segment pipeline dispatch |
-| | `src/core/process.cpp` | fork/exec, pipelines, background processes |
-| | `src/core/builtins.cpp` | Dispatch table for all built-in commands |
-| | `src/core/signals.cpp` | Signal handling + POSIX `trap` delivery |
-| | `src/core/session.cpp` | Session save/load/attach |
-| | `src/core/config_sync.cpp` | Git-based config sync (init/remote/push/pull/diff) |
-| | `src/core/structured_pipe.cpp` | `\|>` structured-data pipeline operators |
-| **Builtins** | `src/builtins/{nav,env,bg,history,ui,shell}.cpp` | Grouped builtin implementations |
-| **UI** | `src/ui/completion.cpp` | Tab completion + plugin registry dispatch |
-| | `src/ui/highlight.cpp` | Syntax highlighting + autosuggestion hints |
-| | `src/ui/suggest.cpp` | "Did you mean?" via Damerau-Levenshtein distance |
-| | `src/ui/prompt.cpp` | Two-line prompt with git status and command duration |
-| | `src/ui/fuzzy_finder.cpp` | Built-in fuzzy matching engine |
-| | `src/ui/block_renderer.cpp` | Collapsible block-style command output |
-| | `src/ui/rich_output.cpp` | OSC 8 hyperlinks + Unicode table rendering |
-| | `src/ui/clipboard.cpp` | OSC 52 clipboard copy/paste |
-| | `src/ui/inline_docs.cpp` | `explain` builtin flag database |
-| **Plugins** | `src/plugins/plugin_registry.cpp` | Provider interfaces + priority-based dispatch |
-| | `src/plugins/fish_completion_provider.cpp` | Fish completion file parser (1,056 commands) |
-| | `src/plugins/fig_completion_provider.cpp` | Fig/Amazon Q JSON spec loader (715 commands) |
-| | `src/plugins/manpage_completion_provider.cpp` | `--help` parsing fallback |
-| | `src/plugins/sqlite_history_provider.cpp` | SQLite history + Atuin bridge |
-| | `src/plugins/theme_provider.cpp` | Theme loader + 5 bundled TOML palettes |
-| | `src/plugins/starship_prompt_provider.cpp` | Optional Starship prompt integration |
-| | `src/plugins/alias_suggest_provider.cpp` | "You have an alias for this" reminders |
-| | `src/plugins/safety_hook_provider.cpp` | Destructive-command detection |
-| | `src/plugins/ai_error_hook_provider.cpp` | Automatic AI error recovery |
-| **Util** | `src/util/config_resolver.cpp` | XDG-aware filesystem paths (`~/.tash/`, `$XDG_CONFIG_HOME`) |
-| | `src/util/benchmark.cpp` | Staged startup benchmark (`tash --benchmark`) |
-| | `src/util/theme.cpp` / `colors.cpp` | Color palette + ANSI wrappers |
-| | `src/util/history.cpp` / `frecency.cpp` | Plain-text history + `z` frecency store |
-| **AI** | `src/ai/ai_handler.cpp` | `@ai` command routing and unified handler |
-| | `src/ai/llm_client.cpp` | Multi-provider LLM client (Gemini, OpenAI, Ollama) with streaming |
-| | `src/ai/ai_config.cpp` | Provider config, API keys, rate limiter, usage tracking |
-| | `src/ai/contextual_ai.cpp` | `?` suffix routing with project-type and git context |
-| | `src/ai/context_suggest.cpp` | Context-aware autosuggestion engine |
-| **Entry** | `src/repl.cpp` | REPL loop, replxx setup, heredoc reader |
-
 ## Color Palette
 
 Tash uses the [Catppuccin Mocha](https://catppuccin.com) palette — a warm, soothing dark theme:
