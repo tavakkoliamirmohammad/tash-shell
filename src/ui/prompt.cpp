@@ -1,4 +1,5 @@
 #include "tash/core.h"
+#include "tash/plugin.h"
 #include "tash/ui.h"
 #include "theme.h"
 #include <sys/ioctl.h>
@@ -76,6 +77,16 @@ static string format_duration(double seconds) {
 }
 
 string write_shell_prefix(const ShellState &state) {
+    // Let a registered prompt provider (e.g. Starship) override the builtin
+    // prompt. Empty result means "fall through to builtin".
+    {
+        std::string custom = global_plugin_registry().render_prompt(state);
+        if (!custom.empty()) {
+            set_terminal_title("tash");
+            return custom;
+        }
+    }
+
     char cwd[MAX_SIZE];
     if (!getcwd(cwd, MAX_SIZE)) cwd[0] = '\0';
     const char *login = getlogin();

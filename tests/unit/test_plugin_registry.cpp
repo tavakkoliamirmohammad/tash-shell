@@ -202,7 +202,9 @@ TEST_F(PluginRegistryTest, PromptHighestPriorityWins) {
 }
 
 TEST_F(PluginRegistryTest, PromptFallbackOnEmpty) {
-    EXPECT_EQ(registry.render_prompt(state), "$ ");
+    // Empty registry returns "" so callers can tell no provider wanted to
+    // override and fall through to their builtin prompt (used to be "$ ").
+    EXPECT_EQ(registry.render_prompt(state), "");
 }
 
 TEST_F(PluginRegistryTest, PromptSingleProvider) {

@@ -5,6 +5,8 @@
 
 #include "tash/plugin.h"
 #include "tash/llm_client.h"
+#include <functional>
+#include <memory>
 #include <string>
 #include <ctime>
 
@@ -25,7 +27,13 @@ struct ErrorRecoveryResponse {
 
 class AiErrorHookProvider : public IHookProvider {
 public:
-    explicit AiErrorHookProvider(LLMClient *client);
+    // Factory lazily produces the LLMClient on first use so the hook can
+    // be registered at startup before the AI infrastructure is configured.
+    // A null or empty factory leaves the hook dormant.
+    using ClientFactory = std::function<std::unique_ptr<LLMClient>()>;
+
+    explicit AiErrorHookProvider(LLMClient *client);        // legacy
+    explicit AiErrorHookProvider(ClientFactory factory);
 
     std::string name() const override;
 
@@ -61,13 +69,16 @@ public:
     void reset_cooldown() { last_call_time_ = 0; }
 
 private:
-    LLMClient *client_;
+    LLMClient *client_;                   // non-owning (legacy path)
+    std::unique_ptr<LLMClient> owned_;    // owned, created by factory_
+    ClientFactory factory_;               // lazy factory
     time_t last_call_time_;
     int call_count_;
 
     static const int COOLDOWN_SECONDS = 5;
 
     bool rate_limit_allows() const;
+    LLMClient *ensure_client();           // returns active client or nullptr
 };
 
 #endif // TASH_AI_ENABLED
