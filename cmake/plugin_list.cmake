@@ -69,6 +69,7 @@ tash_register_plugin(
     SOURCES
         src/ai/ai_handler.cpp
         src/ai/llm_client.cpp
+        src/ai/llm_diagnostics.cpp
         src/ai/llm_registry.cpp
         src/ai/ai_config.cpp
         src/ai/context_suggest.cpp
@@ -76,6 +77,16 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_ai.cpp
     TEST_PREFIX "unit/ai/"
     TEST_AI_AWARE
+)
+
+tash_register_plugin(
+    NAME llm_diagnostics
+    REQUIRES TASH_AI_ENABLED
+    TEST_SOURCES tests/unit/test_llm_diagnostics.cpp
+                 src/ai/llm_diagnostics.cpp
+                 src/util/io.cpp
+    TEST_PREFIX "unit/ai/"
+    TEST_STANDALONE
 )
 
 tash_register_plugin(

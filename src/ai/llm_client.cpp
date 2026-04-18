@@ -2,6 +2,8 @@
 
 #include "tash/llm_client.h"
 #include "tash/ai.h"
+#include "tash/ai/llm_diagnostics.h"
+#include "tash/util/io.h"
 #include <nlohmann/json.hpp>
 #include <string>
 #include <sstream>
@@ -9,6 +11,7 @@
 #include <cstdlib>
 #include <cstddef>
 #include <cstdio>
+#include <chrono>
 
 #include <curl/curl.h>
 
@@ -30,6 +33,20 @@ static void retry_sleep() {
     ts.tv_nsec = 0;
     nanosleep(&ts, NULL);
 }
+
+// ═════════════════════════════════════════════════════════════════
+// Diagnostic helpers for O7.2 — rich error output on AI failures.
+// The actual formatting + severity routing lives in src/ai/llm_diagnostics.cpp
+// (exposed via tash::ai::diag) so unit tests can exercise the exact
+// output format without mocking HTTPS. Aliased into file scope for
+// brevity; every failure site below funnels through these.
+// ═════════════════════════════════════════════════════════════════
+
+using tash::ai::diag::log_http_failure;
+using tash::ai::diag::log_curl_failure;
+using tash::ai::diag::log_request_debug;
+using tash::ai::diag::log_response_debug;
+using tash::ai::diag::truncate_for_debug;
 
 // ═════════════════════════════════════════════════════════════════
 // Gemini JSON helpers (exposed for testing)
@@ -506,9 +523,8 @@ static bool configure_common_curl_opts(CURL *curl,
                                        long read_timeout) {
     auto check = [&](const char *name, CURLcode rc) -> bool {
         if (rc != CURLE_OK) {
-            std::string msg = std::string("tash: curl_easy_setopt(") + name
-                            + ") failed: " + curl_easy_strerror(rc) + "\n";
-            std::fputs(msg.c_str(), stderr);
+            tash::io::error(std::string("curl_easy_setopt(") + name
+                            + ") failed: " + curl_easy_strerror(rc));
             return false;
         }
         return true;
@@ -722,7 +738,8 @@ GeminiClient::GeminiClient(const string &api_key)
 void GeminiClient::set_model(const string &model) { model_ = model; }
 string GeminiClient::get_model() const { return model_; }
 
-LLMResponse GeminiClient::call_model(const string &model, const string &body) {
+LLMResponse GeminiClient::call_model(const string &model, const string &body,
+                                      int attempt, int max_attempts) {
     LLMResponse resp;
     resp.success = false;
     resp.http_status = 0;
@@ -730,9 +747,19 @@ LLMResponse GeminiClient::call_model(const string &model, const string &body) {
     string url = "https://generativelanguage.googleapis.com/v1beta/models/" +
                  model + ":generateContent?key=" + api_key_;
 
+    log_request_debug(get_provider_name(), model, body.size());
+    auto t0 = std::chrono::steady_clock::now();
     auto result = curl_post(url, body, {}, connect_timeout_, read_timeout_);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
 
     if (!result.reached_server) {
+        // Retry exhaustion is decided by the caller; we treat the
+        // "last possible attempt" as the final error so the diagnostic
+        // severity matches user intuition ("tash: error" vs "warning").
+        log_curl_failure(get_provider_name(), result.error_message,
+                         attempt, max_attempts,
+                         /*final=*/attempt >= max_attempts);
         resp.error_message = "couldn't reach Gemini API. Check your connection.";
         return resp;
     }
@@ -740,13 +767,27 @@ LLMResponse GeminiClient::call_model(const string &model, const string &body) {
     resp.http_status = result.http_status;
 
     if (result.http_status == 200) {
+        log_response_debug(get_provider_name(), result.http_status,
+                           result.body.size(), elapsed_ms);
         resp.text = extract_gemini_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response. Try again.";
+            tash::io::error(get_provider_name()
+                            + ": HTTP 200 but response body was not parsable");
+            tash::io::debug(get_provider_name() + ": response body: "
+                            + truncate_for_debug(result.body));
         }
     } else {
+        // Retryable statuses (429/5xx) are warnings on all but the last
+        // attempt; non-retryable statuses are always "final" because the
+        // caller will not retry them.
+        bool will_retry = attempt < max_attempts
+                          && (result.http_status == 429 || result.http_status >= 500);
+        log_http_failure(get_provider_name(), result.http_status,
+                         attempt, max_attempts, /*final=*/!will_retry,
+                         result.body);
         resp.error_message = map_gemini_error(result.http_status, result.body);
     }
 
@@ -757,7 +798,8 @@ LLMResponse GeminiClient::call_model(const string &model, const string &body) {
 // which fires as data arrives from the server.
 
 LLMResponse GeminiClient::call_model_stream(const string &model, const string &body,
-                                             std::function<void(const string &chunk)> on_chunk) {
+                                             std::function<void(const string &chunk)> on_chunk,
+                                             int attempt, int max_attempts) {
     string url = "https://generativelanguage.googleapis.com/v1beta/models/"
                  + model + ":streamGenerateContent?alt=sse&key=" + api_key_;
 
@@ -768,24 +810,37 @@ LLMResponse GeminiClient::call_model_stream(const string &model, const string &b
         return "";
     };
 
+    log_request_debug(get_provider_name(), model, body.size());
     LLMResponse resp = curl_streaming_post(url, body, {}, on_chunk, parse_line,
                                             connect_timeout_, read_timeout_);
 
     // Map errors using Gemini-specific error mapping
-    if (!resp.success && resp.http_status != 0 && resp.http_status != 200) {
-        resp.error_message = map_gemini_error(resp.http_status, "");
+    if (!resp.success) {
+        if (resp.http_status == 0) {
+            log_curl_failure(get_provider_name(), resp.error_message,
+                             attempt, max_attempts,
+                             /*final=*/attempt >= max_attempts);
+        } else if (resp.http_status != 200) {
+            bool will_retry = attempt < max_attempts
+                              && (resp.http_status == 429 || resp.http_status >= 500);
+            log_http_failure(get_provider_name(), resp.http_status,
+                             attempt, max_attempts, /*final=*/!will_retry,
+                             /*response_body=*/"");
+            resp.error_message = map_gemini_error(resp.http_status, "");
+        }
     }
     return resp;
 }
 
 LLMResponse GeminiClient::generate(const string &system_prompt, const string &user_prompt) {
     string body = build_gemini_request_json(system_prompt, user_prompt);
+    constexpr int kMaxAttempts = 2;
 
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
         if (attempt > 0) retry_sleep();
 
         // Try primary model
-        LLMResponse resp = call_model(model_, body);
+        LLMResponse resp = call_model(model_, body, attempt + 1, kMaxAttempts);
         if (resp.success || resp.error_message != "model_not_found") {
             if (resp.success || !is_retryable(resp)) return resp;
             continue;
@@ -793,7 +848,7 @@ LLMResponse GeminiClient::generate(const string &system_prompt, const string &us
 
         // Try fallback models
         for (size_t i = 0; i < fallback_models_.size(); i++) {
-            resp = call_model(fallback_models_[i], body);
+            resp = call_model(fallback_models_[i], body, attempt + 1, kMaxAttempts);
             if (resp.success || resp.error_message != "model_not_found") {
                 if (resp.success || !is_retryable(resp)) return resp;
                 break;
@@ -857,18 +912,19 @@ LLMResponse GeminiClient::generate_with_context(const string &system_prompt,
 LLMResponse GeminiClient::generate_structured(const string &system_prompt,
                                                 const string &user_prompt) {
     string body = build_gemini_structured_json(system_prompt, user_prompt);
+    constexpr int kMaxAttempts = 2;
 
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
         if (attempt > 0) retry_sleep();
 
-        LLMResponse resp = call_model(model_, body);
+        LLMResponse resp = call_model(model_, body, attempt + 1, kMaxAttempts);
         if (resp.success || resp.error_message != "model_not_found") {
             if (resp.success || !is_retryable(resp)) return resp;
             continue;
         }
 
         for (size_t i = 0; i < fallback_models_.size(); i++) {
-            resp = call_model(fallback_models_[i], body);
+            resp = call_model(fallback_models_[i], body, attempt + 1, kMaxAttempts);
             if (resp.success || resp.error_message != "model_not_found") {
                 if (resp.success || !is_retryable(resp)) return resp;
                 break;
@@ -951,16 +1007,24 @@ LLMResponse OpenAIClient::generate(const string &system_prompt, const string &us
     resp.http_status = 0;
 
     string body = build_openai_request_json(model_, system_prompt, user_prompt, false);
+    constexpr int kMaxAttempts = 2;
 
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
         if (attempt > 0) retry_sleep();
 
         vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+        log_request_debug(get_provider_name(), model_, body.size());
+        auto t0 = std::chrono::steady_clock::now();
         auto result = curl_post(
             "https://api.openai.com/v1/chat/completions",
             body, hdrs, connect_timeout_, read_timeout_);
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
 
         if (!result.reached_server) {
+            log_curl_failure(get_provider_name(), result.error_message,
+                             attempt + 1, kMaxAttempts,
+                             /*final=*/attempt + 1 >= kMaxAttempts);
             resp.error_message = "couldn't reach OpenAI API. Check your connection.";
             resp.http_status = 0;
             continue;
@@ -969,16 +1033,26 @@ LLMResponse OpenAIClient::generate(const string &system_prompt, const string &us
         resp.http_status = result.http_status;
 
         if (result.http_status == 200) {
+            log_response_debug(get_provider_name(), result.http_status,
+                               result.body.size(), elapsed_ms);
             resp.text = extract_openai_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
                 resp.error_message = "unexpected response. Try again.";
+                tash::io::error(get_provider_name()
+                                + ": HTTP 200 but response body was not parsable");
+                tash::io::debug(get_provider_name() + ": response body: "
+                                + truncate_for_debug(result.body));
             }
             return resp;
         }
 
         resp.error_message = map_openai_error(result.http_status, result.body);
+        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
+        log_http_failure(get_provider_name(), result.http_status,
+                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
+                         result.body);
         if (!is_retryable(resp)) return resp;
     }
 
@@ -1007,8 +1081,20 @@ LLMResponse OpenAIClient::generate_stream(const string &system_prompt, const str
         return "";
     };
 
-    return curl_streaming_post(url, body, hdrs, on_chunk, parse_line,
+    log_request_debug(get_provider_name(), model_, body.size());
+    LLMResponse resp = curl_streaming_post(url, body, hdrs, on_chunk, parse_line,
                                 connect_timeout_, read_timeout_);
+    if (!resp.success) {
+        if (resp.http_status == 0) {
+            log_curl_failure(get_provider_name(), resp.error_message,
+                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
+        } else if (resp.http_status != 200) {
+            log_http_failure(get_provider_name(), resp.http_status,
+                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
+                             /*response_body=*/"");
+        }
+    }
+    return resp;
 }
 
 LLMResponse OpenAIClient::generate_with_context(const string &system_prompt,
@@ -1021,11 +1107,17 @@ LLMResponse OpenAIClient::generate_with_context(const string &system_prompt,
     string body = build_openai_context_json(model_, system_prompt, history, user_prompt, false);
 
     vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+    log_request_debug(get_provider_name(), model_, body.size());
+    auto t0 = std::chrono::steady_clock::now();
     auto result = curl_post(
         "https://api.openai.com/v1/chat/completions",
         body, hdrs, connect_timeout_, read_timeout_);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
 
     if (!result.reached_server) {
+        log_curl_failure(get_provider_name(), result.error_message,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
         resp.error_message = "couldn't reach OpenAI API. Check your connection.";
         return resp;
     }
@@ -1033,13 +1125,22 @@ LLMResponse OpenAIClient::generate_with_context(const string &system_prompt,
     resp.http_status = result.http_status;
 
     if (result.http_status == 200) {
+        log_response_debug(get_provider_name(), result.http_status,
+                           result.body.size(), elapsed_ms);
         resp.text = extract_openai_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response. Try again.";
+            tash::io::error(get_provider_name()
+                            + ": HTTP 200 but response body was not parsable");
+            tash::io::debug(get_provider_name() + ": response body: "
+                            + truncate_for_debug(result.body));
         }
     } else {
+        log_http_failure(get_provider_name(), result.http_status,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
+                         result.body);
         resp.error_message = map_openai_error(result.http_status, result.body);
     }
 
@@ -1053,16 +1154,24 @@ LLMResponse OpenAIClient::generate_structured(const string &system_prompt,
     resp.http_status = 0;
 
     string body = build_openai_structured_json(model_, system_prompt, user_prompt);
+    constexpr int kMaxAttempts = 2;
 
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
         if (attempt > 0) retry_sleep();
 
         vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+        log_request_debug(get_provider_name(), model_, body.size());
+        auto t0 = std::chrono::steady_clock::now();
         auto result = curl_post(
             "https://api.openai.com/v1/chat/completions",
             body, hdrs, connect_timeout_, read_timeout_);
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
 
         if (!result.reached_server) {
+            log_curl_failure(get_provider_name(), result.error_message,
+                             attempt + 1, kMaxAttempts,
+                             /*final=*/attempt + 1 >= kMaxAttempts);
             resp.error_message = "couldn't reach OpenAI API. Check your connection.";
             resp.http_status = 0;
             continue;
@@ -1071,16 +1180,26 @@ LLMResponse OpenAIClient::generate_structured(const string &system_prompt,
         resp.http_status = result.http_status;
 
         if (result.http_status == 200) {
+            log_response_debug(get_provider_name(), result.http_status,
+                               result.body.size(), elapsed_ms);
             resp.text = extract_openai_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
                 resp.error_message = "unexpected response. Try again.";
+                tash::io::error(get_provider_name()
+                                + ": HTTP 200 but response body was not parsable");
+                tash::io::debug(get_provider_name() + ": response body: "
+                                + truncate_for_debug(result.body));
             }
             return resp;
         }
 
         resp.error_message = map_openai_error(result.http_status, result.body);
+        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
+        log_http_failure(get_provider_name(), result.http_status,
+                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
+                         result.body);
         if (!is_retryable(resp)) return resp;
     }
 
@@ -1098,11 +1217,17 @@ LLMResponse OpenAIClient::generate_structured_with_context(
     string body = build_openai_structured_context_json(model_, system_prompt, history, user_prompt);
 
     vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+    log_request_debug(get_provider_name(), model_, body.size());
+    auto t0 = std::chrono::steady_clock::now();
     auto result = curl_post(
         "https://api.openai.com/v1/chat/completions",
         body, hdrs, connect_timeout_, read_timeout_);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
 
     if (!result.reached_server) {
+        log_curl_failure(get_provider_name(), result.error_message,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
         resp.error_message = "couldn't reach OpenAI API. Check your connection.";
         return resp;
     }
@@ -1110,13 +1235,22 @@ LLMResponse OpenAIClient::generate_structured_with_context(
     resp.http_status = result.http_status;
 
     if (result.http_status == 200) {
+        log_response_debug(get_provider_name(), result.http_status,
+                           result.body.size(), elapsed_ms);
         resp.text = extract_openai_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response. Try again.";
+            tash::io::error(get_provider_name()
+                            + ": HTTP 200 but response body was not parsable");
+            tash::io::debug(get_provider_name() + ": response body: "
+                            + truncate_for_debug(result.body));
         }
     } else {
+        log_http_failure(get_provider_name(), result.http_status,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
+                         result.body);
         resp.error_message = map_openai_error(result.http_status, result.body);
     }
 
@@ -1182,14 +1316,22 @@ LLMResponse OllamaClient::generate(const string &system_prompt, const string &us
 
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_request_json(model_, system_prompt, user_prompt, false);
+    constexpr int kMaxAttempts = 2;
 
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
         if (attempt > 0) retry_sleep();
 
+        log_request_debug(get_provider_name(), model_, body.size());
+        auto t0 = std::chrono::steady_clock::now();
         auto result = curl_post(client_url + "/api/chat", body, {},
                                  connect_timeout_, read_timeout_);
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
 
         if (!result.reached_server) {
+            log_curl_failure(get_provider_name(), result.error_message,
+                             attempt + 1, kMaxAttempts,
+                             /*final=*/attempt + 1 >= kMaxAttempts);
             resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
             resp.http_status = 0;
             continue;
@@ -1198,16 +1340,26 @@ LLMResponse OllamaClient::generate(const string &system_prompt, const string &us
         resp.http_status = result.http_status;
 
         if (result.http_status == 200) {
+            log_response_debug(get_provider_name(), result.http_status,
+                               result.body.size(), elapsed_ms);
             resp.text = extract_ollama_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
                 resp.error_message = "unexpected response from Ollama. Try again.";
+                tash::io::error(get_provider_name()
+                                + ": HTTP 200 but response body was not parsable");
+                tash::io::debug(get_provider_name() + ": response body: "
+                                + truncate_for_debug(result.body));
             }
             return resp;
         }
 
         resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
+        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
+        log_http_failure(get_provider_name(), result.http_status,
+                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
+                         result.body);
         if (!is_retryable(resp)) return resp;
     }
 
@@ -1232,10 +1384,19 @@ LLMResponse OllamaClient::generate_stream(const string &system_prompt, const str
         return "";
     };
 
+    log_request_debug(get_provider_name(), model_, body.size());
     LLMResponse resp = curl_streaming_post(url, body, {}, on_chunk, parse_line,
                                             connect_timeout_, read_timeout_);
-    if (!resp.success && resp.http_status == 0) {
-        resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
+    if (!resp.success) {
+        if (resp.http_status == 0) {
+            log_curl_failure(get_provider_name(), resp.error_message,
+                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
+            resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
+        } else if (resp.http_status != 200) {
+            log_http_failure(get_provider_name(), resp.http_status,
+                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
+                             /*response_body=*/"");
+        }
     }
     return resp;
 }
@@ -1250,10 +1411,16 @@ LLMResponse OllamaClient::generate_with_context(const string &system_prompt,
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_context_json(model_, system_prompt, history, user_prompt, false);
 
+    log_request_debug(get_provider_name(), model_, body.size());
+    auto t0 = std::chrono::steady_clock::now();
     auto result = curl_post(client_url + "/api/chat", body, {},
                              connect_timeout_, read_timeout_);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
 
     if (!result.reached_server) {
+        log_curl_failure(get_provider_name(), result.error_message,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
         resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
         return resp;
     }
@@ -1261,13 +1428,22 @@ LLMResponse OllamaClient::generate_with_context(const string &system_prompt,
     resp.http_status = result.http_status;
 
     if (result.http_status == 200) {
+        log_response_debug(get_provider_name(), result.http_status,
+                           result.body.size(), elapsed_ms);
         resp.text = extract_ollama_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response from Ollama. Try again.";
+            tash::io::error(get_provider_name()
+                            + ": HTTP 200 but response body was not parsable");
+            tash::io::debug(get_provider_name() + ": response body: "
+                            + truncate_for_debug(result.body));
         }
     } else {
+        log_http_failure(get_provider_name(), result.http_status,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
+                         result.body);
         resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
     }
 
@@ -1282,14 +1458,22 @@ LLMResponse OllamaClient::generate_structured(const string &system_prompt,
 
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_structured_json(model_, system_prompt, user_prompt);
+    constexpr int kMaxAttempts = 2;
 
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
         if (attempt > 0) retry_sleep();
 
+        log_request_debug(get_provider_name(), model_, body.size());
+        auto t0 = std::chrono::steady_clock::now();
         auto result = curl_post(client_url + "/api/chat", body, {},
                                  connect_timeout_, read_timeout_);
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
 
         if (!result.reached_server) {
+            log_curl_failure(get_provider_name(), result.error_message,
+                             attempt + 1, kMaxAttempts,
+                             /*final=*/attempt + 1 >= kMaxAttempts);
             resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
             resp.http_status = 0;
             continue;
@@ -1298,16 +1482,26 @@ LLMResponse OllamaClient::generate_structured(const string &system_prompt,
         resp.http_status = result.http_status;
 
         if (result.http_status == 200) {
+            log_response_debug(get_provider_name(), result.http_status,
+                               result.body.size(), elapsed_ms);
             resp.text = extract_ollama_text(result.body);
             if (!resp.text.empty()) {
                 resp.success = true;
             } else {
                 resp.error_message = "unexpected response from Ollama. Try again.";
+                tash::io::error(get_provider_name()
+                                + ": HTTP 200 but response body was not parsable");
+                tash::io::debug(get_provider_name() + ": response body: "
+                                + truncate_for_debug(result.body));
             }
             return resp;
         }
 
         resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
+        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
+        log_http_failure(get_provider_name(), result.http_status,
+                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
+                         result.body);
         if (!is_retryable(resp)) return resp;
     }
 
@@ -1325,10 +1519,16 @@ LLMResponse OllamaClient::generate_structured_with_context(
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_structured_context_json(model_, system_prompt, history, user_prompt);
 
+    log_request_debug(get_provider_name(), model_, body.size());
+    auto t0 = std::chrono::steady_clock::now();
     auto result = curl_post(client_url + "/api/chat", body, {},
                              connect_timeout_, read_timeout_);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
 
     if (!result.reached_server) {
+        log_curl_failure(get_provider_name(), result.error_message,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
         resp.error_message = "couldn't reach Ollama. Is it running? (" + client_url + ")";
         return resp;
     }
@@ -1336,13 +1536,22 @@ LLMResponse OllamaClient::generate_structured_with_context(
     resp.http_status = result.http_status;
 
     if (result.http_status == 200) {
+        log_response_debug(get_provider_name(), result.http_status,
+                           result.body.size(), elapsed_ms);
         resp.text = extract_ollama_text(result.body);
         if (!resp.text.empty()) {
             resp.success = true;
         } else {
             resp.error_message = "unexpected response from Ollama. Try again.";
+            tash::io::error(get_provider_name()
+                            + ": HTTP 200 but response body was not parsable");
+            tash::io::debug(get_provider_name() + ": response body: "
+                            + truncate_for_debug(result.body));
         }
     } else {
+        log_http_failure(get_provider_name(), result.http_status,
+                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
+                         result.body);
         resp.error_message = "Ollama error (HTTP " + to_string(result.http_status) + "). Try again.";
     }
 
