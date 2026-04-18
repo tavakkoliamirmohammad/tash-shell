@@ -15,6 +15,7 @@
 #include "tash/util/benchmark.h"
 #include "tash/util/config_file.h"
 #include "tash/util/config_resolver.h"
+#include "tash/util/io.h"
 #include "tash/startup.h"
 #include "theme.h"
 
@@ -71,6 +72,15 @@ struct ConfigGate {
 // ── Provider registration ─────────────────────────────────────
 
 void register_default_plugins() {
+    // Configure the diagnostic log level from the environment. There isn't
+    // (yet) a config-file field for this, so TASH_LOG_LEVEL is the sole
+    // knob; the io namespace treats unknown/missing as Info. Done here
+    // rather than in main() because every early-startup code path
+    // (benchmark, test harness) funnels through this function.
+    if (const char *lvl = std::getenv("TASH_LOG_LEVEL")) {
+        tash::io::set_log_level(tash::io::parse_log_level(lvl));
+    }
+
     auto &reg = global_plugin_registry();
 
     tash::config::UserConfig user_cfg = tash::config::load();
