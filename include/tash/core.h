@@ -71,16 +71,16 @@ void background_process(const std::vector<std::string> &argv,
                         const std::vector<Redirection> &redirections);
 void check_background_process_finished(std::unordered_map<pid_t, std::string> &background_processes);
 void reap_background_processes(std::unordered_map<pid_t, std::string> &background_processes);
-int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
-                     const std::string &filename, bool redirect_flag,
-                     ShellState *state = nullptr);
+[[nodiscard]] int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
+                                   const std::string &filename, bool redirect_flag,
+                                   ShellState *state = nullptr);
 
 // Richer pipeline entry: each segment carries its own redirections
 // (including heredocs) and may declare itself a subshell via
 // subshell_body. Used when the caller has already parsed per-segment
 // structure; the legacy overload above is a thin wrapper.
-int execute_pipeline(std::vector<PipelineSegment> &segments,
-                     ShellState *state);
+[[nodiscard]] int execute_pipeline(std::vector<PipelineSegment> &segments,
+                                   ShellState *state);
 
 // ── Safety-hook-aware command execution ────────────────────────
 //
@@ -123,8 +123,8 @@ inline void exit_with_message(const std::string &message, int exit_status) {
 
 // ── main.cpp ───────────────────────────────────────────────────
 
-int execute_single_command(std::string command, ShellState &state,
-                           std::vector<PendingHeredoc> *heredocs = nullptr);
+[[nodiscard]] int execute_single_command(std::string command, ShellState &state,
+                                         std::vector<PendingHeredoc> *heredocs = nullptr);
 void execute_command_line(const std::vector<CommandSegment> &segments, ShellState &state);
 int execute_script_file(const std::string &path, ShellState &state);
 

@@ -116,7 +116,10 @@ void AiErrorHookProvider::on_after_command(
         char ch = error_hook_read_char();
         if (ch == '\n' || ch == '\r') {
             write_stdout("\n");
-            execute_single_command(recovery.fix, state);
+            // Fire-and-forget: the fix is a user-confirmed recovery command;
+            // its exit status is not propagated back into the original
+            // failure pipeline that triggered this hook.
+            (void)execute_single_command(recovery.fix, state);
         } else {
             write_stdout("\n");
         }

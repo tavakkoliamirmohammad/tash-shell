@@ -1,6 +1,7 @@
 #include "tash/core.h"
 #include "tash/util/io.h"
 #include "tash/util/limits.h"
+#include "tash/util/parse_error.h"
 
 #include <cstring>
 
@@ -13,6 +14,49 @@ static void expansion_cap_error(const char *what) {
     msg += " exceeds maximum size; aborting expansion";
     tash::io::error(msg);
 }
+
+// ── Parse-error helpers ───────────────────────────────────────
+
+namespace tash::parse {
+
+void offset_to_line_col(std::string_view input, size_t offset,
+                        size_t &line_out, size_t &column_out) {
+    if (offset > input.size()) offset = input.size();
+    size_t line = 1;
+    size_t col = 1;
+    for (size_t i = 0; i < offset; ++i) {
+        if (input[i] == '\n') {
+            ++line;
+            col = 1;
+        } else {
+            ++col;
+        }
+    }
+    line_out = line;
+    column_out = col;
+}
+
+void emit_parse_error(const ParseError &err) {
+    // io::error already prefixes "tash: error: "; we append the compiler-
+    // style position suffix "LINE:COL: MSG" so the final line reads like
+    //   tash: error: 1:7: unmatched '(' in subshell
+    // which is close enough to the bash/zsh convention for editor tools
+    // to parse. Column 0 is elided when we don't have a precise offset.
+    std::string body;
+    body.reserve(err.message.size() + 32);
+    body += std::to_string(err.line);
+    body += ':';
+    if (err.column > 0) {
+        body += std::to_string(err.column);
+        body += ": ";
+    } else {
+        body += ' ';
+    }
+    body += err.message;
+    tash::io::error(body);
+}
+
+} // namespace tash::parse
 
 string &rtrim(string &s, const char *t) {
     return s.erase(s.find_last_not_of(t) + 1);
@@ -311,7 +355,7 @@ string expand_history_bang(const string &line, replxx::Replxx &rx) {
     // hist_entries is oldest-first (history_scan iterates chronologically)
     if (trimmed == "!!") {
         if (hist_entries.empty()) {
-            tash::io::error("!!: event not found");
+            tash::parse::emit_parse_error({"!!: event not found", 1, 1});
             return "";
         }
         return hist_entries.back();  // most recent = last element
@@ -328,7 +372,8 @@ string expand_history_bang(const string &line, replxx::Replxx &rx) {
             // !1 = first command = hist_entries[0] (1-based)
             int idx = n - 1;
             if (idx < 0 || idx >= (int)hist_entries.size()) {
-                tash::io::error("!" + num_str + ": event not found");
+                tash::parse::emit_parse_error(
+                    {"!" + num_str + ": event not found", 1, 1});
                 return "";
             }
             return hist_entries[idx];

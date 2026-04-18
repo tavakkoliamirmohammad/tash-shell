@@ -23,15 +23,15 @@ struct ConversationTurn {
 class LLMClient {
 public:
     virtual ~LLMClient() = default;
-    virtual LLMResponse generate(const std::string &system_prompt, const std::string &user_prompt) = 0;
-    virtual LLMResponse generate_stream(const std::string &system_prompt, const std::string &user_prompt,
+    [[nodiscard]] virtual LLMResponse generate(const std::string &system_prompt, const std::string &user_prompt) = 0;
+    [[nodiscard]] virtual LLMResponse generate_stream(const std::string &system_prompt, const std::string &user_prompt,
                                          std::function<void(const std::string &chunk)> on_chunk) = 0;
-    virtual LLMResponse generate_with_context(const std::string &system_prompt,
+    [[nodiscard]] virtual LLMResponse generate_with_context(const std::string &system_prompt,
                                                const std::vector<ConversationTurn> &history,
                                                const std::string &user_prompt) = 0;
-    virtual LLMResponse generate_structured(const std::string &system_prompt,
+    [[nodiscard]] virtual LLMResponse generate_structured(const std::string &system_prompt,
                                              const std::string &user_prompt) = 0;
-    virtual LLMResponse generate_structured_with_context(
+    [[nodiscard]] virtual LLMResponse generate_structured_with_context(
         const std::string &system_prompt,
         const std::vector<ConversationTurn> &history,
         const std::string &user_prompt) = 0;

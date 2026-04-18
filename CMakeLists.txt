@@ -267,6 +267,7 @@ if(TASH_ENABLE_FUZZER)
     # of the shell. Keeps instrumentation tight.
     set(TASH_FUZZ_SOURCES
         src/core/parser.cpp
+        src/util/io.cpp
     )
     add_executable(tash_parser_fuzzer fuzz/parser_fuzz.cpp ${TASH_FUZZ_SOURCES})
     target_include_directories(tash_parser_fuzzer PRIVATE

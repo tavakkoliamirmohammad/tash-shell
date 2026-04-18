@@ -10,6 +10,7 @@
 #include "tash/ui.h"
 #include "tash/util/fd.h"
 #include "tash/util/io.h"
+#include "tash/util/parse_error.h"
 #include "theme.h"
 
 #include <cerrno>
@@ -241,7 +242,10 @@ int execute_single_command(string command, ShellState &state,
                 }
             }
             if (close == string::npos) {
-                tash::io::error("unmatched '(' in subshell");
+                size_t ln = 1, col = 1;
+                tash::parse::offset_to_line_col(command, first, ln, col);
+                tash::parse::emit_parse_error(
+                    {"unmatched '(' in subshell", ln, col});
                 return 1;
             }
             // If `|` appears after `)`, let the pipeline branch below
@@ -383,7 +387,14 @@ int execute_single_command(string command, ShellState &state,
                     }
                 }
                 if (close_pos == std::string::npos) {
-                    tash::io::error("unmatched '(' in pipeline subshell");
+                    // `trimmed` is the segment after the pipe split, so the
+                    // column reported here is relative to that segment, not
+                    // the full input line. Good enough for the diagnostic
+                    // to point at the right paren.
+                    size_t ln = 1, col = 1;
+                    tash::parse::offset_to_line_col(trimmed, lead, ln, col);
+                    tash::parse::emit_parse_error(
+                        {"unmatched '(' in pipeline subshell", ln, col});
                     return 1;
                 }
                 PipelineSegment ps;
