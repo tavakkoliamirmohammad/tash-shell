@@ -1,6 +1,6 @@
 #include "tash/util/safe_tmpdir.h"
 
-#include "tash/core.h"  // for write_stderr
+#include "tash/util/io.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -41,8 +41,8 @@ void ensure_private_perms(const std::string &path, mode_t mode) {
         // tmpfs on some CI runners silently rejects chmod. Log once per
         // path but continue -- a missing chmod is not a security
         // regression over the previous umask-only behaviour.
-        write_stderr("tash: warning: could not tighten permissions on " +
-                     path + ": " + std::strerror(errno) + "\n");
+        tash::io::warning("could not tighten permissions on " + path +
+                          ": " + std::strerror(errno));
     }
 }
 

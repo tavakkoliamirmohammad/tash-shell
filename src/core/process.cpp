@@ -1,5 +1,6 @@
 #include "tash/core.h"
 #include "tash/ui/rich_output.h"
+#include "tash/util/io.h"
 #include "tash/util/limits.h"
 #include "tash/util/safe_tmpdir.h"
 #include <atomic>
@@ -153,7 +154,7 @@ int foreground_process(const vector<string> &argv,
     if (captured_stderr) {
         captured_stderr->clear();
         if (pipe(stderr_pipe) < 0) {
-            write_stderr("tash: warning: could not capture stderr\n");
+            tash::io::warning("could not capture stderr");
             captured_stderr = nullptr; // fall back to no capture
         }
     }
@@ -256,11 +257,11 @@ void background_process(const vector<string> &argv,
                         ShellState &state,
                         const vector<Redirection> &redirections) {
     if (argv.size() < 2) {
-        write_stderr("bg: usage: bg <command> [args...]\n");
+        tash::io::error("bg: usage: bg <command> [args...]");
         return;
     }
     if ((int)state.background_processes.size() >= state.max_background_processes) {
-        write_stderr("Error: Maximum number of background processes\n");
+        tash::io::error("Maximum number of background processes");
         return;
     }
 

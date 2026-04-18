@@ -1,4 +1,5 @@
 #include "tash/core.h"
+#include "tash/util/io.h"
 #include "tash/util/limits.h"
 
 #include <cstring>
@@ -8,10 +9,9 @@ using namespace std;
 // Emit a cap-exceeded diagnostic exactly once per invocation path.
 // Keeping the message consistent makes the test assertions easy.
 static void expansion_cap_error(const char *what) {
-    std::string msg = "tash: ";
-    msg += what;
-    msg += " exceeds maximum size; aborting expansion\n";
-    write_stderr(msg);
+    std::string msg = what;
+    msg += " exceeds maximum size; aborting expansion";
+    tash::io::error(msg);
 }
 
 string &rtrim(string &s, const char *t) {
@@ -311,7 +311,7 @@ string expand_history_bang(const string &line, replxx::Replxx &rx) {
     // hist_entries is oldest-first (history_scan iterates chronologically)
     if (trimmed == "!!") {
         if (hist_entries.empty()) {
-            write_stderr("tash: !!: event not found\n");
+            tash::io::error("!!: event not found");
             return "";
         }
         return hist_entries.back();  // most recent = last element
@@ -328,7 +328,7 @@ string expand_history_bang(const string &line, replxx::Replxx &rx) {
             // !1 = first command = hist_entries[0] (1-based)
             int idx = n - 1;
             if (idx < 0 || idx >= (int)hist_entries.size()) {
-                write_stderr("tash: !" + num_str + ": event not found\n");
+                tash::io::error("!" + num_str + ": event not found");
                 return "";
             }
             return hist_entries[idx];

@@ -8,6 +8,8 @@
 #include "tash/history.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"
+#include "tash/util/fd.h"
+#include "tash/util/io.h"
 #include "theme.h"
 
 #include <cerrno>
@@ -54,6 +56,12 @@ struct BuiltinRedir {
     bool ok = true;
 
     void apply(const vector<Redirection> &redirs) {
+        // FileDescriptor wraps the open()/open_heredoc_fd() result so any
+        // early return from a later redirection still closes the fd.
+        // dup2-then-close is the classic pattern; letting the RAII guard
+        // own the close keeps us from leaking on the failure paths that
+        // return early (deep-review finding C3.4).
+        using tash::util::FileDescriptor;
         for (const Redirection &r : redirs) {
             if (r.dup_to_stdout) {
                 if (saved_stderr == -1) saved_stderr = dup(STDERR_FILENO);
@@ -61,32 +69,30 @@ struct BuiltinRedir {
                 continue;
             }
             if (r.fd == 0) {
-                int in;
+                FileDescriptor in;
                 if (r.is_heredoc) {
-                    in = open_heredoc_fd(r.heredoc_body);
-                    if (in < 0) { fail("heredoc"); return; }
+                    in = FileDescriptor(open_heredoc_fd(r.heredoc_body));
+                    if (!in) { fail("heredoc"); return; }
                 } else {
-                    in = open(r.filename.c_str(), O_RDONLY);
-                    if (in < 0) { fail(r.filename); return; }
+                    in = FileDescriptor(open(r.filename.c_str(), O_RDONLY));
+                    if (!in) { fail(r.filename); return; }
                 }
                 if (saved_stdin == -1) saved_stdin = dup(STDIN_FILENO);
-                dup2(in, STDIN_FILENO);
-                close(in);
+                dup2(in.get(), STDIN_FILENO);
+                // `in` closes automatically at end of scope.
             } else if (r.fd == 1) {
                 int flags = O_WRONLY | O_CREAT |
                             (r.append ? O_APPEND : O_TRUNC);
-                int out = open(r.filename.c_str(), flags, 0644);
-                if (out < 0) { fail(r.filename); return; }
+                FileDescriptor out(open(r.filename.c_str(), flags, 0644));
+                if (!out) { fail(r.filename); return; }
                 if (saved_stdout == -1) saved_stdout = dup(STDOUT_FILENO);
-                dup2(out, STDOUT_FILENO);
-                close(out);
+                dup2(out.get(), STDOUT_FILENO);
             } else if (r.fd == 2) {
-                int err = open(r.filename.c_str(),
-                               O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                if (err < 0) { fail(r.filename); return; }
+                FileDescriptor err(open(r.filename.c_str(),
+                                        O_WRONLY | O_CREAT | O_TRUNC, 0644));
+                if (!err) { fail(r.filename); return; }
                 if (saved_stderr == -1) saved_stderr = dup(STDERR_FILENO);
-                dup2(err, STDERR_FILENO);
-                close(err);
+                dup2(err.get(), STDERR_FILENO);
             }
         }
     }
@@ -99,7 +105,7 @@ struct BuiltinRedir {
 
 private:
     void fail(const string &filename) {
-        write_stderr("tash: " + filename + ": " + strerror(errno) + "\n");
+        tash::io::error(filename + ": " + strerror(errno));
         ok = false;
     }
 };
@@ -128,7 +134,7 @@ HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
 
     int pfd[2];
     if (::pipe(pfd) < 0) {
-        write_stderr("tash: run_command_with_hooks_capture: pipe failed\n");
+        tash::io::error("run_command_with_hooks_capture: pipe failed");
         result.exit_code = 1;
         return result;
     }
@@ -137,7 +143,7 @@ HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
     if (pid < 0) {
         ::close(pfd[0]);
         ::close(pfd[1]);
-        write_stderr("tash: run_command_with_hooks_capture: fork failed\n");
+        tash::io::error("run_command_with_hooks_capture: fork failed");
         result.exit_code = 1;
         return result;
     }
@@ -235,7 +241,7 @@ int execute_single_command(string command, ShellState &state,
                 }
             }
             if (close == string::npos) {
-                write_stderr("tash: unmatched '(' in subshell\n");
+                tash::io::error("unmatched '(' in subshell");
                 return 1;
             }
             // If `|` appears after `)`, let the pipeline branch below
@@ -262,7 +268,7 @@ int execute_single_command(string command, ShellState &state,
 
                 pid_t pid = fork();
                 if (pid < 0) {
-                    write_stderr("tash: fork failed for subshell\n");
+                    tash::io::error("fork failed for subshell");
                     return 1;
                 }
                 if (pid == 0) {
@@ -377,7 +383,7 @@ int execute_single_command(string command, ShellState &state,
                     }
                 }
                 if (close_pos == std::string::npos) {
-                    write_stderr("tash: unmatched '(' in pipeline subshell\n");
+                    tash::io::error("unmatched '(' in pipeline subshell");
                     return 1;
                 }
                 PipelineSegment ps;
@@ -523,7 +529,7 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
 int execute_script_file(const string &path, ShellState &state) {
     ifstream file(path);
     if (!file.is_open()) {
-        write_stderr("tash: cannot open script: " + path + "\n");
+        tash::io::error("cannot open script: " + path);
         return 1;
     }
     string line;
@@ -546,7 +552,7 @@ int execute_script_file(const string &path, ShellState &state) {
                     return static_cast<bool>(getline(file, out));
                 });
             if (!ok) {
-                write_stderr("tash: heredoc: unexpected EOF in script\n");
+                tash::io::error("heredoc: unexpected EOF in script");
                 return 1;
             }
         }
