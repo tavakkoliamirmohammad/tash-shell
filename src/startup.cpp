@@ -94,16 +94,19 @@ void register_default_plugins() {
     if (!plugin_disabled("TASH_DISABLE_SAFETY_HOOK") &&
         gate.enabled("safety")) {
         reg.register_hook_provider(std::make_unique<SafetyHookProvider>());
+        tash::io::debug("plugin: registered safety");
     }
     if (!plugin_disabled("TASH_DISABLE_ALIAS_SUGGEST") &&
         gate.enabled("alias-suggest")) {
         reg.register_hook_provider(std::make_unique<AliasSuggestProvider>());
+        tash::io::debug("plugin: registered alias-suggest");
     }
 #ifdef TASH_AI_ENABLED
     if (!plugin_disabled("TASH_DISABLE_AI_ERROR_HOOK") &&
         gate.enabled("ai-error-recovery")) {
         reg.register_hook_provider(std::make_unique<AiErrorHookProvider>(
             []() -> std::unique_ptr<LLMClient> { return ai_create_client(); }));
+        tash::io::debug("plugin: registered ai-error-recovery");
     }
 #endif
 
@@ -112,16 +115,19 @@ void register_default_plugins() {
         gate.enabled("manpage")) {
         reg.register_completion_provider(
             std::make_unique<ManpageCompletionProvider>());
+        tash::io::debug("plugin: registered manpage");
     }
     if (!plugin_disabled("TASH_DISABLE_FISH_COMPLETION") &&
         gate.enabled("fish")) {
         reg.register_completion_provider(
             std::make_unique<FishCompletionProvider>());
+        tash::io::debug("plugin: registered fish");
     }
     if (!plugin_disabled("TASH_DISABLE_FIG_COMPLETION") &&
         gate.enabled("fig")) {
         reg.register_completion_provider(
             std::make_unique<FigCompletionProvider>());
+        tash::io::debug("plugin: registered fig");
     }
 
     // Prompt providers ---------------------------------------------
@@ -129,6 +135,7 @@ void register_default_plugins() {
         gate.enabled("starship")) {
         reg.register_prompt_provider(
             std::make_unique<StarshipPromptProvider>());
+        tash::io::debug("plugin: registered starship");
     }
 
     // History providers --------------------------------------------
@@ -138,6 +145,7 @@ void register_default_plugins() {
         try {
             reg.register_history_provider(
                 std::make_unique<SqliteHistoryProvider>());
+            tash::io::debug("plugin: registered sqlite-history");
         } catch (const std::exception &e) {
             write_stderr(string("tash: sqlite history disabled: ") +
                          e.what() + "\n");

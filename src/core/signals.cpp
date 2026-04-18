@@ -6,9 +6,12 @@
 #include "tash/core/executor.h"
 #include "tash/core/parser.h"
 #include "tash/core/signals.h"
+#include "tash/util/io.h"
 #include <atomic>
 #include <csignal>
+#include <string>
 #include <sys/types.h>
+#include <unistd.h>
 
 // Globals the handlers touch. Defined here (not main.cpp) so anything
 // linking the shell library sees them. The lock-free static_asserts for
@@ -105,6 +108,13 @@ void ignore_signal(int signum) {
 // from the executor between commands, so trap commands run in normal
 // shell context (not async-signal-safe context).
 void check_and_fire_traps(ShellState &state) {
+    // SIGINT delivery is logged from the safe main-loop side (the handler
+    // itself only sets the pending flag — debug() is not async-signal-safe).
+    if (pending_traps[SIGINT]) {
+        pid_t fg = fg_child_pid.load(std::memory_order_acquire);
+        tash::io::debug("SIGINT received (pid=" + std::to_string(::getpid()) +
+                        ", fg_child=" + std::to_string(fg) + ")");
+    }
     for (int signum = 1; signum < TASH_MAX_SIGNAL; ++signum) {
         if (!pending_traps[signum]) continue;
         pending_traps[signum] = 0;
@@ -112,6 +122,7 @@ void check_and_fire_traps(ShellState &state) {
         if (it == state.exec.traps.end()) continue;
         const std::string &cmd = it->second;
         if (cmd.empty()) continue;     // "ignore" form
+        tash::io::debug("firing trap for signal " + std::to_string(signum));
         std::vector<CommandSegment> segs = parse_command_line(cmd);
         execute_command_line(segs, state);
     }

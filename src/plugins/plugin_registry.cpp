@@ -1,4 +1,5 @@
 #include "tash/plugin.h"
+#include "tash/util/io.h"
 #include <algorithm>
 #include <unordered_map>
 
@@ -135,6 +136,7 @@ void PluginRegistry::fire_after_command(
 void PluginRegistry::fire_startup(ShellState &state) {
     for (const auto &provider : hook_providers_) {
         provider->on_startup(state);
+        tash::io::debug("plugin: " + provider->name() + ".on_startup ok");
     }
 }
 

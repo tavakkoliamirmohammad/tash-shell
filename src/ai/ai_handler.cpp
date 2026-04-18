@@ -4,6 +4,7 @@
 #include "tash/ai/llm_registry.h"
 #include "tash/core/executor.h"
 #include "tash/core/signals.h"
+#include "tash/util/io.h"
 #include "theme.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -286,7 +287,20 @@ static unique_ptr<LLMClient> create_current_client() {
 
 // Public re-export for consumers outside ai_handler.cpp (e.g. hooks).
 std::unique_ptr<LLMClient> ai_create_client() {
-    return create_current_client();
+    auto client = create_current_client();
+    // One-shot debug: log the first time a client is successfully built
+    // (subsequent calls are common — hooks rebuild per request). The
+    // PR #124 HTTP-level debug lines are per-request and live elsewhere.
+    if (client) {
+        static std::atomic<bool> logged{false};
+        bool expected = false;
+        if (logged.compare_exchange_strong(expected, true)) {
+            tash::io::debug("ai: client built for provider=" +
+                            ai_get_provider() +
+                            " model=" + client->get_model());
+        }
+    }
+    return client;
 }
 
 static unique_ptr<LLMClient> ensure_client(ShellState &state) {

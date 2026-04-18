@@ -296,9 +296,15 @@ int execute_single_command(string command, ShellState &state,
                     execute_command_line(segs, child_state);
                     std::exit(child_state.core.last_exit_status);
                 }
+                // Parent-only trace. Don't debug() in the child branch —
+                // post-fork children must not touch the shared registry.
+                tash::io::debug("subshell: fork pid=" + std::to_string(pid) +
+                                " body='" + inner + "'");
                 int status;
                 waitpid(pid, &status, 0);
                 int rc = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+                tash::io::debug("subshell: exited pid=" + std::to_string(pid) +
+                                " status=" + std::to_string(rc));
                 return rc;
             }
             // has_pipe: fall through to the pipeline branch below.
