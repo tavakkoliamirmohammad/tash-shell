@@ -1,10 +1,10 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/plugins/ai_error_hook_provider.h"
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/signals.h"
 #include "theme.h"
 #include <nlohmann/json.hpp>
-#include <iostream>
 #include <termios.h>
 #include <unistd.h>
 
@@ -50,7 +50,7 @@ AiErrorHookProvider::AiErrorHookProvider(ClientFactory factory)
     , call_count_(0) {}
 
 LLMClient *AiErrorHookProvider::ensure_client() {
-    if (client_) return client_;           // legacy injected pointer
+    if (client_) return client_;           // test-injected pointer
     if (owned_)  return owned_.get();       // already built
     if (!factory_) return nullptr;          // dormant
     owned_ = factory_();
@@ -137,7 +137,7 @@ bool AiErrorHookProvider::should_trigger(
     if (exit_code == 130) return false;   // Ctrl+C
     if (exit_code == 127) return false;   // command not found
     if (stderr_output.empty()) return false;
-    if (!state.ai_enabled) return false;
+    if (!state.ai.ai_enabled) return false;
 
     return true;
 }
@@ -174,14 +174,14 @@ string AiErrorHookProvider::build_context_json(
     // ShellState doesn't have a command history vector, so we reconstruct
     // from what's available: last_command_text and last_executed_cmd
     json recent = json::array();
-    if (!state.last_executed_cmd.empty() &&
-        state.last_executed_cmd != command) {
-        recent.push_back(state.last_executed_cmd);
+    if (!state.ai.last_executed_cmd.empty() &&
+        state.ai.last_executed_cmd != command) {
+        recent.push_back(state.ai.last_executed_cmd);
     }
-    if (!state.last_command_text.empty() &&
-        state.last_command_text != command &&
-        state.last_command_text != state.last_executed_cmd) {
-        recent.push_back(state.last_command_text);
+    if (!state.ai.last_command_text.empty() &&
+        state.ai.last_command_text != command &&
+        state.ai.last_command_text != state.ai.last_executed_cmd) {
+        recent.push_back(state.ai.last_command_text);
     }
     ctx["recent_commands"] = recent;
 

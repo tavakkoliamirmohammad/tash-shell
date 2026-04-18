@@ -3,6 +3,7 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
+#include "tash/ai/llm_registry.h"
 #include "tash/llm_client.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -278,34 +279,37 @@ TEST(OllamaClient, HandlesEmptyResponse) {
 // ═══════════════════════════════════════════════════════════════
 
 TEST(LLMFactory, CreateGemini) {
-    auto c = create_llm_client("gemini", "key", "", "");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("gemini", "key");
     ASSERT_NE(c, nullptr);
     EXPECT_EQ(c->get_provider_name(), "gemini");
 }
 
 TEST(LLMFactory, CreateOpenAI) {
-    auto c = create_llm_client("openai", "", "key", "");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("openai", "key");
     ASSERT_NE(c, nullptr);
     EXPECT_EQ(c->get_provider_name(), "openai");
 }
 
 TEST(LLMFactory, CreateOllama) {
-    auto c = create_llm_client("ollama", "", "", "http://localhost:11434");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("ollama", "http://localhost:11434");
     ASSERT_NE(c, nullptr);
     EXPECT_EQ(c->get_provider_name(), "ollama");
 }
 
 TEST(LLMFactory, UnknownReturnsNull) {
-    auto c = create_llm_client("unknown", "", "", "");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("unknown", "");
     EXPECT_EQ(c, nullptr);
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Registry tests — confirms new providers can be added without
-// touching the create_llm_client() ladder.
+// touching the factory registration.
 // ═══════════════════════════════════════════════════════════════
 
-#include "tash/ai/llm_registry.h"
 #include <algorithm>
 #include <memory>
 
@@ -476,25 +480,29 @@ TEST(RetryLogic, NotRetryableOnNotFound) {
 // ═══════════════════════════════════════════════════════════════
 
 TEST(LLMFactory, GeminiDefaultModel) {
-    auto c = create_llm_client("gemini", "key", "", "");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("gemini", "key");
     ASSERT_NE(c, nullptr);
     EXPECT_EQ(c->get_model(), "gemini-3-flash-preview");
 }
 
 TEST(LLMFactory, OpenAIDefaultModel) {
-    auto c = create_llm_client("openai", "", "key", "");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("openai", "key");
     ASSERT_NE(c, nullptr);
     EXPECT_EQ(c->get_model(), "gpt-4.1-nano");
 }
 
 TEST(LLMFactory, OllamaDefaultModel) {
-    auto c = create_llm_client("ollama", "", "", "");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("ollama", "");
     ASSERT_NE(c, nullptr);
     EXPECT_EQ(c->get_model(), "qwen3.5:0.8b");
 }
 
 TEST(LLMFactory, SetModelOverride) {
-    auto c = create_llm_client("gemini", "key", "", "");
+    tash::ai::register_builtin_llm_providers();
+    auto c = tash::ai::create_llm_client("gemini", "key");
     ASSERT_NE(c, nullptr);
     c->set_model("gemini-2.0-flash");
     EXPECT_EQ(c->get_model(), "gemini-2.0-flash");

@@ -10,7 +10,8 @@
 #include <string>
 #include <memory>
 
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
 #include "tash/plugin.h"
 #include "tash/shell.h"
 #ifdef TASH_AI_ENABLED
@@ -38,7 +39,7 @@ public:
             ++skip_count;
         }
         if (should_skip) {
-            state.skip_execution = true;
+            state.exec.skip_execution = true;
         }
     }
 
@@ -48,6 +49,10 @@ public:
         after_commands.push_back(command);
         after_exit_codes.push_back(exit_code);
     }
+
+    void on_startup(ShellState &)       override {}
+    void on_exit(ShellState &)          override {}
+    void on_config_reload(ShellState &) override {}
 
     bool force_skip = false;
     std::string skip_when_contains;

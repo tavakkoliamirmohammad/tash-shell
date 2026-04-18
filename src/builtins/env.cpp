@@ -1,8 +1,7 @@
 // Environment + alias builtins: export, unset, alias, unalias.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
-
+#include "tash/core/signals.h"
 using namespace std;
 
 extern char **environ;
@@ -36,7 +35,7 @@ int builtin_unset(const vector<string> &argv, ShellState &) {
 
 int builtin_alias(const vector<string> &argv, ShellState &state) {
     if (argv.size() < 2) {
-        for (auto &pair : state.aliases) {
+        for (auto &pair : state.core.aliases) {
             write_stdout("alias " + pair.first + "='" + pair.second + "'\n");
         }
     } else {
@@ -50,10 +49,10 @@ int builtin_alias(const vector<string> &argv, ShellState &state) {
                  (value.front() == '"' && value.back() == '"'))) {
                 value = value.substr(1, value.size() - 2);
             }
-            state.aliases[name] = value;
+            state.core.aliases[name] = value;
         } else {
-            if (state.aliases.count(arg)) {
-                write_stdout("alias " + arg + "='" + state.aliases[arg] + "'\n");
+            if (state.core.aliases.count(arg)) {
+                write_stdout("alias " + arg + "='" + state.core.aliases[arg] + "'\n");
             } else {
                 write_stderr("alias: " + arg + ": not found\n");
                 return 1;
@@ -65,8 +64,8 @@ int builtin_alias(const vector<string> &argv, ShellState &state) {
 
 int builtin_unalias(const vector<string> &argv, ShellState &state) {
     if (argv.size() >= 2) {
-        if (state.aliases.count(argv[1])) {
-            state.aliases.erase(argv[1]);
+        if (state.core.aliases.count(argv[1])) {
+            state.core.aliases.erase(argv[1]);
         } else {
             write_stderr("unalias: " + argv[1] + ": not found\n");
             return 1;

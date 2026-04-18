@@ -1,8 +1,7 @@
 // Background-job builtins: bglist, bgkill, bgstop, bgstart, fg.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
-
+#include "tash/core/signals.h"
 #include <atomic>
 #include <cstring>
 #include <sstream>
@@ -42,7 +41,7 @@ int parse_job_number(const vector<string> &argv, const string &cmd_name) {
 
 int builtin_bglist(const vector<string> &, ShellState &state) {
     int i = 0;
-    for (auto &process : state.background_processes) {
+    for (auto &process : state.core.background_processes) {
         ++i;
         stringstream ss;
         ss << "(" << i << ")" << " " << process.second << endl;
@@ -57,7 +56,7 @@ int builtin_bglist(const vector<string> &, ShellState &state) {
 int builtin_bgkill(const vector<string> &argv, ShellState &state) {
     int n = parse_job_number(argv, "bgkill");
     if (n < 0) return 1;
-    pid_t pid = get_nth_background_process(state.background_processes, n);
+    pid_t pid = get_nth_background_process(state.core.background_processes, n);
     if (pid == -1) { write_stderr("bgkill: invalid job number\n"); return 1; }
     if (kill(pid, SIGTERM) == -1) { write_stderr(string(strerror(errno)) + "\n"); return 1; }
     return 0;
@@ -66,7 +65,7 @@ int builtin_bgkill(const vector<string> &argv, ShellState &state) {
 int builtin_bgstop(const vector<string> &argv, ShellState &state) {
     int n = parse_job_number(argv, "bgstop");
     if (n < 0) return 1;
-    pid_t pid = get_nth_background_process(state.background_processes, n);
+    pid_t pid = get_nth_background_process(state.core.background_processes, n);
     if (pid == -1) { write_stderr("bgstop: invalid job number\n"); return 1; }
     if (kill(pid, SIGSTOP) == -1) { write_stderr(string(strerror(errno)) + "\n"); return 1; }
     return 0;
@@ -75,21 +74,21 @@ int builtin_bgstop(const vector<string> &argv, ShellState &state) {
 int builtin_bgstart(const vector<string> &argv, ShellState &state) {
     int n = parse_job_number(argv, "bgstart");
     if (n < 0) return 1;
-    pid_t pid = get_nth_background_process(state.background_processes, n);
+    pid_t pid = get_nth_background_process(state.core.background_processes, n);
     if (pid == -1) { write_stderr("bgstart: invalid job number\n"); return 1; }
     if (kill(pid, SIGCONT) == -1) { write_stderr(string(strerror(errno)) + "\n"); return 1; }
     return 0;
 }
 
 int builtin_fg(const vector<string> &argv, ShellState &state) {
-    if (state.background_processes.empty()) {
+    if (state.core.background_processes.empty()) {
         write_stderr("fg: no background jobs\n");
         return 1;
     }
     pid_t pid;
     if (argv.size() < 2) {
         pid = -1;
-        for (auto &p : state.background_processes) {
+        for (auto &p : state.core.background_processes) {
             if (p.first > pid) pid = p.first;
         }
     } else {
@@ -97,7 +96,7 @@ int builtin_fg(const vector<string> &argv, ShellState &state) {
         try { n = stoi(argv[1]); }
         catch (const invalid_argument&) { write_stderr("fg: invalid job number\n"); return 1; }
         catch (const out_of_range&) { write_stderr("fg: job number out of range\n"); return 1; }
-        pid = get_nth_background_process(state.background_processes, n);
+        pid = get_nth_background_process(state.core.background_processes, n);
         if (pid == -1) { write_stderr("fg: invalid job number\n"); return 1; }
     }
     kill(pid, SIGCONT);
@@ -105,6 +104,6 @@ int builtin_fg(const vector<string> &argv, ShellState &state) {
     int status;
     waitpid(pid, &status, WUNTRACED);
     fg_child_pid.store(0, std::memory_order_release);
-    state.background_processes.erase(pid);
+    state.core.background_processes.erase(pid);
     return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }

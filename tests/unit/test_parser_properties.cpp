@@ -9,8 +9,7 @@
 // Hand-rolled, no rapidcheck dep. Each property uses a deterministic
 // seeded RNG so failures reproduce.
 
-#include "tash/core.h"
-
+#include "tash/core/parser.h"
 #include <gtest/gtest.h>
 #include <random>
 #include <string>

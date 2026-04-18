@@ -4,7 +4,10 @@
 // short-circuit. Uses only public headers so future callers (scripts,
 // embedded usage, tests) can reuse without pulling REPL machinery.
 
-#include "tash/core.h"
+#include "tash/core/builtins.h"
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
+#include "tash/core/signals.h"
 #include "tash/history.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"
@@ -36,7 +39,7 @@ static bool try_auto_cd(const string &token, ShellState &state) {
         char cwd[MAX_SIZE];
         if (getcwd(cwd, MAX_SIZE) != nullptr) {
             if (chdir(token.c_str()) == 0) {
-                state.previous_directory = string(cwd);
+                state.core.previous_directory = string(cwd);
                 char new_cwd[MAX_SIZE];
                 if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
                     z_record_directory(string(new_cwd));
@@ -128,10 +131,10 @@ HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
     HookedCaptureResult result{0, "", false};
 
     global_plugin_registry().fire_before_command(raw_cmd, state);
-    if (state.skip_execution) {
+    if (state.exec.skip_execution) {
         // Matches the skip convention in execute_single_command: reset
         // the flag and return exit_code 1 without running the command.
-        state.skip_execution = false;
+        state.exec.skip_execution = false;
         result.exit_code = 1;
         result.skipped = true;
         return result;
@@ -219,9 +222,9 @@ int execute_single_command(string command, ShellState &state,
 
     if (!bypass_hooks) {
         global_plugin_registry().fire_before_command(command, state);
-        if (state.skip_execution) {
-            state.skip_execution = false;
-            state.last_exit_status = 1;
+        if (state.exec.skip_execution) {
+            state.exec.skip_execution = false;
+            state.core.last_exit_status = 1;
             return 1;
         }
     }
@@ -288,10 +291,10 @@ int execute_single_command(string command, ShellState &state,
                     // from the child races with the parent on the file
                     // lock, dropping the child's subsequent command
                     // output ~15% of the time.
-                    child_state.in_subshell = true;
+                    child_state.exec.in_subshell = true;
                     std::vector<CommandSegment> segs = parse_command_line(inner);
                     execute_command_line(segs, child_state);
-                    std::exit(child_state.last_exit_status);
+                    std::exit(child_state.core.last_exit_status);
                 }
                 int status;
                 waitpid(pid, &status, 0);
@@ -313,7 +316,7 @@ int execute_single_command(string command, ShellState &state,
     }
 #endif
 
-    command = expand_variables(command, state.last_exit_status);
+    command = expand_variables(command, state.core.last_exit_status);
     command = expand_command_substitution(command, state);
 
     Command cmd = parse_redirections(command, heredocs);
@@ -324,13 +327,13 @@ int execute_single_command(string command, ShellState &state,
     for (auto &r : cmd.redirections) {
         if (r.is_heredoc && r.heredoc_expand) {
             r.heredoc_body = expand_variables(r.heredoc_body,
-                                              state.last_exit_status);
+                                              state.core.last_exit_status);
             r.heredoc_body = expand_command_substitution(r.heredoc_body, state);
         }
     }
 
-    if (state.aliases.count(cmd.argv[0])) {
-        string expanded = state.aliases[cmd.argv[0]];
+    if (state.core.aliases.count(cmd.argv[0])) {
+        string expanded = state.core.aliases[cmd.argv[0]];
         for (size_t i = 1; i < cmd.argv.size(); i++)
             expanded += " " + cmd.argv[i];
         vector<string> new_tokens = tokenize_string(expanded, " ");
@@ -343,7 +346,7 @@ int execute_single_command(string command, ShellState &state,
 
     cmd.argv = expand_globs(cmd.argv, cmd.argv_quoted);
 
-    if (!cmd.argv.empty() && state.colorful_commands.count(cmd.argv[0])) {
+    if (!cmd.argv.empty() && state.core.colorful_commands.count(cmd.argv[0])) {
         cmd.argv.insert(cmd.argv.begin() + 1, COLOR_FLAG);
     }
 
@@ -434,8 +437,8 @@ int execute_single_command(string command, ShellState &state,
             Command seg_cmd = parse_redirections(
                 seg_cmd_str, seg_bodies.empty() ? nullptr : &seg_bodies);
 
-            if (!seg_cmd.argv.empty() && state.aliases.count(seg_cmd.argv[0])) {
-                string expanded = state.aliases[seg_cmd.argv[0]];
+            if (!seg_cmd.argv.empty() && state.core.aliases.count(seg_cmd.argv[0])) {
+                string expanded = state.core.aliases[seg_cmd.argv[0]];
                 for (size_t j = 1; j < seg_cmd.argv.size(); j++)
                     expanded += " " + seg_cmd.argv[j];
                 vector<string> new_tokens = tokenize_string(expanded, " ");
@@ -446,7 +449,7 @@ int execute_single_command(string command, ShellState &state,
                 seg_cmd.argv = new_tokens;
             }
 
-            if (!seg_cmd.argv.empty() && state.colorful_commands.count(seg_cmd.argv[0]))
+            if (!seg_cmd.argv.empty() && state.core.colorful_commands.count(seg_cmd.argv[0]))
                 seg_cmd.argv.insert(seg_cmd.argv.begin() + 1, COLOR_FLAG);
 
             // Unquoted-delim heredoc bodies expand $VAR / $(...) before
@@ -454,7 +457,7 @@ int execute_single_command(string command, ShellState &state,
             for (auto &r : seg_cmd.redirections) {
                 if (r.is_heredoc && r.heredoc_expand) {
                     r.heredoc_body = expand_variables(
-                        r.heredoc_body, state.last_exit_status);
+                        r.heredoc_body, state.core.last_exit_status);
                     r.heredoc_body = expand_command_substitution(r.heredoc_body, state);
                 }
             }
@@ -491,8 +494,8 @@ int execute_single_command(string command, ShellState &state,
         }
     }
 
-    state.last_stderr_output.clear();
-    int result = foreground_process(cmd.argv, cmd.redirections, &state.last_stderr_output);
+    state.ai.last_stderr_output.clear();
+    int result = foreground_process(cmd.argv, cmd.redirections, &state.ai.last_stderr_output);
 
     if (result == 127) {
         auto suggestion = suggest_command(cmd.argv[0]);
@@ -524,10 +527,10 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
             std::vector<PendingHeredoc> hd = segments[i].heredocs;
             last_exit = execute_single_command(
                 segments[i].command, state, hd.empty() ? nullptr : &hd);
-            state.last_exit_status = last_exit;
+            state.core.last_exit_status = last_exit;
             global_plugin_registry().fire_after_command(
                 segments[i].command, last_exit,
-                state.last_stderr_output, state);
+                state.ai.last_stderr_output, state);
 
             // Record into every registered history provider (e.g. sqlite).
             // Subshells must NOT write: SQLite explicitly forbids sharing
@@ -536,7 +539,7 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
             // on lock acquisition ~15% of the time, dropping subsequent
             // command output. Parent shell records the subshell command
             // as a whole ("(echo a; echo b)") already.
-            if (!state.in_subshell) {
+            if (!state.exec.in_subshell) {
                 HistoryEntry entry;
                 entry.command = segments[i].command;
                 entry.exit_code = last_exit;

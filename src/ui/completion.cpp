@@ -1,4 +1,4 @@
-#include "tash/core.h"
+#include "tash/core/builtins.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"
 #include "tash/ui/fuzzy_finder.h"

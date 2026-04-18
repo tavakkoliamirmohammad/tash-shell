@@ -1,7 +1,8 @@
 // UI + terminal-output builtins: clear, copy, paste, linkify, block, table.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/signals.h"
 #include "tash/ui/block_renderer.h"
 #include "tash/ui/clipboard.h"
 #include "tash/ui/rich_output.h"

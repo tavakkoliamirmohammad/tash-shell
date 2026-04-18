@@ -117,13 +117,13 @@ static void crash_handler(int sig) {
     if (g_crash_state) {
         // Direct field on ShellState (verified against include/tash/shell.h).
         // Copying the pointer is cheap and avoids dereferencing twice.
-        const char *cmd = g_crash_state->last_executed_cmd.c_str();
+        const char *cmd = g_crash_state->ai.last_executed_cmd.c_str();
         write_cstr("last command: ");
         write_cstr((cmd && *cmd) ? cmd : "(none)");
         write_cstr("\n");
 
         write_cstr("last exit status: ");
-        write_int(g_crash_state->last_exit_status);
+        write_int(g_crash_state->core.last_exit_status);
         write_cstr("\n");
     } else {
         write_cstr("last command: (state unavailable)\n");

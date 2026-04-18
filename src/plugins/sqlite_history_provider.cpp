@@ -1,5 +1,5 @@
 #include "tash/plugins/sqlite_history_provider.h"
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/util/config_resolver.h"
 
 #include <cstdlib>

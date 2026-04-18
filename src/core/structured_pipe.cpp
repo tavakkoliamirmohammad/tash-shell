@@ -1,7 +1,8 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/core/structured_pipe.h"
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
 #include "tash/shell.h"
 
 #include <algorithm>

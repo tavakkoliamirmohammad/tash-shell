@@ -124,11 +124,6 @@ private:
     int read_timeout_;
 };
 
-std::unique_ptr<LLMClient> create_llm_client(const std::string &provider,
-                                               const std::string &gemini_key,
-                                               const std::string &openai_key,
-                                               const std::string &ollama_url);
-
 // JSON helpers exposed for testing
 std::string build_gemini_request_json(const std::string &system_prompt, const std::string &user_prompt);
 std::string build_gemini_context_json(const std::string &system_prompt,

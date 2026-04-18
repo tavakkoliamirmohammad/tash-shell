@@ -16,8 +16,7 @@
 // to register it and make it discoverable via `help`.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
-
+#include "tash/core/builtins.h"
 using namespace std;
 
 const vector<BuiltinInfo>& get_builtins_info() {

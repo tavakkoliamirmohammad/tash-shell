@@ -29,10 +29,10 @@ std::string argv_read(const std::vector<std::string> &argv) {
 // ── Build the starship argv from shell state ──────────────────
 
 std::vector<std::string> build_starship_argv(const ShellState &state) {
-    int exit_code = state.last_exit_status;
-    long duration_ms = static_cast<long>(state.last_cmd_duration * 1000);
+    int exit_code = state.core.last_exit_status;
+    long duration_ms = static_cast<long>(state.core.last_cmd_duration * 1000);
     if (duration_ms < 0) duration_ms = 0;
-    int jobs = static_cast<int>(state.background_processes.size());
+    int jobs = static_cast<int>(state.core.background_processes.size());
 
     int cols = 80;
     struct winsize ws;
@@ -47,19 +47,6 @@ std::vector<std::string> build_starship_argv(const ShellState &state) {
         "--jobs=" + std::to_string(jobs),
         "--terminal-width=" + std::to_string(cols),
     };
-}
-
-// Legacy string-returning helper used by test_starship.cpp to assert
-// the composed flags. Rebuilt from the argv vector so the two paths
-// stay in lockstep.
-std::string build_starship_command(const ShellState &state) {
-    std::vector<std::string> argv = build_starship_argv(state);
-    std::ostringstream oss;
-    for (size_t i = 0; i < argv.size(); ++i) {
-        if (i) oss << ' ';
-        oss << argv[i];
-    }
-    return oss.str();
 }
 
 // ── render() ─────────────────────────────────────────────────

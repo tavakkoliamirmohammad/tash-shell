@@ -85,9 +85,9 @@ protected:
     void SetUp() override {
         mock_client.set_response(
             R"({"explanation":"Permission denied on the file.","fix":"sudo chmod 644 test.txt"})");
-        state.ai_enabled = true;
-        state.last_command_text = "";
-        state.last_executed_cmd = "";
+        state.ai.ai_enabled = true;
+        state.ai.last_command_text = "";
+        state.ai.last_executed_cmd = "";
     }
 };
 
@@ -121,7 +121,7 @@ TEST_F(AiErrorHookTest, SkipsOnEmptyStderr) {
 }
 
 TEST_F(AiErrorHookTest, SkipsWhenAiDisabled) {
-    state.ai_enabled = false;
+    state.ai.ai_enabled = false;
     AiErrorHookProvider hook(&mock_client);
     EXPECT_FALSE(hook.should_trigger(1, "error message", state));
 }
@@ -236,7 +236,7 @@ TEST_F(AiErrorHookTest, FactoryStaysDormantUntilClientAvailable) {
     // Trigger a failing command — factory is called but returns null, so
     // no LLM call is made and call_count stays 0.
     ShellState state;
-    state.ai_enabled = true;
+    state.ai.ai_enabled = true;
     hook.on_after_command("missing_cmd", 2, "some error\n", state);
     EXPECT_EQ(factory_calls, 1);
     EXPECT_EQ(hook.call_count(), 0);
@@ -289,7 +289,7 @@ TEST_F(AiErrorHookTest, FactoryActivatesHookWhenClientAppears) {
         });
 
     ShellState state;
-    state.ai_enabled = true;
+    state.ai.ai_enabled = true;
     // exit_code 1 + non-empty stderr passes should_trigger (127 is
     // bypassed because "command not found" rarely needs AI explanation).
     hook.on_after_command("mycmd", 1,

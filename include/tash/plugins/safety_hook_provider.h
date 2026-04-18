@@ -32,6 +32,11 @@ public:
                           int exit_code,
                           const std::string &stderr_output,
                           ShellState &state) override;
+
+    // No lifecycle state to manage.
+    void on_startup(ShellState &)       override {}
+    void on_exit(ShellState &)          override {}
+    void on_config_reload(ShellState &) override {}
 };
 
 #endif // TASH_PLUGINS_SAFETY_HOOK_PROVIDER_H

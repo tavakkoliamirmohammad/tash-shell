@@ -2,7 +2,9 @@
 // parse ~/.tashrc, and (optionally) handle `--benchmark` mode. Kept out
 // of main.cpp so the entry point stays a thin dispatcher.
 
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
+#include "tash/core/signals.h"
 #include "tash/history.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"

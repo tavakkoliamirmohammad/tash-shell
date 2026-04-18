@@ -33,7 +33,7 @@ TEST(SigchldStress, ManyBatchesOfShortBackgroundJobs) {
     EXPECT_NE(r.output.find("GoodBye"), std::string::npos);
     EXPECT_EQ(r.output.find("Error: Fork"), std::string::npos);
     // If SIGCHLD handling were broken, later batches would hit the
-    // max-bg cap as zombies accumulate in state.background_processes.
+    // max-bg cap as zombies accumulate in state.core.background_processes.
     EXPECT_EQ(r.output.find("Error: Maximum number"), std::string::npos);
     // Final bglist after everything finished: should be 0 background jobs.
     EXPECT_NE(r.output.find("Total Background Jobs: 0"), std::string::npos);

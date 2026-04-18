@@ -1558,42 +1558,4 @@ LLMResponse OllamaClient::generate_structured_with_context(
     return resp;
 }
 
-// ═════════════════════════════════════════════════════════════════
-// Factory function — thin wrapper around tash::ai registry
-// ═════════════════════════════════════════════════════════════════
-//
-// The provider-specific construction logic lives in
-// src/ai/llm_registry.cpp; this wrapper keeps the historical 4-arg
-// signature so callers in ai_handler.cpp and tests don't have to
-// change. It picks the right key slot for the provider and hands the
-// single-arg factory a flat string.
-
-#include "tash/ai/llm_registry.h"
-
-std::unique_ptr<LLMClient> create_llm_client(const string &provider,
-                                               const string &gemini_key,
-                                               const string &openai_key,
-                                               const string &ollama_url) {
-    // Lazily install builtins so unit tests that construct clients
-    // without going through ai_bootstrap still work. Idempotent.
-    tash::ai::register_builtin_llm_providers();
-
-    const std::string *key = nullptr;
-    if (provider == "gemini")      key = &gemini_key;
-    else if (provider == "openai") key = &openai_key;
-    else if (provider == "ollama") key = &ollama_url;
-
-    if (!key) {
-        // Not a built-in provider — still consult the registry so
-        // third-party factories registered via
-        // tash::ai::register_llm_provider() are reachable. Forward the
-        // first non-empty key as a best-effort payload.
-        const std::string &fallback = !gemini_key.empty() ? gemini_key
-                                      : !openai_key.empty() ? openai_key
-                                      : ollama_url;
-        return tash::ai::create_llm_client(provider, fallback);
-    }
-    return tash::ai::create_llm_client(provider, *key);
-}
-
 #endif // TASH_AI_ENABLED

@@ -98,12 +98,12 @@ TEST(SafetyHookTest, BlockedCommandSetsSkipExecution) {
     ShellState state;
     // BLOCKED commands should set skip_execution without needing terminal
     provider.on_before_command("rm -rf /", state);
-    EXPECT_TRUE(state.skip_execution);
+    EXPECT_TRUE(state.exec.skip_execution);
 }
 
 TEST(SafetyHookTest, SafeCommandDoesNotSkipExecution) {
     SafetyHookProvider provider;
     ShellState state;
     provider.on_before_command("ls -la", state);
-    EXPECT_FALSE(state.skip_execution);
+    EXPECT_FALSE(state.exec.skip_execution);
 }

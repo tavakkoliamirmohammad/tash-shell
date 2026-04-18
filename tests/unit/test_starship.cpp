@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 #include "tash/plugins/starship_prompt_provider.h"
 #include "tash/shell.h"
+#include <algorithm>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 // ── Test fixture ─────────────────────────────────────────────
 
@@ -11,53 +13,67 @@ protected:
     ShellState state;
 };
 
-// ── build_starship_command tests ─────────────────────────────
+// ── argv helpers ─────────────────────────────────────────────
+
+static bool argv_has_prefix(const std::vector<std::string> &argv,
+                            const std::string &prefix) {
+    return std::any_of(argv.begin(), argv.end(),
+        [&](const std::string &a) { return a.rfind(prefix, 0) == 0; });
+}
+
+static bool argv_contains(const std::vector<std::string> &argv,
+                          const std::string &value) {
+    return std::find(argv.begin(), argv.end(), value) != argv.end();
+}
+
+// ── build_starship_argv tests ────────────────────────────────
 
 TEST_F(StarshipTest, RendersWithCorrectArgs) {
-    state.last_exit_status = 0;
-    state.last_cmd_duration = 1.5;
+    state.core.last_exit_status = 0;
+    state.core.last_cmd_duration = 1.5;
 
-    std::string cmd = build_starship_command(state);
-    EXPECT_NE(cmd.find("--status="), std::string::npos);
-    EXPECT_NE(cmd.find("--cmd-duration="), std::string::npos);
-    EXPECT_NE(cmd.find("--jobs="), std::string::npos);
-    EXPECT_NE(cmd.find("--terminal-width="), std::string::npos);
-    EXPECT_NE(cmd.find("starship prompt"), std::string::npos);
+    std::vector<std::string> argv = build_starship_argv(state);
+    EXPECT_TRUE(argv_has_prefix(argv, "--status="));
+    EXPECT_TRUE(argv_has_prefix(argv, "--cmd-duration="));
+    EXPECT_TRUE(argv_has_prefix(argv, "--jobs="));
+    EXPECT_TRUE(argv_has_prefix(argv, "--terminal-width="));
+    EXPECT_TRUE(argv_contains(argv, "starship"));
+    EXPECT_TRUE(argv_contains(argv, "prompt"));
 }
 
 TEST_F(StarshipTest, PassesExitStatus) {
-    state.last_exit_status = 127;
-    state.last_cmd_duration = 0;
+    state.core.last_exit_status = 127;
+    state.core.last_cmd_duration = 0;
 
-    std::string cmd = build_starship_command(state);
-    EXPECT_NE(cmd.find("--status=127"), std::string::npos);
+    std::vector<std::string> argv = build_starship_argv(state);
+    EXPECT_TRUE(argv_contains(argv, "--status=127"));
 }
 
 TEST_F(StarshipTest, PassesDuration) {
-    state.last_exit_status = 0;
-    state.last_cmd_duration = 2.5; // 2500 ms
+    state.core.last_exit_status = 0;
+    state.core.last_cmd_duration = 2.5; // 2500 ms
 
-    std::string cmd = build_starship_command(state);
-    EXPECT_NE(cmd.find("--cmd-duration=2500"), std::string::npos);
+    std::vector<std::string> argv = build_starship_argv(state);
+    EXPECT_TRUE(argv_contains(argv, "--cmd-duration=2500"));
 }
 
 TEST_F(StarshipTest, PassesNegativeDurationAsZero) {
-    state.last_exit_status = 0;
-    state.last_cmd_duration = -1; // default / not measured
+    state.core.last_exit_status = 0;
+    state.core.last_cmd_duration = -1; // default / not measured
 
-    std::string cmd = build_starship_command(state);
-    EXPECT_NE(cmd.find("--cmd-duration=0"), std::string::npos);
+    std::vector<std::string> argv = build_starship_argv(state);
+    EXPECT_TRUE(argv_contains(argv, "--cmd-duration=0"));
 }
 
 TEST_F(StarshipTest, PassesJobCount) {
-    state.last_exit_status = 0;
-    state.last_cmd_duration = 0;
-    state.background_processes[100] = "sleep";
-    state.background_processes[200] = "make";
-    state.background_processes[300] = "cargo build";
+    state.core.last_exit_status = 0;
+    state.core.last_cmd_duration = 0;
+    state.core.background_processes[100] = "sleep";
+    state.core.background_processes[200] = "make";
+    state.core.background_processes[300] = "cargo build";
 
-    std::string cmd = build_starship_command(state);
-    EXPECT_NE(cmd.find("--jobs=3"), std::string::npos);
+    std::vector<std::string> argv = build_starship_argv(state);
+    EXPECT_TRUE(argv_contains(argv, "--jobs=3"));
 }
 
 TEST_F(StarshipTest, RenderIsEmptyWhenUnavailable) {

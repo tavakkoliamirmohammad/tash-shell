@@ -44,7 +44,7 @@ void reap_background_processes(std::unordered_map<pid_t, std::string> &backgroun
 //
 // Runs `raw_cmd` via /bin/sh -c with stdout captured, after firing the
 // plugin registry's before_command hooks. If a hook sets
-// state.skip_execution, the command does not run and `skipped=true` is
+// state.exec.skip_execution, the command does not run and `skipped=true` is
 // returned. after_command hooks fire even for non-zero exits so AI
 // recovery / logging providers see the result.
 //
