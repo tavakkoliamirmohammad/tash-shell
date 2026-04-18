@@ -31,6 +31,25 @@ static void ensure_directory(const std::string &path) {
     std::filesystem::create_directories(path, ec);
     // Silent on failure — historical behavior. Callers that open the
     // DB will surface any real error via sqlite3_open.
+    // Tighten the private data dir to owner-only. ~/.tash often lives
+    // inside a world-readable home; enforce 0700 here so the history
+    // database isn't browsable by other local users.
+    (void)::chmod(path.c_str(), 0700);
+}
+
+// Escape SQL LIKE wildcards so a user search for '%' matches the
+// literal percent sign rather than everything. Pairs with
+// "ESCAPE '\\'" in the LIKE clause so '\' itself also needs escaping.
+static std::string escape_like(const std::string &s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c == '\\' || c == '%' || c == '_') {
+            out += '\\';
+        }
+        out += c;
+    }
+    return out;
 }
 
 // ── Constructor / Destructor ──────────────────────────────────
@@ -59,6 +78,12 @@ SqliteHistoryProvider::SqliteHistoryProvider(const std::string &db_path)
         }
         return;
     }
+
+    // Tighten DB permissions to 0600. sqlite3_open respects umask, so
+    // on a loose 0022 umask the file would be world-readable -- and
+    // shell history is sensitive. chmod errors are survivable on tmpfs
+    // edge cases so we don't assert.
+    (void)::chmod(db_path_.c_str(), 0600);
 
     // Enable WAL mode for better concurrent access
     sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
@@ -147,11 +172,15 @@ std::vector<HistoryEntry> SqliteHistoryProvider::search(
     std::vector<HistoryEntry> results;
     if (!db_) return results;
 
-    // Build dynamic SQL with optional filters
+    // Build dynamic SQL with optional filters. ESCAPE '\' lets the
+    // LIKE pattern treat '%', '_', and '\' as literals when they
+    // appear in user input. Pairs with escape_like() below: a search
+    // for "100%" now matches the literal "100%" instead of every
+    // string that begins with "100".
     std::ostringstream sql;
     sql << "SELECT id, command, timestamp, directory, exit_code, "
            "duration_ms, hostname, session_id "
-           "FROM history WHERE command LIKE ?";
+           "FROM history WHERE command LIKE ? ESCAPE '\\'";
 
     if (!filter.directory.empty()) {
         sql << " AND directory = ?";
@@ -176,7 +205,7 @@ std::vector<HistoryEntry> SqliteHistoryProvider::search(
 
     // Bind parameters
     int idx = 1;
-    std::string like_pattern = "%" + query + "%";
+    std::string like_pattern = "%" + escape_like(query) + "%";
     sqlite3_bind_text(stmt, idx++, like_pattern.c_str(), -1, SQLITE_TRANSIENT);
 
     if (!filter.directory.empty()) {

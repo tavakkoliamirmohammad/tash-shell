@@ -57,8 +57,15 @@ bool ensure_dir(const std::string &path) {
     if (path.empty()) return false;
     std::error_code ec;
     std::filesystem::create_directories(path, ec);
-    if (!ec) return true;
-    return std::filesystem::is_directory(path, ec);
+    bool created_or_exists = !ec || std::filesystem::is_directory(path, ec);
+    if (created_or_exists) {
+        // Tighten to owner-only. The shell's data and config dirs hold
+        // history, sessions, and api keys; they must not be readable by
+        // other users on a shared box. chmod is best-effort -- tmpfs on
+        // some CI runners silently ignores it and that's fine.
+        (void)::chmod(path.c_str(), 0700);
+    }
+    return created_or_exists;
 }
 
 } // namespace tash::config

@@ -1,11 +1,13 @@
 #include "tash/plugins/starship_prompt_provider.h"
 #include "tash/util/config_resolver.h"
+#include "tash/util/safe_exec.h"
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 // ── Static members ───────────────────────────────────────────
 
@@ -13,22 +15,20 @@ bool StarshipPromptProvider::cached_ = false;
 bool StarshipPromptProvider::available_ = false;
 
 // ── Helper: run a command and capture stdout ─────────────────
+//
+// Previously this shelled out via popen(command_str). The command was
+// a static literal so no injection was possible, but using /bin/sh as
+// a wrapper for something as simple as `starship prompt --status=0`
+// was pure overhead. Route through safe_exec instead.
 
-std::string popen_read(const std::string &command) {
-    FILE *pipe = popen(command.c_str(), "r");
-    if (!pipe) return "";
-    char buffer[256];
-    std::string result;
-    while (fgets(buffer, sizeof(buffer), pipe)) {
-        result += buffer;
-    }
-    pclose(pipe);
-    return result;
+std::string argv_read(const std::vector<std::string> &argv) {
+    auto r = tash::util::safe_exec(argv, 500);
+    return r.stdout_text;
 }
 
-// ── Build the starship command string from shell state ────────
+// ── Build the starship argv from shell state ──────────────────
 
-std::string build_starship_command(const ShellState &state) {
+std::vector<std::string> build_starship_argv(const ShellState &state) {
     int exit_code = state.last_exit_status;
     long duration_ms = static_cast<long>(state.last_cmd_duration * 1000);
     if (duration_ms < 0) duration_ms = 0;
@@ -40,13 +40,26 @@ std::string build_starship_command(const ShellState &state) {
         cols = ws.ws_col;
     }
 
-    std::ostringstream cmd;
-    cmd << "starship prompt"
-        << " --status=" << exit_code
-        << " --cmd-duration=" << duration_ms
-        << " --jobs=" << jobs
-        << " --terminal-width=" << cols;
-    return cmd.str();
+    return {
+        "starship", "prompt",
+        "--status=" + std::to_string(exit_code),
+        "--cmd-duration=" + std::to_string(duration_ms),
+        "--jobs=" + std::to_string(jobs),
+        "--terminal-width=" + std::to_string(cols),
+    };
+}
+
+// Legacy string-returning helper used by test_starship.cpp to assert
+// the composed flags. Rebuilt from the argv vector so the two paths
+// stay in lockstep.
+std::string build_starship_command(const ShellState &state) {
+    std::vector<std::string> argv = build_starship_argv(state);
+    std::ostringstream oss;
+    for (size_t i = 0; i < argv.size(); ++i) {
+        if (i) oss << ' ';
+        oss << argv[i];
+    }
+    return oss.str();
 }
 
 // ── render() ─────────────────────────────────────────────────
@@ -56,8 +69,7 @@ std::string StarshipPromptProvider::render(const ShellState &state) {
     // configured; empty return signals "no override".
     if (!is_available()) return "";
     setenv("STARSHIP_SHELL", "bash", 1);
-    std::string cmd = build_starship_command(state) + " 2>/dev/null";
-    return popen_read(cmd);
+    return argv_read(build_starship_argv(state));
 }
 
 // ── is_available() ───────────────────────────────────────────
@@ -73,7 +85,7 @@ bool StarshipPromptProvider::is_available() {
     available_ = false;
 
     // Check if starship binary is in PATH
-    std::string which_out = popen_read("which starship 2>/dev/null");
+    std::string which_out = argv_read({"which", "starship"});
     if (which_out.empty()) return false;
 
     // Check for config: STARSHIP_CONFIG env or default config path

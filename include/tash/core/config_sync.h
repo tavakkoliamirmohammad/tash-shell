@@ -2,6 +2,7 @@
 #define TASH_CORE_CONFIG_SYNC_H
 
 #include <string>
+#include <vector>
 
 namespace tash::config_sync {
 
@@ -13,9 +14,18 @@ struct CmdResult {
 };
 
 // ── Helper: run a git command in the given directory ──────────
+//
+// The legacy overload takes a shell-style arg string and splits it on
+// whitespace for argv reconstruction. Prefer run_git_argv for anything
+// that interpolates user-supplied data -- it bypasses the split entirely
+// and feeds argv straight into the safe-exec path. The legacy overload
+// is retained for callers/tests that pass a static literal.
 
 CmdResult run_git_command(const std::string &config_dir,
                           const std::string &git_args);
+
+CmdResult run_git_argv(const std::string &config_dir,
+                       const std::vector<std::string> &git_args);
 
 // ── Core API ─────────────────────────────────────────────────
 

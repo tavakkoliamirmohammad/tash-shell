@@ -5,11 +5,11 @@
 #include "tash/shell.h"
 #include <string>
 
-// ── Helper: run a command and capture stdout ─────────────────
-
-std::string popen_read(const std::string &command);
-
 // ── Build the starship command string from shell state ────────
+//
+// Retained for the unit test, which asserts the flag shape. The
+// render() entry point now builds an argv vector directly; see
+// starship_prompt_provider.cpp.
 
 std::string build_starship_command(const ShellState &state);
 

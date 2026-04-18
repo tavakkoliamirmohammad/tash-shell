@@ -1,5 +1,6 @@
 #include "tash/core/config_sync.h"
 #include "tash/util/config_resolver.h"
+#include "tash/util/safe_exec.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -60,40 +61,59 @@ static std::string ensure_trailing_slash(const std::string &path) {
     return path;
 }
 
-// ── run_git_command ──────────────────────────────────────────
+// ── run_git_argv ─────────────────────────────────────────────
+//
+// Build argv directly from the caller's vector -- no shell -- and run
+// via the safe-exec helper. The previous implementation used
+// popen("git -C \"" + config_dir + "\" " + git_args), which quoted
+// config_dir with plain double quotes and left git_args unquoted; a
+// config_dir containing `"` or a remote URL containing `;` / `$(...)`
+// was a direct command-injection vector.
+//
+// Fix (see security review #3): assemble argv = {"git", "-C", dir, ...}
+// and hand to safe_exec which forks and calls the raw syscall with no
+// shell in between.
 
-CmdResult run_git_command(const std::string &config_dir,
-                          const std::string &git_args) {
+CmdResult run_git_argv(const std::string &config_dir,
+                       const std::vector<std::string> &git_args) {
     CmdResult result;
     result.exit_code = -1;
 
-    std::string cmd = "git -C \"" + config_dir + "\" " + git_args + " 2>&1";
+    std::vector<std::string> argv;
+    argv.reserve(3 + git_args.size());
+    argv.push_back("git");
+    argv.push_back("-C");
+    argv.push_back(config_dir);
+    for (const auto &a : git_args) argv.push_back(a);
 
-    FILE *pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
-        result.output = "Failed to execute git command";
-        return result;
-    }
-
-    std::array<char, 256> buffer;
-    std::ostringstream oss;
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != NULL) {
-        oss << buffer.data();
-    }
-
-    int status = pclose(pipe);
-#ifdef _WIN32
-    result.exit_code = status;
-#else
-    if (WIFEXITED(status)) {
-        result.exit_code = WEXITSTATUS(status);
-    } else {
-        result.exit_code = -1;
-    }
-#endif
-
-    result.output = oss.str();
+    auto r = tash::util::safe_exec(argv);
+    result.exit_code = r.exit_code;
+    result.output = r.stdout_text;
     return result;
+}
+
+// Legacy string-based entry point. Used only by the unit test to
+// verify that run_git_command produces a non-empty path; retained so
+// the public API stays source-compatible. Splits the arg string on
+// whitespace (ignoring quotes -- callers that need complex quoting
+// should move to run_git_argv).
+
+CmdResult run_git_command(const std::string &config_dir,
+                          const std::string &git_args) {
+    std::vector<std::string> parts;
+    std::string cur;
+    for (char c : git_args) {
+        if (c == ' ' || c == '\t') {
+            if (!cur.empty()) {
+                parts.push_back(cur);
+                cur.clear();
+            }
+        } else {
+            cur += c;
+        }
+    }
+    if (!cur.empty()) parts.push_back(cur);
+    return run_git_argv(config_dir, parts);
 }
 
 // ── get_tash_config_dir ──────────────────────────────────────
@@ -116,7 +136,7 @@ bool sync_init(const std::string &config_dir) {
     }
 
     // Initialize git repo (idempotent -- git init on existing repo is fine)
-    CmdResult init_result = run_git_command(config_dir, "init");
+    CmdResult init_result = run_git_argv(config_dir, {"init"});
     if (init_result.exit_code != 0) {
         return false;
     }
@@ -136,14 +156,15 @@ bool sync_set_remote(const std::string &config_dir,
                      const std::string &remote_url) {
     if (config_dir.empty() || remote_url.empty()) return false;
 
-    // Try adding origin first
-    CmdResult add_result = run_git_command(
-        config_dir, "remote add origin " + remote_url);
+    // Try adding origin first. remote_url is now a bare argv token, so a
+    // URL containing shell metacharacters can no longer inject.
+    CmdResult add_result = run_git_argv(
+        config_dir, {"remote", "add", "origin", remote_url});
 
     if (add_result.exit_code != 0) {
         // Origin already exists -- update the URL
-        CmdResult set_result = run_git_command(
-            config_dir, "remote set-url origin " + remote_url);
+        CmdResult set_result = run_git_argv(
+            config_dir, {"remote", "set-url", "origin", remote_url});
         if (set_result.exit_code != 0) {
             return false;
         }
@@ -158,16 +179,18 @@ bool sync_push(const std::string &config_dir) {
     if (config_dir.empty()) return false;
 
     // Stage all changes
-    CmdResult add_result = run_git_command(config_dir, "add -A");
+    CmdResult add_result = run_git_argv(config_dir, {"add", "-A"});
     if (add_result.exit_code != 0) {
         return false;
     }
 
-    // Commit with timestamp
+    // Commit with timestamp (commit message is a single argv token now,
+    // so whitespace / quotes in the timestamp format are passed through
+    // verbatim).
     std::string timestamp = make_timestamp();
     std::string commit_msg = "tash config sync " + timestamp;
-    CmdResult commit_result = run_git_command(
-        config_dir, "commit -m \"" + commit_msg + "\"");
+    CmdResult commit_result = run_git_argv(
+        config_dir, {"commit", "-m", commit_msg});
     // If nothing to commit, exit_code will be 1 -- we treat that as OK
     // but only if there's genuinely nothing to commit
     if (commit_result.exit_code != 0) {
@@ -178,7 +201,8 @@ bool sync_push(const std::string &config_dir) {
     }
 
     // Push
-    CmdResult push_result = run_git_command(config_dir, "push origin master");
+    CmdResult push_result = run_git_argv(
+        config_dir, {"push", "origin", "master"});
     if (push_result.exit_code != 0) {
         return false;
     }
@@ -191,7 +215,8 @@ bool sync_push(const std::string &config_dir) {
 bool sync_pull(const std::string &config_dir) {
     if (config_dir.empty()) return false;
 
-    CmdResult pull_result = run_git_command(config_dir, "pull origin master");
+    CmdResult pull_result = run_git_argv(
+        config_dir, {"pull", "origin", "master"});
     return pull_result.exit_code == 0;
 }
 
@@ -203,13 +228,13 @@ std::string sync_diff(const std::string &config_dir) {
     std::ostringstream oss;
 
     // git diff HEAD (shows staged + unstaged diff from last commit)
-    CmdResult diff_result = run_git_command(config_dir, "diff HEAD");
+    CmdResult diff_result = run_git_argv(config_dir, {"diff", "HEAD"});
     if (!diff_result.output.empty()) {
         oss << diff_result.output;
     }
 
     // git status --short
-    CmdResult status_result = run_git_command(config_dir, "status --short");
+    CmdResult status_result = run_git_argv(config_dir, {"status", "--short"});
     if (!status_result.output.empty()) {
         if (!oss.str().empty()) {
             oss << "\n";

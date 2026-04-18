@@ -220,3 +220,34 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_hook_ordering.cpp
     TEST_PREFIX "unit/core/"
 )
+
+tash_register_plugin(
+    NAME safe_exec
+    TEST_SOURCES tests/unit/test_safe_exec.cpp src/util/safe_exec.cpp
+    TEST_PREFIX "unit/util/"
+    TEST_STANDALONE
+)
+
+tash_register_plugin(
+    NAME safe_tmpdir
+    TEST_SOURCES tests/unit/test_safe_tmpdir.cpp src/util/safe_tmpdir.cpp
+    TEST_PREFIX "unit/util/"
+)
+
+tash_register_plugin(
+    NAME expansion_caps
+    TEST_SOURCES tests/unit/test_expansion_caps.cpp
+    TEST_PREFIX "unit/core/"
+)
+
+tash_register_plugin(
+    NAME sqlite_history_like_escape
+    REQUIRES TASH_SQLITE_ENABLED
+    TEST_SOURCES tests/unit/test_sqlite_history_like_escape.cpp
+                 src/plugins/sqlite_history_provider.cpp
+                 src/util/config_resolver.cpp
+    TEST_INCLUDES ${SQLite3_INCLUDE_DIRS}
+    TEST_LIBS ${SQLite3_LIBRARIES}
+    TEST_PREFIX "unit/sqlite/"
+    TEST_STANDALONE
+)

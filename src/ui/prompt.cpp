@@ -1,21 +1,18 @@
 #include "tash/core.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"
+#include "tash/util/safe_exec.h"
 #include "theme.h"
 #include <sys/ioctl.h>
 
 using namespace std;
 
 string get_git_branch() {
-    FILE *pipe = popen("git rev-parse --abbrev-ref HEAD 2>/dev/null", "r");
-    if (!pipe) return "";
-    char buffer[256];
-    string branch;
-    while (fgets(buffer, sizeof(buffer), pipe)) {
-        branch += buffer;
-    }
-    int status = pclose(pipe);
-    if (status != 0) return "";
+    // 500ms timeout is plenty for a local repo and short enough not to
+    // stall the prompt when cwd sits on a network mount that hangs.
+    auto r = tash::util::safe_exec({"git", "rev-parse", "--abbrev-ref", "HEAD"}, 500);
+    if (r.exit_code != 0) return "";
+    string branch = r.stdout_text;
     while (!branch.empty() && (branch.back() == '\n' || branch.back() == '\r')) {
         branch.pop_back();
     }
@@ -23,16 +20,26 @@ string get_git_branch() {
 }
 
 string get_git_status_indicators() {
-    FILE *pipe = popen("git status --porcelain 2>/dev/null", "r");
-    if (!pipe) return "";
-    char buffer[512];
+    auto r = tash::util::safe_exec({"git", "status", "--porcelain"}, 500);
+    if (r.exit_code < 0) return "";
     bool has_staged = false, has_unstaged = false, has_untracked = false;
-    while (fgets(buffer, sizeof(buffer), pipe)) {
-        if (buffer[0] == '?') has_untracked = true;
-        else if (buffer[0] != ' ' && buffer[0] != '?') has_staged = true;
-        if (buffer[1] == 'M' || buffer[1] == 'D') has_unstaged = true;
+    const string &out = r.stdout_text;
+    size_t pos = 0;
+    while (pos < out.size()) {
+        size_t nl = out.find('\n', pos);
+        size_t len = (nl == string::npos ? out.size() : nl) - pos;
+        if (len >= 1) {
+            char c0 = out[pos];
+            if (c0 == '?') has_untracked = true;
+            else if (c0 != ' ' && c0 != '?') has_staged = true;
+        }
+        if (len >= 2) {
+            char c1 = out[pos + 1];
+            if (c1 == 'M' || c1 == 'D') has_unstaged = true;
+        }
+        if (nl == string::npos) break;
+        pos = nl + 1;
     }
-    pclose(pipe);
 
     string indicators;
     if (has_staged) indicators += "+";

@@ -1,6 +1,18 @@
 #include "tash/core.h"
+#include "tash/util/limits.h"
+
+#include <cstring>
 
 using namespace std;
+
+// Emit a cap-exceeded diagnostic exactly once per invocation path.
+// Keeping the message consistent makes the test assertions easy.
+static void expansion_cap_error(const char *what) {
+    std::string msg = "tash: ";
+    msg += what;
+    msg += " exceeds maximum size; aborting expansion\n";
+    write_stderr(msg);
+}
 
 string &rtrim(string &s, const char *t) {
     return s.erase(s.find_last_not_of(t) + 1);
@@ -79,20 +91,33 @@ string expand_variables(const string &input, int last_exit_status) {
     string result;
     bool in_single_quotes = false;
     size_t i = 0;
+    // Cap check helper: if appending `add` would push us past the
+    // limit, emit the diagnostic and bail out with an empty string.
+    auto cap_exceeded = [&](size_t add) {
+        if (result.size() + add > tash::util::TASH_MAX_EXPANSION_BYTES) {
+            expansion_cap_error("variable expansion");
+            result.clear();
+            return true;
+        }
+        return false;
+    };
     while (i < input.size()) {
         if (input[i] == '\'' && !in_single_quotes) {
             in_single_quotes = true;
+            if (cap_exceeded(1)) return result;
             result += input[i];
             i++;
             continue;
         }
         if (input[i] == '\'' && in_single_quotes) {
             in_single_quotes = false;
+            if (cap_exceeded(1)) return result;
             result += input[i];
             i++;
             continue;
         }
         if (in_single_quotes) {
+            if (cap_exceeded(1)) return result;
             result += input[i];
             i++;
             continue;
@@ -100,12 +125,16 @@ string expand_variables(const string &input, int last_exit_status) {
         if (input[i] == '$') {
             i++;
             if (i < input.size() && input[i] == '?') {
-                result += to_string(last_exit_status);
+                string s = to_string(last_exit_status);
+                if (cap_exceeded(s.size())) return result;
+                result += s;
                 i++;
                 continue;
             }
             if (i < input.size() && input[i] == '$') {
-                result += to_string(getpid());
+                string s = to_string(getpid());
+                if (cap_exceeded(s.size())) return result;
+                result += s;
                 i++;
                 continue;
             }
@@ -121,7 +150,9 @@ string expand_variables(const string &input, int last_exit_status) {
                 }
                 const char *val = getenv(var_name.c_str());
                 if (val) {
-                    result += val;
+                    size_t n = std::strlen(val);
+                    if (cap_exceeded(n)) return result;
+                    result.append(val, n);
                 }
             } else {
                 string var_name;
@@ -132,13 +163,17 @@ string expand_variables(const string &input, int last_exit_status) {
                 if (!var_name.empty()) {
                     const char *val = getenv(var_name.c_str());
                     if (val) {
-                        result += val;
+                        size_t n = std::strlen(val);
+                        if (cap_exceeded(n)) return result;
+                        result.append(val, n);
                     }
                 } else {
+                    if (cap_exceeded(1)) return result;
                     result += '$';
                 }
             }
         } else {
+            if (cap_exceeded(1)) return result;
             result += input[i];
             i++;
         }
@@ -185,6 +220,10 @@ string expand_command_substitution(const string &input, ShellState &state) {
                     output.pop_back();
                 }
                 if (!hooked.skipped) {
+                    if (result.size() + output.size() > tash::util::TASH_MAX_EXPANSION_BYTES) {
+                        expansion_cap_error("command substitution");
+                        return std::string();
+                    }
                     result += output;
                 }
                 // If skipped, append nothing — the $(...) expands to
@@ -214,13 +253,27 @@ vector<string> expand_globs(const vector<string> &args,
             int ret = glob(arg.c_str(), GLOB_NOCHECK | GLOB_TILDE, nullptr, &glob_result);
             if (ret == 0) {
                 for (size_t i = 0; i < glob_result.gl_pathc; i++) {
+                    if (expanded.size() >= tash::util::TASH_MAX_GLOB_RESULTS) {
+                        expansion_cap_error("glob expansion");
+                        globfree(&glob_result);
+                        return std::vector<std::string>();
+                    }
                     expanded.push_back(glob_result.gl_pathv[i]);
                 }
             } else {
+                if (expanded.size() >= tash::util::TASH_MAX_GLOB_RESULTS) {
+                    expansion_cap_error("glob expansion");
+                    globfree(&glob_result);
+                    return std::vector<std::string>();
+                }
                 expanded.push_back(arg);
             }
             globfree(&glob_result);
         } else {
+            if (expanded.size() >= tash::util::TASH_MAX_GLOB_RESULTS) {
+                expansion_cap_error("glob expansion");
+                return std::vector<std::string>();
+            }
             expanded.push_back(arg);
         }
     }
