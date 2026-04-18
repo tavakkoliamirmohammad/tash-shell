@@ -92,6 +92,26 @@ class IHookProvider {
 public:
     virtual ~IHookProvider() = default;
     virtual std::string name() const = 0;
+
+    // ── Lifecycle hooks ───────────────────────────────────────
+    //
+    // Default no-op implementations so existing providers compile
+    // without needing to override. Called by the plugin registry at
+    // fixed points in the shell's lifecycle:
+    //
+    //   on_startup         — once, after register_default_plugins()
+    //                        returns and tashrc has been sourced.
+    //   on_exit            — once, when the shell is about to exit
+    //                        (builtin_exit's EXIT-trap stage).
+    //   on_config_reload   — when the user reloads config at runtime.
+    //                        Wiring is deferred until a `config reload`
+    //                        builtin exists; declaration ships now so
+    //                        providers can implement against it.
+    virtual void on_startup(ShellState &state)        { (void)state; }
+    virtual void on_exit(ShellState &state)           { (void)state; }
+    virtual void on_config_reload(ShellState &state)  { (void)state; }
+
+    // ── Per-command hooks ─────────────────────────────────────
     virtual void on_before_command(const std::string &command,
                                     ShellState &state) = 0;
     virtual void on_after_command(const std::string &command,
@@ -138,6 +158,12 @@ public:
                              int exit_code,
                              const std::string &stderr_output,
                              ShellState &state);
+
+    // Dispatch: lifecycle hooks. Fire once each at the respective
+    // lifecycle point; order follows registration order.
+    void fire_startup(ShellState &state);
+    void fire_exit(ShellState &state);
+    void fire_config_reload(ShellState &state);
 
     // Introspection
     size_t completion_provider_count() const;

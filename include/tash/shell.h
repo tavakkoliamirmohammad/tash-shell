@@ -88,31 +88,43 @@ struct PipelineSegment {
 
 
 // ── Shell state ────────────────────────────────────────────────
+//
+// Three role-scoped substructs live inside ShellState as composition.
+// Backward-compat reference members (one per field with any call sites)
+// let existing `state.<field>` access keep working — new code should
+// prefer the scoped form `state.core.<field>` / `state.ai.<field>` /
+// `state.exec.<field>`. The compat refs will be removed once callers
+// migrate; that's a separate cleanup PR.
 
-struct ShellState {
+struct CoreState {
     std::string previous_directory;
-    int last_exit_status;
-    std::unordered_set<std::string> colorful_commands;
+    int last_exit_status = 0;
+    double last_cmd_duration = -1;
+    int ctrl_d_count = 0;
+    int max_background_processes = 5;
+    std::unordered_set<std::string> colorful_commands
+        {"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"};
     std::unordered_map<std::string, std::string> aliases;
     std::vector<std::string> dir_stack;
     std::unordered_map<pid_t, std::string> background_processes;
-    int max_background_processes;
+};
 
+struct AiState {
+    bool ai_enabled = true;
+    std::string last_command_text;    // user-typed raw line
+    std::string last_executed_cmd;    // post-expansion command that ran
+    std::string last_stderr_output;   // captured stderr from last run
+};
+
+struct ExecutionState {
     // POSIX `trap` table: signum → command string. Signum 0 is the
     // EXIT pseudo-signal (run when the shell exits). Empty string is
     // "ignore" (SIG_IGN); absence is "default" (SIG_DFL).
     std::unordered_map<int, std::string> traps;
-    int ctrl_d_count;
-    double last_cmd_duration;
 
-    // AI features
-    std::string last_command_text;
-    std::string last_stderr_output;
-    std::string last_executed_cmd;
-    bool ai_enabled;
-
-    // Safety hook
-    bool skip_execution;
+    // Safety hook: a before-command hook flipping this to true causes
+    // execute_single_command to skip the underlying execve.
+    bool skip_execution = false;
 
     // Set to true in a forked subshell child (executor.cpp subshell
     // branch). execute_command_line uses this to skip history
@@ -120,17 +132,44 @@ struct ShellState {
     // and a racing write deadlocks the child, silently dropping its
     // subsequent command output. Parent records the subshell command
     // as a whole, so no history is lost.
-    bool in_subshell;
+    bool in_subshell = false;
+};
 
-    ShellState()
-        : last_exit_status(0)
-        , colorful_commands({"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"})
-        , max_background_processes(5)
-        , ctrl_d_count(0)
-        , last_cmd_duration(-1)
-        , ai_enabled(true)
-        , skip_execution(false)
-        , in_subshell(false) {}
+struct ShellState {
+    CoreState      core;
+    AiState        ai;
+    ExecutionState exec;
+
+    // Backward-compat references into the substructs. Hundreds of call
+    // sites across src/ and tests/ read these via the flat name; proxy
+    // refs keep that source compat at zero runtime cost. New code should
+    // go through `core`/`ai`/`exec` directly.
+    //
+    // Reference members disable implicit copy/move assignment — that is
+    // intentional: ShellState is stored as a singleton-ish long-lived
+    // struct (main owns one; tests construct fresh instances). No caller
+    // assigns one to another. Construction still works via the default
+    // ctor below.
+    std::string                                   &previous_directory     = core.previous_directory;
+    int                                           &last_exit_status       = core.last_exit_status;
+    double                                        &last_cmd_duration      = core.last_cmd_duration;
+    int                                           &ctrl_d_count           = core.ctrl_d_count;
+    int                                           &max_background_processes = core.max_background_processes;
+    std::unordered_set<std::string>               &colorful_commands      = core.colorful_commands;
+    std::unordered_map<std::string, std::string>  &aliases                = core.aliases;
+    std::vector<std::string>                      &dir_stack              = core.dir_stack;
+    std::unordered_map<pid_t, std::string>        &background_processes   = core.background_processes;
+
+    bool                                          &ai_enabled             = ai.ai_enabled;
+    std::string                                   &last_command_text      = ai.last_command_text;
+    std::string                                   &last_executed_cmd      = ai.last_executed_cmd;
+    std::string                                   &last_stderr_output     = ai.last_stderr_output;
+
+    std::unordered_map<int, std::string>          &traps                  = exec.traps;
+    bool                                          &skip_execution         = exec.skip_execution;
+    bool                                          &in_subshell            = exec.in_subshell;
+
+    ShellState() = default;
 };
 
 // ── Signal-related globals (must be global for signal handlers) ─

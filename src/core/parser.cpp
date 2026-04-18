@@ -3,7 +3,11 @@
 #include "tash/util/limits.h"
 #include "tash/util/parse_error.h"
 
+#include <cstdlib>
 #include <cstring>
+#include <glob.h>
+#include <regex>
+#include <sstream>
 
 using namespace std;
 

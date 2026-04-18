@@ -130,6 +130,26 @@ void PluginRegistry::fire_after_command(
     }
 }
 
+// ── Lifecycle hook dispatch ───────────────────────────────────
+
+void PluginRegistry::fire_startup(ShellState &state) {
+    for (const auto &provider : hook_providers_) {
+        provider->on_startup(state);
+    }
+}
+
+void PluginRegistry::fire_exit(ShellState &state) {
+    for (const auto &provider : hook_providers_) {
+        provider->on_exit(state);
+    }
+}
+
+void PluginRegistry::fire_config_reload(ShellState &state) {
+    for (const auto &provider : hook_providers_) {
+        provider->on_config_reload(state);
+    }
+}
+
 // ── Introspection ─────────────────────────────────────────────
 
 size_t PluginRegistry::completion_provider_count() const {

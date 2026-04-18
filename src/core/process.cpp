@@ -7,7 +7,9 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unordered_set>
 #include <vector>
 

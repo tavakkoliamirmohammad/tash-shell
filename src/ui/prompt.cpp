@@ -3,6 +3,8 @@
 #include "tash/ui.h"
 #include "tash/util/safe_exec.h"
 #include "theme.h"
+
+#include <sstream>
 #include <sys/ioctl.h>
 
 using namespace std;
