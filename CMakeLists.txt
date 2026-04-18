@@ -94,7 +94,9 @@ set(SHELL_SOURCES
     src/builtins/bg.cpp
     src/builtins/history.cpp
     src/builtins/ui.cpp
-    src/builtins/shell.cpp
+    src/builtins/meta.cpp
+    src/builtins/config.cpp
+    src/builtins/trap.cpp
     src/ui/prompt.cpp
     src/ui/highlight.cpp
     src/ui/completion.cpp

@@ -41,14 +41,21 @@ int builtin_linkify(const std::vector<std::string> &argv, ShellState &state);
 int builtin_block(const std::vector<std::string> &argv, ShellState &state);
 int builtin_table(const std::vector<std::string> &argv, ShellState &state);
 
-// ── src/builtins/shell.cpp ─────────────────────────────────────
+// ── src/builtins/meta.cpp ──────────────────────────────────────
+// POSIX/shell meta: exit, source/., which/type, explain.
 int builtin_exit(const std::vector<std::string> &argv, ShellState &state);
 int builtin_which(const std::vector<std::string> &argv, ShellState &state);
 int builtin_source(const std::vector<std::string> &argv, ShellState &state);
-int builtin_theme(const std::vector<std::string> &argv, ShellState &state);
 int builtin_explain(const std::vector<std::string> &argv, ShellState &state);
+
+// ── src/builtins/config.cpp ────────────────────────────────────
+// tash-specific config/state: config (sync), session, theme.
 int builtin_config(const std::vector<std::string> &argv, ShellState &state);
 int builtin_session(const std::vector<std::string> &argv, ShellState &state);
+int builtin_theme(const std::vector<std::string> &argv, ShellState &state);
+
+// ── src/builtins/trap.cpp ──────────────────────────────────────
+// Signal/exit trap builtin.
 int builtin_trap(const std::vector<std::string> &argv, ShellState &state);
 
 #endif // TASH_BUILTINS_H
