@@ -67,6 +67,38 @@ int builtin_source(const vector<string> &argv, ShellState &state) {
     return execute_script_file(argv[1], state);
 }
 
+int builtin_help(const vector<string> &argv, ShellState &) {
+    const auto &table = get_builtins_info();
+    // `help` with no args: list every builtin and its brief description.
+    // Output goes to stdout (user-facing content, not diagnostics).
+    if (argv.size() == 1) {
+        // Compute the widest name for left-aligned two-column layout.
+        size_t width = 0;
+        for (const auto &b : table) {
+            size_t n = 0;
+            while (b.name[n] != '\0') ++n;
+            if (n > width) width = n;
+        }
+        for (const auto &b : table) {
+            string name = b.name;
+            string pad(name.size() < width ? width - name.size() : 0, ' ');
+            write_stdout(name + pad + "  " + b.brief + "\n");
+        }
+        return 0;
+    }
+    // `help <name>`: show usage + brief for that builtin.
+    const string &query = argv[1];
+    for (const auto &b : table) {
+        if (query == b.name) {
+            write_stdout(string("usage: ") + b.usage + "\n");
+            write_stdout(string(b.brief) + "\n");
+            return 0;
+        }
+    }
+    write_stderr("help: no such builtin: " + query + "\n");
+    return 1;
+}
+
 int builtin_explain(const vector<string> &argv, ShellState &) {
     if (argv.size() < 2) {
         write_stderr("explain: usage: explain <command> [args...]\n");
