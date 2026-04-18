@@ -1,5 +1,7 @@
 #include "tash/core.h"
 #include "tash/ui/rich_output.h"
+#include "tash/util/limits.h"
+#include "tash/util/safe_tmpdir.h"
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
@@ -14,15 +16,28 @@ using namespace std;
 // offset 0 for reading. Used for stdin heredoc redirection. Returns the
 // fd, or -1 on error. Matches the bash/dash/ksh approach and avoids the
 // pipe-buffer deadlock for heredoc bodies larger than PIPE_BUF.
+//
+// Security (deep-review finding #2): TMPDIR is honoured only when it
+// is owned by us with mode 0700; otherwise we fall back to /tmp. The
+// previous code trusted $TMPDIR unconditionally, which was a
+// symlink/TOCTOU race if an attacker could set TMPDIR to a directory
+// they also controlled.
+//
+// Security (deep-review finding #4): body size is capped at
+// TASH_MAX_HEREDOC_BYTES -- a runaway redirection can't fill /tmp.
 int open_heredoc_fd(const std::string &body) {
-    const char *tmpdir = std::getenv("TMPDIR");
-    std::string pattern = (tmpdir && *tmpdir ? std::string(tmpdir) : std::string("/tmp"))
-                          + "/tash-hd-XXXXXX";
+    if (body.size() > tash::util::TASH_MAX_HEREDOC_BYTES) {
+        write_stderr("tash: heredoc body exceeds maximum size (100 MiB)\n");
+        return -1;
+    }
+
+    std::string base = tash::util::resolve_safe_tmpdir();
+    std::string pattern = base + "/tash-hd-XXXXXX";
     std::vector<char> buf(pattern.begin(), pattern.end());
     buf.push_back('\0');
     int fd = ::mkstemp(buf.data());
-    if (fd < 0 && errno == ENOENT && tmpdir && *tmpdir) {
-        // Fallback: user-set TMPDIR is invalid, try /tmp.
+    if (fd < 0 && errno == ENOENT && base != "/tmp") {
+        // Fallback: resolved tmp dir is invalid for some reason, try /tmp.
         std::string fallback = "/tmp/tash-hd-XXXXXX";
         std::vector<char> fb(fallback.begin(), fallback.end());
         fb.push_back('\0');
@@ -33,6 +48,8 @@ int open_heredoc_fd(const std::string &body) {
     if (fd < 0) return -1;
     // Unlink immediately: the file is now private to our process tree.
     ::unlink(buf.data());
+    // Tighten perms explicitly so umask can't widen the file.
+    (void)::fchmod(fd, 0600);
     // CLOEXEC via fcntl (two-step F_GETFD + F_SETFD). Linux offers
     // O_CLOEXEC via mkostemp, but macOS lacks mkostemp as of this writing,
     // so we stick with the portable path.

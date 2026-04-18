@@ -104,6 +104,7 @@ set(SHELL_SOURCES
     src/util/colors.cpp
     src/util/config_resolver.cpp
     src/util/safe_exec.cpp
+    src/util/safe_tmpdir.cpp
     src/util/theme.cpp
 )
 

@@ -219,3 +219,15 @@ tash_register_plugin(
     TEST_PREFIX "unit/util/"
     TEST_STANDALONE
 )
+
+tash_register_plugin(
+    NAME safe_tmpdir
+    TEST_SOURCES tests/unit/test_safe_tmpdir.cpp src/util/safe_tmpdir.cpp
+    TEST_PREFIX "unit/util/"
+)
+
+tash_register_plugin(
+    NAME expansion_caps
+    TEST_SOURCES tests/unit/test_expansion_caps.cpp
+    TEST_PREFIX "unit/core/"
+)
