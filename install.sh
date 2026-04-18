@@ -166,14 +166,28 @@ else
     fi
 fi
 
-# Install man page
+# Install man page. The repo ships tash.1.in (a template with
+# @PROJECT_VERSION@); CMake renders it at build time, so raw master has
+# no tash.1 — fetch the template and substitute the version ourselves.
+# -fsSL so 4xx actually errors (default -sL writes the 404 body silently).
 MAN_DIR="${HOME}/.local/share/man/man1"
 mkdir -p "${MAN_DIR}"
-MANPAGE_URL="https://raw.githubusercontent.com/${REPO}/master/tash.1"
-if curl -sL -o "${MAN_DIR}/tash.1" "${MANPAGE_URL}"; then
+if [ "${USE_MASTER}" = "1" ] || [ -z "${LATEST}" ]; then
+    MAN_REF="master"
+    MAN_VERSION="master-latest"
+else
+    MAN_REF="${LATEST}"
+    MAN_VERSION="${LATEST#v}"
+fi
+MANPAGE_URL="https://raw.githubusercontent.com/${REPO}/${MAN_REF}/tash.1.in"
+MAN_TMP=$(mktemp)
+if curl -fsSL -o "${MAN_TMP}" "${MANPAGE_URL}"; then
+    sed "s|@PROJECT_VERSION@|${MAN_VERSION}|g" "${MAN_TMP}" > "${MAN_DIR}/tash.1"
+    rm -f "${MAN_TMP}"
     echo "Installed man page (man tash)."
 else
-    echo "Warning: Could not download man page."
+    rm -f "${MAN_TMP}"
+    echo "Warning: Could not download man page from ${MANPAGE_URL}."
 fi
 
 # Install Nerd Font for prompt glyphs (Powerline icons)
