@@ -291,6 +291,8 @@ void background_process(const vector<string> &argv,
         _exit(127);  // see note above foreground exec — skip C++ dtors in child
     } else {
         state.core.background_processes[pid] = argv[1];
+        tash::io::debug("bg: spawned pid=" + to_string(pid) +
+                        " cmd='" + argv[1] + "'");
         write_stdout("Background process with " + to_string(pid) + " Executing\n");
     }
 }
@@ -311,6 +313,10 @@ void check_background_process_finished(unordered_map<pid_t, string> &background_
         } else if (WIFSTOPPED(status)) {
             write_stdout("Background process with " + to_string(pid_finished) + " Stopped\n");
         } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            int exit_code = WIFEXITED(status) ? WEXITSTATUS(status)
+                                              : 128 + WTERMSIG(status);
+            tash::io::debug("bg: reaped pid=" + to_string(pid_finished) +
+                            " exit=" + to_string(exit_code));
             background_processes.erase(pid_finished);
             write_stdout("Background process with " + to_string(pid_finished) + " finished\n");
         }
@@ -320,7 +326,12 @@ void check_background_process_finished(unordered_map<pid_t, string> &background_
 void reap_background_processes(unordered_map<pid_t, string> &background_processes) {
     while (sigchld_received) {
         sigchld_received = 0;
+        size_t before = background_processes.size();
         check_background_process_finished(background_processes);
+        size_t reaped = before - background_processes.size();
+        if (reaped > 0) {
+            tash::io::debug("SIGCHLD: reaping " + to_string(reaped) + " children");
+        }
     }
 }
 

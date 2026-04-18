@@ -19,7 +19,7 @@ tash_register_plugin(
 
 tash_register_plugin(
     NAME config_file
-    TEST_SOURCES tests/unit/test_config_file.cpp src/util/config_file.cpp src/util/config_resolver.cpp
+    TEST_SOURCES tests/unit/test_config_file.cpp src/util/config_file.cpp src/util/config_resolver.cpp src/util/io.cpp
     TEST_INCLUDES ${nlohmann_json_SOURCE_DIR}/include
     TEST_PREFIX "unit/util/"
     TEST_STANDALONE
@@ -118,7 +118,7 @@ tash_register_plugin(
     NAME sqlite_history
     SOURCES src/plugins/sqlite_history_provider.cpp
     REQUIRES TASH_SQLITE_ENABLED
-    TEST_SOURCES tests/unit/test_sqlite_history.cpp src/plugins/sqlite_history_provider.cpp src/util/config_resolver.cpp
+    TEST_SOURCES tests/unit/test_sqlite_history.cpp src/plugins/sqlite_history_provider.cpp src/util/config_resolver.cpp src/util/io.cpp
     TEST_INCLUDES ${SQLite3_INCLUDE_DIRS}
     TEST_LIBS ${SQLite3_LIBRARIES}
     TEST_PREFIX "unit/sqlite/"
@@ -279,6 +279,7 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_sqlite_history_like_escape.cpp
                  src/plugins/sqlite_history_provider.cpp
                  src/util/config_resolver.cpp
+                 src/util/io.cpp
     TEST_INCLUDES ${SQLite3_INCLUDE_DIRS}
     TEST_LIBS ${SQLite3_LIBRARIES}
     TEST_PREFIX "unit/sqlite/"

@@ -1,6 +1,7 @@
 #include "tash/plugins/sqlite_history_provider.h"
 #include "tash/core/signals.h"
 #include "tash/util/config_resolver.h"
+#include "tash/util/io.h"
 
 #include <cstdlib>
 #include <ctime>
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -115,6 +117,22 @@ SqliteHistoryProvider::SqliteHistoryProvider(const std::string &db_path)
 
     init_schema();
     migrate_plain_text_history();
+
+    // Report opened DB + row count so an operator can confirm which store
+    // the shell is actually using when a user's history looks wrong.
+    if (db_) {
+        int64_t row_count = 0;
+        sqlite3_stmt *cnt_stmt = nullptr;
+        if (sqlite3_prepare_v2(db_, "SELECT COUNT(*) FROM history;", -1,
+                               &cnt_stmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(cnt_stmt) == SQLITE_ROW) {
+                row_count = sqlite3_column_int64(cnt_stmt, 0);
+            }
+            sqlite3_finalize(cnt_stmt);
+        }
+        tash::io::debug("history: opened " + db_path_ + ", " +
+                        std::to_string(row_count) + " rows");
+    }
 }
 
 SqliteHistoryProvider::~SqliteHistoryProvider() {
@@ -187,6 +205,9 @@ void SqliteHistoryProvider::record(const HistoryEntry &entry) {
     if (rc == SQLITE_DONE) {
         last_recorded_command_ = entry.command;
         last_recorded_session_ = entry.session_id;
+        tash::io::debug("history: recorded '" + entry.command +
+                        "' (exit=" + std::to_string(entry.exit_code) +
+                        ") into " + db_path_);
     }
 }
 

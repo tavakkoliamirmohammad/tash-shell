@@ -1,6 +1,7 @@
 #include "tash/util/config_file.h"
 
 #include "tash/util/config_resolver.h"
+#include "tash/util/io.h"
 
 #include <nlohmann/json.hpp>
 
@@ -42,6 +43,7 @@ UserConfig load() {
     std::ifstream in(path);
     if (!in.is_open()) {
         // Missing file is expected: silent defaults.
+        tash::io::debug("config: no file at " + path + ", using defaults");
         apply_env_overrides(cfg);
         return cfg;
     }
@@ -90,6 +92,16 @@ UserConfig load() {
     }
 
     apply_env_overrides(cfg);
+
+    // Summary of what we loaded — disabled list + resolved log level.
+    std::string disabled_csv;
+    for (size_t i = 0; i < cfg.disabled_plugins.size(); ++i) {
+        if (i) disabled_csv += ",";
+        disabled_csv += cfg.disabled_plugins[i];
+    }
+    tash::io::debug("config: loaded " + path +
+                    " (plugins.disabled=[" + disabled_csv +
+                    "], log_level=" + cfg.log_level + ")");
     return cfg;
 }
 
