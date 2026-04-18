@@ -255,6 +255,14 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME crash_dump
+    TEST_SOURCES tests/unit/test_crash_dump.cpp src/util/crash_dump.cpp
+    TEST_DEFS TASH_CRASH_DUMP_TESTS
+    TEST_PREFIX "unit/util/"
+    TEST_STANDALONE
+)
+
+tash_register_plugin(
     NAME sqlite_history_like_escape
     REQUIRES TASH_SQLITE_ENABLED
     TEST_SOURCES tests/unit/test_sqlite_history_like_escape.cpp

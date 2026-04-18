@@ -14,6 +14,7 @@
 #include "tash/repl.h"
 #include "tash/startup.h"
 #include "tash/ui.h"
+#include "tash/util/crash_dump.h"
 #include "theme.h"
 
 #include <cstdio>
@@ -86,6 +87,10 @@ int main(int argc, char *argv[]) {
 
     ShellState state;
     install_signal_handlers();
+    // Crash handlers (SIGSEGV/SIGABRT/SIGBUS) dump a short diagnostic
+    // — last command, exit status, cwd, backtrace — before re-raising
+    // so the OS still produces a core dump. Deep-review finding O7.4.
+    tash::util::install_crash_handler(state);
 
     // `tash <script.tash>` — run the file and exit.
     if (argc == 2) {
