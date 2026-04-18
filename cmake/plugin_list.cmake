@@ -61,6 +61,7 @@ tash_register_plugin(
     SOURCES
         src/ai/ai_handler.cpp
         src/ai/llm_client.cpp
+        src/ai/llm_registry.cpp
         src/ai/ai_config.cpp
         src/ai/context_suggest.cpp
     REQUIRES TASH_AI_ENABLED

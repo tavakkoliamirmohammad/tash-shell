@@ -301,6 +301,67 @@ TEST(LLMFactory, UnknownReturnsNull) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Registry tests — confirms new providers can be added without
+// touching the create_llm_client() ladder.
+// ═══════════════════════════════════════════════════════════════
+
+#include "tash/ai/llm_registry.h"
+#include <algorithm>
+#include <memory>
+
+namespace {
+
+// Minimal LLMClient stub that records the key it was constructed with
+// so the test can assert the factory received the right argument.
+class MockLLMClient : public LLMClient {
+public:
+    explicit MockLLMClient(std::string key) : key_(std::move(key)) {}
+    LLMResponse generate(const std::string &, const std::string &) override { return {}; }
+    LLMResponse generate_stream(const std::string &, const std::string &,
+                                 std::function<void(const std::string &)>) override { return {}; }
+    LLMResponse generate_with_context(const std::string &, const std::vector<ConversationTurn> &,
+                                       const std::string &) override { return {}; }
+    LLMResponse generate_structured(const std::string &, const std::string &) override { return {}; }
+    LLMResponse generate_structured_with_context(const std::string &,
+                                                  const std::vector<ConversationTurn> &,
+                                                  const std::string &) override { return {}; }
+    void set_model(const std::string &) override {}
+    std::string get_model() const override { return "mock-model"; }
+    std::string get_provider_name() const override { return "mock"; }
+    const std::string &captured_key() const { return key_; }
+private:
+    std::string key_;
+};
+
+} // namespace
+
+TEST(LLMRegistry, RegisterAndCreateMockProvider) {
+    tash::ai::register_llm_provider("mock", [](const std::string &key) {
+        return std::make_unique<MockLLMClient>(key);
+    });
+
+    auto c = tash::ai::create_llm_client("mock", "secret-key");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(c->get_provider_name(), "mock");
+    auto *mc = dynamic_cast<MockLLMClient *>(c.get());
+    ASSERT_NE(mc, nullptr);
+    EXPECT_EQ(mc->captured_key(), "secret-key");
+}
+
+TEST(LLMRegistry, UnknownProviderReturnsNull) {
+    auto c = tash::ai::create_llm_client("no-such-provider-xyz", "");
+    EXPECT_EQ(c, nullptr);
+}
+
+TEST(LLMRegistry, BuiltinsAreRegistered) {
+    tash::ai::register_builtin_llm_providers();
+    auto names = tash::ai::registered_llm_providers();
+    EXPECT_NE(std::find(names.begin(), names.end(), "gemini"), names.end());
+    EXPECT_NE(std::find(names.begin(), names.end(), "openai"), names.end());
+    EXPECT_NE(std::find(names.begin(), names.end(), "ollama"), names.end());
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Context JSON tests
 // ═══════════════════════════════════════════════════════════════
 
