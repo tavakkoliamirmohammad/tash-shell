@@ -42,11 +42,12 @@ int builtin_block(const std::vector<std::string> &argv, ShellState &state);
 int builtin_table(const std::vector<std::string> &argv, ShellState &state);
 
 // ── src/builtins/meta.cpp ──────────────────────────────────────
-// POSIX/shell meta: exit, source/., which/type, explain.
+// POSIX/shell meta: exit, source/., which/type, explain, help.
 int builtin_exit(const std::vector<std::string> &argv, ShellState &state);
 int builtin_which(const std::vector<std::string> &argv, ShellState &state);
 int builtin_source(const std::vector<std::string> &argv, ShellState &state);
 int builtin_explain(const std::vector<std::string> &argv, ShellState &state);
+int builtin_help(const std::vector<std::string> &argv, ShellState &state);
 
 // ── src/builtins/config.cpp ────────────────────────────────────
 // tash-specific config/state: config (sync), session, theme.
