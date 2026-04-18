@@ -101,6 +101,10 @@ public:
         after_exit_codes_.push_back(exit_code);
     }
 
+    void on_startup(ShellState &)       override {}
+    void on_exit(ShellState &)          override {}
+    void on_config_reload(ShellState &) override {}
+
     const std::vector<std::string> &before_commands() const {
         return before_commands_;
     }

@@ -6,7 +6,9 @@
 // trap.cpp and config.cpp).
 
 #include "tash/builtins.h"
-#include "tash/core.h"
+#include "tash/core/builtins.h"
+#include "tash/core/executor.h"
+#include "tash/core/signals.h"
 #include "tash/plugin.h"
 #include "tash/ui/inline_docs.h"
 
@@ -35,8 +37,8 @@ int builtin_which(const vector<string> &argv, ShellState &state) {
         write_stdout(name + ": shell builtin\n");
         return 0;
     }
-    if (state.aliases.count(name)) {
-        write_stdout(name + " is aliased to '" + state.aliases[name] + "'\n");
+    if (state.core.aliases.count(name)) {
+        write_stdout(name + " is aliased to '" + state.core.aliases[name] + "'\n");
         return 0;
     }
     const char *path_env = getenv("PATH");

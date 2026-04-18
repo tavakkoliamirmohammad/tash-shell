@@ -95,9 +95,10 @@ public:
 
     // ── Lifecycle hooks ───────────────────────────────────────
     //
-    // Default no-op implementations so existing providers compile
-    // without needing to override. Called by the plugin registry at
-    // fixed points in the shell's lifecycle:
+    // Pure-virtual — implementers must opt out consciously (spell a
+    // `{}` body) rather than silently inheriting a no-op default.
+    // Called by the plugin registry at fixed points in the shell's
+    // lifecycle:
     //
     //   on_startup         — once, after register_default_plugins()
     //                        returns and tashrc has been sourced.
@@ -107,9 +108,9 @@ public:
     //                        Wiring is deferred until a `config reload`
     //                        builtin exists; declaration ships now so
     //                        providers can implement against it.
-    virtual void on_startup(ShellState &state)        { (void)state; }
-    virtual void on_exit(ShellState &state)           { (void)state; }
-    virtual void on_config_reload(ShellState &state)  { (void)state; }
+    virtual void on_startup(ShellState &state)        = 0;
+    virtual void on_exit(ShellState &state)           = 0;
+    virtual void on_config_reload(ShellState &state)  = 0;
 
     // ── Per-command hooks ─────────────────────────────────────
     virtual void on_before_command(const std::string &command,

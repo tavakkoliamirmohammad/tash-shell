@@ -70,7 +70,7 @@ TEST(AliasSuggest, GetRemainingArgsExact) {
 TEST(AliasSuggest, ReminderOnlyOnce) {
     AliasSuggestProvider provider;
     ShellState state;
-    state.aliases["gco"] = "git checkout";
+    state.core.aliases["gco"] = "git checkout";
 
     // First call -- should add "gco" to the reminded set.
     provider.on_before_command("git checkout main", state);

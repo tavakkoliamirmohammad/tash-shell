@@ -1,4 +1,4 @@
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"
 #include "tash/util/safe_exec.h"
@@ -137,15 +137,15 @@ string write_shell_prefix(const ShellState &state) {
             }
         }
 
-        if (state.last_cmd_duration >= 0.5) {
-            line1 += PROMPT_DURATION + " took " + format_duration(state.last_cmd_duration) + CAT_RESET;
+        if (state.core.last_cmd_duration >= 0.5) {
+            line1 += PROMPT_DURATION + " took " + format_duration(state.core.last_cmd_duration) + CAT_RESET;
         }
 
         line1 += "\n";
         write_stdout(line1);
 
         // Second line — the actual prompt passed to replxx
-        string arrow_color = (state.last_exit_status == 0) ? PROMPT_ARROW_OK : PROMPT_ARROW_ERR;
+        string arrow_color = (state.core.last_exit_status == 0) ? PROMPT_ARROW_OK : PROMPT_ARROW_ERR;
         return PROMPT_SEPARATOR + "\u2570\u2500" CAT_RESET
                + arrow_color + "\u276f " CAT_RESET;
     } else {

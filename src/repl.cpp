@@ -3,7 +3,9 @@
 // banner, the AI setup wizard prompt on first run, and the main input
 // loop. Extracted from main.cpp during the god-file split.
 
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
+#include "tash/core/signals.h"
 #include "tash/history.h"
 #include "tash/ui.h"
 #include "tash/repl.h"
@@ -54,8 +56,8 @@ static Replxx::hints_t history_hint_callback(
         }
     }
 #ifdef TASH_AI_ENABLED
-    if (best.empty() && !state.last_executed_cmd.empty()) {
-        string ctx = context_suggest(state.last_executed_cmd,
+    if (best.empty() && !state.ai.last_executed_cmd.empty()) {
+        string ctx = context_suggest(state.ai.last_executed_cmd,
                                      get_transition_map());
         if (!ctx.empty() && ctx.size() > input.size() &&
             ctx.compare(0, input.size(), input) == 0) {
@@ -225,14 +227,14 @@ int run_interactive(ShellState &state) {
     string hist_path = history_file_path();
 
     while (true) {
-        reap_background_processes(state.background_processes);
+        reap_background_processes(state.core.background_processes);
 
         string prompt = write_shell_prefix(state);
         char const *line = rx.input(prompt);
 
         if (line == nullptr) {
-            state.ctrl_d_count++;
-            if (state.ctrl_d_count >= 2) {
+            state.core.ctrl_d_count++;
+            if (state.core.ctrl_d_count >= 2) {
                 write_stdout("\n");
                 break;
             }
@@ -240,7 +242,7 @@ int run_interactive(ShellState &state) {
             write_stderr("tash: press Ctrl-D again or type 'exit' to quit\n");
             continue;
         }
-        state.ctrl_d_count = 0;
+        state.core.ctrl_d_count = 0;
 
         string raw_line(line);
         if (raw_line.empty()) continue;
@@ -291,7 +293,7 @@ int run_interactive(ShellState &state) {
 #ifdef TASH_AI_ENABLED
         if (is_ai_command(expanded)) {
             string prefill;
-            state.last_exit_status =
+            state.core.last_exit_status =
                 handle_ai_command(expanded, state, &prefill);
             if (!prefill.empty()) {
                 rx.set_state(Replxx::State(prefill.c_str(),
@@ -301,7 +303,7 @@ int run_interactive(ShellState &state) {
         }
         if (is_ai_question(expanded)) {
             string prefill;
-            state.last_exit_status =
+            state.core.last_exit_status =
                 handle_ai_command("@ai " + expanded, state, &prefill);
             if (!prefill.empty()) {
                 rx.set_state(Replxx::State(prefill.c_str(),
@@ -317,13 +319,13 @@ int run_interactive(ShellState &state) {
             if (ai_check.size() >= 3 && ai_check.substr(0, 3) == "@ai" &&
                 (ai_check.size() == 3 || ai_check[3] == ' ')) {
                 write_stderr("tash: AI features not available (built without OpenSSL)\n");
-                state.last_exit_status = 1;
+                state.core.last_exit_status = 1;
                 continue;
             }
         }
 #endif
 
-        reap_background_processes(state.background_processes);
+        reap_background_processes(state.core.background_processes);
 
         double start_time = get_time_s();
         vector<CommandSegment> segments = parse_command_line(expanded);
@@ -341,13 +343,13 @@ int run_interactive(ShellState &state) {
         }
         execute_command_line(segments, state);
 
-        state.last_command_text = expanded;
+        state.ai.last_command_text = expanded;
 #ifdef TASH_AI_ENABLED
-        state.last_executed_cmd = expanded;
+        state.ai.last_executed_cmd = expanded;
 #endif
-        state.last_cmd_duration = get_time_s() - start_time;
+        state.core.last_cmd_duration = get_time_s() - start_time;
 
-        reap_background_processes(state.background_processes);
+        reap_background_processes(state.core.background_processes);
     }
 
     if (!hist_path.empty()) {

@@ -2,8 +2,7 @@
 #include <unistd.h>
 #include <string>
 #include <cstring>
-#include "tash/core.h"
-
+#include "tash/core/executor.h"
 TEST(HeredocLarge, BodyAbovePipeBufferRoundTrips) {
     std::string body(256 * 1024, '\0');  // 256 KB — above Linux 64 KB pipe buffer
     for (size_t i = 0; i < body.size(); ++i) {

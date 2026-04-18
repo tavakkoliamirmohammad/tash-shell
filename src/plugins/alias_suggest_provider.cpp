@@ -1,5 +1,5 @@
 #include "tash/plugins/alias_suggest_provider.h"
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/shell.h"
 
 // ── Helper: find the alias whose value best matches the command ──
@@ -61,7 +61,7 @@ std::string AliasSuggestProvider::name() const {
 
 void AliasSuggestProvider::on_before_command(const std::string &command,
                                               ShellState &state) {
-    std::string alias_name = find_matching_alias(command, state.aliases);
+    std::string alias_name = find_matching_alias(command, state.core.aliases);
 
     if (alias_name.empty()) {
         return;
@@ -74,7 +74,7 @@ void AliasSuggestProvider::on_before_command(const std::string &command,
 
     reminded_this_session_.insert(alias_name);
 
-    const std::string &alias_value = state.aliases[alias_name];
+    const std::string &alias_value = state.core.aliases[alias_name];
     std::string remaining = get_remaining_args(command, alias_value);
 
     write_stderr("\xF0\x9F\x92\xA1 You have an alias for this: " +

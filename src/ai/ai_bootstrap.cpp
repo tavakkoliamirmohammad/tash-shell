@@ -15,7 +15,7 @@
 #include "tash/ai.h"
 #include "tash/ai/bootstrap.h"
 #include "tash/ai/llm_registry.h"
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/history.h"
 #include "theme.h"
 

@@ -1,4 +1,5 @@
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
 #include "tash/util/io.h"
 #include "tash/util/limits.h"
 #include "tash/util/parse_error.h"

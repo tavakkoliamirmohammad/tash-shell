@@ -1,7 +1,7 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/ai/contextual_ai.h"
-#include "tash/core.h"
+#include "tash/core/builtins.h"
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -205,12 +205,12 @@ AiContext build_context(const ShellState &state) {
     // ShellState doesn't have a command history vector, so we use
     // what's available: last_executed_cmd plus last_command_text.
     // For now, store what we have (the caller can extend this).
-    if (!state.last_executed_cmd.empty()) {
-        ctx.recent_commands.push_back(state.last_executed_cmd);
+    if (!state.ai.last_executed_cmd.empty()) {
+        ctx.recent_commands.push_back(state.ai.last_executed_cmd);
     }
-    if (!state.last_command_text.empty() &&
-        state.last_command_text != state.last_executed_cmd) {
-        ctx.recent_commands.push_back(state.last_command_text);
+    if (!state.ai.last_command_text.empty() &&
+        state.ai.last_command_text != state.ai.last_executed_cmd) {
+        ctx.recent_commands.push_back(state.ai.last_command_text);
     }
 
     // Git branch

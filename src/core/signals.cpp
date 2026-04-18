@@ -3,8 +3,9 @@
 // that `install_signal_handlers()` makes the shell Ctrl-C friendly and
 // SIGCHLD-aware.
 
-#include "tash/core.h"
-
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
+#include "tash/core/signals.h"
 #include <atomic>
 #include <csignal>
 #include <sys/types.h>
@@ -107,8 +108,8 @@ void check_and_fire_traps(ShellState &state) {
     for (int signum = 1; signum < TASH_MAX_SIGNAL; ++signum) {
         if (!pending_traps[signum]) continue;
         pending_traps[signum] = 0;
-        auto it = state.traps.find(signum);
-        if (it == state.traps.end()) continue;
+        auto it = state.exec.traps.find(signum);
+        if (it == state.exec.traps.end()) continue;
         const std::string &cmd = it->second;
         if (cmd.empty()) continue;     // "ignore" form
         std::vector<CommandSegment> segs = parse_command_line(cmd);
@@ -119,8 +120,8 @@ void check_and_fire_traps(ShellState &state) {
 // Run the EXIT pseudo-trap (signum 0). Called from builtin_exit before
 // the shell terminates.
 void fire_exit_trap(ShellState &state) {
-    auto it = state.traps.find(0);
-    if (it == state.traps.end() || it->second.empty()) return;
+    auto it = state.exec.traps.find(0);
+    if (it == state.exec.traps.end() || it->second.empty()) return;
     std::vector<CommandSegment> segs = parse_command_line(it->second);
     execute_command_line(segs, state);
 }

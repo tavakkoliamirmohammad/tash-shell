@@ -90,11 +90,8 @@ struct PipelineSegment {
 // ── Shell state ────────────────────────────────────────────────
 //
 // Three role-scoped substructs live inside ShellState as composition.
-// Backward-compat reference members (one per field with any call sites)
-// let existing `state.<field>` access keep working — new code should
-// prefer the scoped form `state.core.<field>` / `state.ai.<field>` /
-// `state.exec.<field>`. The compat refs will be removed once callers
-// migrate; that's a separate cleanup PR.
+// All access goes through the scoped form `state.core.<field>` /
+// `state.ai.<field>` / `state.exec.<field>`.
 
 struct CoreState {
     std::string previous_directory;
@@ -139,37 +136,6 @@ struct ShellState {
     CoreState      core;
     AiState        ai;
     ExecutionState exec;
-
-    // Backward-compat references into the substructs. Hundreds of call
-    // sites across src/ and tests/ read these via the flat name; proxy
-    // refs keep that source compat at zero runtime cost. New code should
-    // go through `core`/`ai`/`exec` directly.
-    //
-    // Reference members disable implicit copy/move assignment — that is
-    // intentional: ShellState is stored as a singleton-ish long-lived
-    // struct (main owns one; tests construct fresh instances). No caller
-    // assigns one to another. Construction still works via the default
-    // ctor below.
-    std::string                                   &previous_directory     = core.previous_directory;
-    int                                           &last_exit_status       = core.last_exit_status;
-    double                                        &last_cmd_duration      = core.last_cmd_duration;
-    int                                           &ctrl_d_count           = core.ctrl_d_count;
-    int                                           &max_background_processes = core.max_background_processes;
-    std::unordered_set<std::string>               &colorful_commands      = core.colorful_commands;
-    std::unordered_map<std::string, std::string>  &aliases                = core.aliases;
-    std::vector<std::string>                      &dir_stack              = core.dir_stack;
-    std::unordered_map<pid_t, std::string>        &background_processes   = core.background_processes;
-
-    bool                                          &ai_enabled             = ai.ai_enabled;
-    std::string                                   &last_command_text      = ai.last_command_text;
-    std::string                                   &last_executed_cmd      = ai.last_executed_cmd;
-    std::string                                   &last_stderr_output     = ai.last_stderr_output;
-
-    std::unordered_map<int, std::string>          &traps                  = exec.traps;
-    bool                                          &skip_execution         = exec.skip_execution;
-    bool                                          &in_subshell            = exec.in_subshell;
-
-    ShellState() = default;
 };
 
 // ── Signal-related globals (must be global for signal handlers) ─

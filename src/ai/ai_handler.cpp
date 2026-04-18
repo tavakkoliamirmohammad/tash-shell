@@ -1,7 +1,9 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
-#include "tash/core.h"
+#include "tash/ai/llm_registry.h"
+#include "tash/core/executor.h"
+#include "tash/core/signals.h"
 #include "theme.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -187,11 +189,16 @@ static string build_system_context() {
 
 static unique_ptr<LLMClient> create_current_client() {
     string provider = ai_get_provider();
-    string gemini_key = ai_load_provider_key("gemini").value_or("");
-    string openai_key = ai_load_provider_key("openai").value_or("");
-    string ollama_url = ai_get_ollama_url();
+    string key;
+    if (provider == "gemini") {
+        key = ai_load_provider_key("gemini").value_or("");
+    } else if (provider == "openai") {
+        key = ai_load_provider_key("openai").value_or("");
+    } else if (provider == "ollama") {
+        key = ai_get_ollama_url();
+    }
 
-    unique_ptr<LLMClient> client = create_llm_client(provider, gemini_key, openai_key, ollama_url);
+    unique_ptr<LLMClient> client = tash::ai::create_llm_client(provider, key);
     if (!client) return client;
 
     auto model_override = ai_get_model_override();
@@ -207,7 +214,7 @@ std::unique_ptr<LLMClient> ai_create_client() {
 }
 
 static unique_ptr<LLMClient> ensure_client(ShellState &state) {
-    if (!state.ai_enabled) {
+    if (!state.ai.ai_enabled) {
         ai_print_error("AI is disabled. Run @ai on to enable.");
         return unique_ptr<LLMClient>();
     }
@@ -316,7 +323,7 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
     // Enrich query with error context if asking about last error
     string enriched_query = query;
-    if (state.last_exit_status != 0 && !state.last_command_text.empty()) {
+    if (state.core.last_exit_status != 0 && !state.ai.last_command_text.empty()) {
         string lower_query = query;
         for (size_t i = 0; i < lower_query.size(); i++)
             lower_query[i] = tolower(lower_query[i]);
@@ -328,10 +335,10 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
             lower_query.find("fix") != string::npos ||
             query == "explain") {
             enriched_query += "\n\nContext — last failed command:\n";
-            enriched_query += "Command: " + state.last_command_text +
-                              "\nExit code: " + to_string(state.last_exit_status);
-            if (!state.last_stderr_output.empty()) {
-                enriched_query += "\nError output: " + state.last_stderr_output;
+            enriched_query += "Command: " + state.ai.last_command_text +
+                              "\nExit code: " + to_string(state.core.last_exit_status);
+            if (!state.ai.last_stderr_output.empty()) {
+                enriched_query += "\nError output: " + state.ai.last_stderr_output;
             }
         }
     }
@@ -348,7 +355,7 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
-        if (resp.http_status == 403) state.ai_enabled = false;
+        if (resp.http_status == 403) state.ai.ai_enabled = false;
         if (resp.http_status == 401 && isatty(STDIN_FILENO)) {
             write_stdout("\n");
             ai_print_label();
@@ -538,7 +545,7 @@ static int handle_status(ShellState &state) {
     write_stdout("  Provider: " + AI_CMD + provider + CAT_RESET "\n");
     write_stdout("  Model:    " + AI_CMD + current_model + CAT_RESET "\n");
     write_stdout("  Key:      " + string(key_ok ? AI_CMD + "configured" : AI_ERROR + "not configured") + CAT_RESET "\n");
-    write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD + "enabled" : AI_ERROR + "disabled") + CAT_RESET "\n");
+    write_stdout("  Status:   " + string(state.ai.ai_enabled ? AI_CMD + "enabled" : AI_ERROR + "disabled") + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
     write_stdout("  Today:    " + AI_CMD + to_string(usage) + " requests" CAT_RESET "\n");
@@ -603,7 +610,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         write_stdout("Configuration\n\n");
         write_stdout("  Provider: " + AI_CMD + provider + CAT_RESET "  Model: " + AI_CMD + current_model + CAT_RESET "\n");
         write_stdout("  Key:      " + string(key_ok ? AI_CMD + "configured" : AI_ERROR + "not configured") + CAT_RESET);
-        write_stdout("  Status:   " + string(state.ai_enabled ? AI_CMD + "enabled" : AI_ERROR + "disabled") + CAT_RESET "\n");
+        write_stdout("  Status:   " + string(state.ai.ai_enabled ? AI_CMD + "enabled" : AI_ERROR + "disabled") + CAT_RESET "\n");
         write_stdout("  Today:    " + AI_CMD + to_string(usage) + " requests" CAT_RESET
                      "  Rate: " CAT_DIM "10/min (enforced)" CAT_RESET "\n\n");
         write_stdout(AI_STEP_NUM + "  1." CAT_RESET " Switch provider (gemini/openai/ollama)\n");
@@ -687,14 +694,14 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
     // ── 2. on, off ────────────────────────────────────────────
 
     if (rest == "on") {
-        state.ai_enabled = true;
+        state.ai.ai_enabled = true;
         ai_print_label();
         write_stdout(AI_CMD + "AI enabled." CAT_RESET "\n");
         return 0;
     }
 
     if (rest == "off") {
-        state.ai_enabled = false;
+        state.ai.ai_enabled = false;
         ai_print_label();
         write_stdout(CAT_YELLOW + "AI disabled." CAT_RESET "\n");
         return 0;

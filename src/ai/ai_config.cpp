@@ -1,7 +1,7 @@
 #ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/util/config_resolver.h"
 #include "tash/util/io.h"
 #include "theme.h"
@@ -24,8 +24,9 @@ using namespace std;
 // ── XDG config directory ─────────────────────────────────────
 
 string ai_get_config_dir() {
-    // AI-specific escape hatch kept for backward compat; everything else
-    // now goes through tash::config so XDG / TASH_CONFIG_HOME apply uniformly.
+    // User-facing env override that predates tash::config. Still honored so
+    // users with TASH_AI_CONFIG_DIR set don't silently lose their config.
+    // When unset, fall through to the standard XDG / TASH_CONFIG_HOME path.
     const char *override_dir = getenv("TASH_AI_CONFIG_DIR");
     if (override_dir && override_dir[0] != '\0') return string(override_dir);
     return tash::config::get_config_dir();

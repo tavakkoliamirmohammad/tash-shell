@@ -135,8 +135,8 @@ TEST_F(SessionTest, LoadMissingFile) {
 
 TEST_F(SessionTest, CaptureCurrentState) {
     ShellState state;
-    state.aliases["ll"] = "ls -la";
-    state.aliases["gs"] = "git status";
+    state.core.aliases["ll"] = "ls -la";
+    state.core.aliases["gs"] = "git status";
 
     // Set an env var that capture_current_state looks for.
     setenv("EDITOR", "nano", 1);
@@ -191,8 +191,8 @@ TEST_F(SessionTest, RestoreSession) {
     EXPECT_EQ(std::string(new_cwd), tmp_dir);
 
     // Verify aliases restored.
-    EXPECT_EQ(state.aliases.count("hello"), 1u);
-    EXPECT_EQ(state.aliases.at("hello"), "echo hello");
+    EXPECT_EQ(state.core.aliases.count("hello"), 1u);
+    EXPECT_EQ(state.core.aliases.at("hello"), "echo hello");
 
     // Verify env var set.
     const char *val = std::getenv("TASH_SESSION_TEST_VAR");

@@ -4,14 +4,13 @@
 #include "tash/plugin.h"
 #include "tash/shell.h"
 #include <string>
+#include <vector>
 
-// ── Build the starship command string from shell state ────────
+// ── Build the starship argv from shell state ─────────────────
 //
-// Retained for the unit test, which asserts the flag shape. The
-// render() entry point now builds an argv vector directly; see
-// starship_prompt_provider.cpp.
+// Exposed for the unit test, which asserts the flag shape.
 
-std::string build_starship_command(const ShellState &state);
+std::vector<std::string> build_starship_argv(const ShellState &state);
 
 // ── Starship prompt provider ─────────────────────────────────
 

@@ -88,7 +88,7 @@ ChildResult run_in_child(void (*body)()) {
 // Body for the basic-path test: fresh ShellState, SIGABRT.
 void child_basic() {
     ShellState state;
-    state.last_exit_status = 42;
+    state.core.last_exit_status = 42;
     tash::util::install_crash_handler(state);
     ::raise(SIGABRT);
     // Unreached if the handler re-raised correctly.
@@ -97,8 +97,8 @@ void child_basic() {
 // Body for the last-command test.
 void child_with_last_cmd() {
     ShellState state;
-    state.last_executed_cmd = "echo foo";
-    state.last_exit_status = 7;
+    state.ai.last_executed_cmd = "echo foo";
+    state.core.last_exit_status = 7;
     tash::util::install_crash_handler(state);
     ::raise(SIGABRT);
 }

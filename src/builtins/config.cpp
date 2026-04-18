@@ -5,7 +5,7 @@
 // own.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/core/config_sync.h"
 #include "tash/core/session.h"
 #include "theme.h"

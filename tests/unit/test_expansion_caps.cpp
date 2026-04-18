@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <string>
 
-#include "tash/core.h"
+#include "tash/core/parser.h"
 #include "tash/util/limits.h"
 
 TEST(ExpansionCaps, NormalExpansionUnaffected) {

@@ -1,4 +1,4 @@
-#include "tash/core.h"
+#include "tash/core/builtins.h"
 #include "tash/ui.h"
 #include <dirent.h>
 #include <algorithm>

@@ -1,5 +1,6 @@
 #include "tash/plugins/safety_hook_provider.h"
-#include "tash/core.h"
+#include "tash/core/parser.h"
+#include "tash/core/signals.h"
 #include "tash/shell.h"
 #include "theme.h"
 #include <algorithm>
@@ -176,7 +177,7 @@ std::string SafetyHookProvider::name() const {
 void SafetyHookProvider::on_before_command(const std::string &command,
                                            ShellState &state) {
     // Reset skip flag
-    state.skip_execution = false;
+    state.exec.skip_execution = false;
 
     RiskLevel level = classify_command(command);
 
@@ -192,7 +193,7 @@ void SafetyHookProvider::on_before_command(const std::string &command,
     if (level == BLOCKED) {
         warning = "BLOCKED: This will delete your entire filesystem. Blocked.";
         write_stderr(CAT_RED + warning + CAT_RESET + "\n");
-        state.skip_execution = true;
+        state.exec.skip_execution = true;
         return;
     }
 
@@ -256,7 +257,7 @@ void SafetyHookProvider::on_before_command(const std::string &command,
     FILE *tty = fopen("/dev/tty", "r");
     if (!tty) {
         // Can't read terminal -- err on the side of caution, skip
-        state.skip_execution = true;
+        state.exec.skip_execution = true;
         return;
     }
 
@@ -264,7 +265,7 @@ void SafetyHookProvider::on_before_command(const std::string &command,
     fclose(tty);
 
     if (ch != 'y' && ch != 'Y') {
-        state.skip_execution = true;
+        state.exec.skip_execution = true;
     }
 }
 

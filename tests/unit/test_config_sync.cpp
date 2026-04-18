@@ -99,7 +99,7 @@ TEST_F(ConfigSyncTest, SetRemoteAddsOrigin) {
     bool result = sync_set_remote(temp_dir, "https://github.com/user/tash-config.git");
     ASSERT_TRUE(result);
 
-    CmdResult remote_out = run_git_command(temp_dir, "remote -v");
+    CmdResult remote_out = run_git_argv(temp_dir, {"remote", "-v"});
     EXPECT_EQ(remote_out.exit_code, 0);
     EXPECT_NE(remote_out.output.find("https://github.com/user/tash-config.git"),
               std::string::npos);
@@ -112,25 +112,25 @@ TEST_F(ConfigSyncTest, SetRemoteUpdatesExisting) {
     bool result = sync_set_remote(temp_dir, "https://github.com/user/new-url.git");
     ASSERT_TRUE(result);
 
-    CmdResult remote_out = run_git_command(temp_dir, "remote -v");
+    CmdResult remote_out = run_git_argv(temp_dir, {"remote", "-v"});
     EXPECT_NE(remote_out.output.find("https://github.com/user/new-url.git"),
               std::string::npos);
     EXPECT_EQ(remote_out.output.find("https://github.com/user/old-url.git"),
               std::string::npos);
 }
 
-TEST_F(ConfigSyncTest, RunGitCommandSuccess) {
+TEST_F(ConfigSyncTest, RunGitArgvSuccess) {
     sync_init(temp_dir);
 
-    CmdResult result = run_git_command(temp_dir, "status");
+    CmdResult result = run_git_argv(temp_dir, {"status"});
     EXPECT_EQ(result.exit_code, 0);
     EXPECT_FALSE(result.output.empty());
 }
 
-TEST_F(ConfigSyncTest, RunGitCommandFailure) {
+TEST_F(ConfigSyncTest, RunGitArgvFailure) {
     sync_init(temp_dir);
 
-    CmdResult result = run_git_command(temp_dir, "checkout nonexistent-branch-xyz");
+    CmdResult result = run_git_argv(temp_dir, {"checkout", "nonexistent-branch-xyz"});
     EXPECT_NE(result.exit_code, 0);
 }
 
@@ -138,8 +138,8 @@ TEST_F(ConfigSyncTest, SyncDiffShowsChanges) {
     sync_init(temp_dir);
 
     // Make an initial commit so HEAD exists
-    run_git_command(temp_dir, "add -A");
-    run_git_command(temp_dir, "commit -m \"initial\"");
+    run_git_argv(temp_dir, {"add", "-A"});
+    run_git_argv(temp_dir, {"commit", "-m", "initial"});
 
     // Create a new file to generate diff output
     write_file(temp_dir + "/test_config.toml", "key = \"value\"\n");

@@ -13,8 +13,7 @@
 // signums are accepted too. Unknown names produce an error.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
-
+#include "tash/core/signals.h"
 #include <csignal>
 #include <cstdio>
 
@@ -78,7 +77,7 @@ string signal_to_name(int signum) {
 int builtin_trap(const vector<string> &argv, ShellState &state) {
     // `trap` with no args: list.
     if (argv.size() == 1) {
-        for (const auto &kv : state.traps) {
+        for (const auto &kv : state.exec.traps) {
             write_stdout("trap -- '" + kv.second + "' " +
                          signal_to_name(kv.first) + "\n");
         }
@@ -107,7 +106,7 @@ int builtin_trap(const vector<string> &argv, ShellState &state) {
     if (action == "-") {
         // Remove handler(s): clear map entry + restore default.
         for (int s : signums) {
-            state.traps.erase(s);
+            state.exec.traps.erase(s);
             if (s > 0) uninstall_trap_handler(s);
         }
         return 0;
@@ -115,7 +114,7 @@ int builtin_trap(const vector<string> &argv, ShellState &state) {
 
     // Store the command (possibly empty for the "ignore" form).
     for (int s : signums) {
-        state.traps[s] = action;
+        state.exec.traps[s] = action;
         if (s == 0) continue;         // EXIT is fired by builtin_exit
         if (action.empty()) {
             ignore_signal(s);

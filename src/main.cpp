@@ -9,7 +9,8 @@
 // main.cpp is now ~60 LOC, which is the point.
 
 #include "tash/ai/bootstrap.h"
-#include "tash/core.h"
+#include "tash/core/executor.h"
+#include "tash/core/signals.h"
 #include "tash/history.h"
 #include "tash/plugin.h"
 #include "tash/repl.h"

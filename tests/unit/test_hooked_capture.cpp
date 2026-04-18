@@ -9,7 +9,7 @@
 #include <cstdio>
 #include <string>
 
-#include "tash/core.h"
+#include "tash/core/executor.h"
 #include "tash/plugin.h"
 #include "tash/shell.h"
 
@@ -26,7 +26,7 @@ public:
                             ShellState &state) override {
         before_commands.push_back(command);
         if (force_skip) {
-            state.skip_execution = true;
+            state.exec.skip_execution = true;
         }
     }
 
@@ -37,7 +37,11 @@ public:
         after_exit_codes.push_back(exit_code);
     }
 
-    // Enable before_command to set state.skip_execution = true.
+    void on_startup(ShellState &)       override {}
+    void on_exit(ShellState &)          override {}
+    void on_config_reload(ShellState &) override {}
+
+    // Enable before_command to set state.exec.skip_execution = true.
     bool force_skip = false;
 
     std::vector<std::string> before_commands;
@@ -108,7 +112,7 @@ TEST(HookedCapture, SkipPathBlocksExecution) {
 
     // skip_execution must have been reset so downstream code isn't
     // affected by the latched flag.
-    EXPECT_FALSE(state.skip_execution);
+    EXPECT_FALSE(state.exec.skip_execution);
 
     // after_command must NOT fire on the skip path (the command never
     // ran, so there is no result to report).

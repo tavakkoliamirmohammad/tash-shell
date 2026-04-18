@@ -302,7 +302,7 @@ SessionInfo capture_current_state(const std::string &name,
     info.last_active = info.created_at;
 
     // Aliases from ShellState.
-    info.aliases = state.aliases;
+    info.aliases = state.core.aliases;
 
     // Capture selected environment variables.
     for (const char *const *p = CAPTURED_ENV_VARS; *p; ++p) {
@@ -325,7 +325,7 @@ void restore_session(const SessionInfo &info, ShellState &state) {
 
     // Restore aliases – merge into ShellState (session aliases override).
     for (auto it = info.aliases.begin(); it != info.aliases.end(); ++it) {
-        state.aliases[it->first] = it->second;
+        state.core.aliases[it->first] = it->second;
     }
 
     // Restore environment variables.

@@ -1,4 +1,7 @@
-#include "tash/core.h"
+#include "tash/core/builtins.h"
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
+#include "tash/core/signals.h"
 #include "tash/ui/rich_output.h"
 #include "tash/util/io.h"
 #include "tash/util/limits.h"
@@ -267,7 +270,7 @@ void background_process(const vector<string> &argv,
         tash::io::error("bg: usage: bg <command> [args...]");
         return;
     }
-    if ((int)state.background_processes.size() >= state.max_background_processes) {
+    if ((int)state.core.background_processes.size() >= state.core.max_background_processes) {
         tash::io::error("Maximum number of background processes");
         return;
     }
@@ -287,7 +290,7 @@ void background_process(const vector<string> &argv,
         write_stderr(err_msg);
         _exit(127);  // see note above foreground exec — skip C++ dtors in child
     } else {
-        state.background_processes[pid] = argv[1];
+        state.core.background_processes[pid] = argv[1];
         write_stdout("Background process with " + to_string(pid) + " Executing\n");
     }
 }
@@ -357,7 +360,7 @@ int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
                 // Same rationale as executor.cpp subshell fork: the child
                 // must not record history while sharing a post-fork SQLite
                 // connection with the parent.
-                st.in_subshell = true;
+                st.exec.in_subshell = true;
                 std::vector<CommandSegment> segs =
                     parse_command_line(segments[i].subshell_body);
                 execute_command_line(segs, st);
@@ -365,7 +368,7 @@ int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
                 // echo output (stdout is a pipe → fully buffered). _exit
                 // bypasses libc cleanup, so we must flush explicitly.
                 std::fflush(nullptr);
-                _exit(st.last_exit_status);
+                _exit(st.core.last_exit_status);
             }
 
             // Normal segment: builtin or external.

@@ -1,7 +1,7 @@
 // History builtin.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/history.h"
 
 #include <fstream>

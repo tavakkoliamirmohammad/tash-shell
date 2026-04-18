@@ -10,8 +10,8 @@
 //        cmake --build build-fuzz --target tash_parser_fuzzer
 // Run:   ./build-fuzz/tash_parser_fuzzer fuzz/corpus -max_total_time=60
 
-#include "tash/core.h"
-
+#include "tash/core/executor.h"
+#include "tash/core/parser.h"
 #include <cstddef>
 #include <cstdint>
 #include <string>

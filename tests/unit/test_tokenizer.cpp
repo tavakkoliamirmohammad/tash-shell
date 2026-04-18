@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
-#include "tash/core.h"
+#include "tash/core/builtins.h"
+#include "tash/core/parser.h"
 #include "tash/ui.h"
 #include "tash/history.h"
 

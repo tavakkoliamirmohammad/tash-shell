@@ -32,7 +32,9 @@ public:
     // A null or empty factory leaves the hook dormant.
     using ClientFactory = std::function<std::unique_ptr<LLMClient>()>;
 
-    explicit AiErrorHookProvider(LLMClient *client);        // legacy
+    // Injects a pre-built non-owning LLMClient. Used by unit tests to
+    // plug in a mock; production wiring uses the factory overload.
+    explicit AiErrorHookProvider(LLMClient *client);
     explicit AiErrorHookProvider(ClientFactory factory);
 
     std::string name() const override;
@@ -44,6 +46,11 @@ public:
                           int exit_code,
                           const std::string &stderr_output,
                           ShellState &state) override;
+
+    // No lifecycle state to manage.
+    void on_startup(ShellState &)       override {}
+    void on_exit(ShellState &)          override {}
+    void on_config_reload(ShellState &) override {}
 
     // Exposed for testing -- check if trigger conditions are met
     bool should_trigger(int exit_code,
@@ -69,7 +76,7 @@ public:
     void reset_cooldown() { last_call_time_ = 0; }
 
 private:
-    LLMClient *client_;                   // non-owning (legacy path)
+    LLMClient *client_;                   // non-owning (test DI path)
     std::unique_ptr<LLMClient> owned_;    // owned, created by factory_
     ClientFactory factory_;               // lazy factory
     time_t last_call_time_;

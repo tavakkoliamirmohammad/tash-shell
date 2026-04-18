@@ -1,7 +1,7 @@
 // Directory navigation builtins: cd, pwd, pushd, popd, dirs, z.
 
 #include "tash/builtins.h"
-#include "tash/core.h"
+#include "tash/core/signals.h"
 #include "tash/history.h"
 
 #include <cstring>
@@ -14,11 +14,11 @@ int builtin_cd(const vector<string> &argv, ShellState &state) {
 
     if (argv.size() > 1) {
         if (argv[1] == "-") {
-            if (state.previous_directory.empty()) {
+            if (state.core.previous_directory.empty()) {
                 write_stderr("cd: OLDPWD not set\n");
                 return 1;
             }
-            target = state.previous_directory.c_str();
+            target = state.core.previous_directory.c_str();
         } else {
             target = argv[1].c_str();
         }
@@ -40,7 +40,7 @@ int builtin_cd(const vector<string> &argv, ShellState &state) {
         return 1;
     }
 
-    state.previous_directory = string(cwd);
+    state.core.previous_directory = string(cwd);
 
     char new_cwd[MAX_SIZE];
     if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
@@ -76,24 +76,24 @@ int builtin_pushd(const vector<string> &argv, ShellState &state) {
         write_stderr("pushd: " + argv[1] + ": " + strerror(errno) + "\n");
         return 1;
     }
-    state.dir_stack.push_back(string(cwd));
+    state.core.dir_stack.push_back(string(cwd));
     char new_cwd[MAX_SIZE];
     if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
         string stack_str = string(new_cwd);
-        for (int si = (int)state.dir_stack.size() - 1; si >= 0; si--)
-            stack_str += " " + state.dir_stack[si];
+        for (int si = (int)state.core.dir_stack.size() - 1; si >= 0; si--)
+            stack_str += " " + state.core.dir_stack[si];
         write_stdout(stack_str + "\n");
     }
     return 0;
 }
 
 int builtin_popd(const vector<string> &, ShellState &state) {
-    if (state.dir_stack.empty()) {
+    if (state.core.dir_stack.empty()) {
         write_stderr("popd: directory stack empty\n");
         return 1;
     }
-    string target = state.dir_stack.back();
-    state.dir_stack.pop_back();
+    string target = state.core.dir_stack.back();
+    state.core.dir_stack.pop_back();
     if (chdir(target.c_str()) == -1) {
         write_stderr("popd: " + target + ": " + string(strerror(errno)) + "\n");
         return 1;
@@ -101,8 +101,8 @@ int builtin_popd(const vector<string> &, ShellState &state) {
     char new_cwd[MAX_SIZE];
     if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
         string stack_str = string(new_cwd);
-        for (int si = (int)state.dir_stack.size() - 1; si >= 0; si--)
-            stack_str += " " + state.dir_stack[si];
+        for (int si = (int)state.core.dir_stack.size() - 1; si >= 0; si--)
+            stack_str += " " + state.core.dir_stack[si];
         write_stdout(stack_str + "\n");
     }
     return 0;
@@ -112,8 +112,8 @@ int builtin_dirs(const vector<string> &, ShellState &state) {
     char cwd[MAX_SIZE];
     if (getcwd(cwd, MAX_SIZE) != nullptr) {
         string stack_str = string(cwd);
-        for (int si = (int)state.dir_stack.size() - 1; si >= 0; si--)
-            stack_str += " " + state.dir_stack[si];
+        for (int si = (int)state.core.dir_stack.size() - 1; si >= 0; si--)
+            stack_str += " " + state.core.dir_stack[si];
         write_stdout(stack_str + "\n");
     }
     return 0;
@@ -144,7 +144,7 @@ int builtin_z(const vector<string> &argv, ShellState &state) {
         write_stderr("z: " + target + ": " + strerror(errno) + "\n");
         return 1;
     }
-    state.previous_directory = string(cwd);
+    state.core.previous_directory = string(cwd);
     z_record_directory(target);
     write_stdout(target + "\n");
     return 0;

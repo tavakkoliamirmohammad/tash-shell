@@ -43,6 +43,11 @@ public:
     // Clear the reminded set (e.g. for a new session).
     void reset_reminders();
 
+    // No lifecycle state to manage.
+    void on_startup(ShellState &)       override {}
+    void on_exit(ShellState &)          override {}
+    void on_config_reload(ShellState &) override {}
+
 private:
     std::unordered_set<std::string> reminded_this_session_;
 };

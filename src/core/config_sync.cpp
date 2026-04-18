@@ -64,7 +64,7 @@ static std::string ensure_trailing_slash(const std::string &path) {
 // ── run_git_argv ─────────────────────────────────────────────
 //
 // Build argv directly from the caller's vector -- no shell -- and run
-// via the safe-exec helper. The previous implementation used
+// via the safe-exec helper. A prior implementation used
 // popen("git -C \"" + config_dir + "\" " + git_args), which quoted
 // config_dir with plain double quotes and left git_args unquoted; a
 // config_dir containing `"` or a remote URL containing `;` / `$(...)`
@@ -90,30 +90,6 @@ CmdResult run_git_argv(const std::string &config_dir,
     result.exit_code = r.exit_code;
     result.output = r.stdout_text;
     return result;
-}
-
-// Legacy string-based entry point. Used only by the unit test to
-// verify that run_git_command produces a non-empty path; retained so
-// the public API stays source-compatible. Splits the arg string on
-// whitespace (ignoring quotes -- callers that need complex quoting
-// should move to run_git_argv).
-
-CmdResult run_git_command(const std::string &config_dir,
-                          const std::string &git_args) {
-    std::vector<std::string> parts;
-    std::string cur;
-    for (char c : git_args) {
-        if (c == ' ' || c == '\t') {
-            if (!cur.empty()) {
-                parts.push_back(cur);
-                cur.clear();
-            }
-        } else {
-            cur += c;
-        }
-    }
-    if (!cur.empty()) parts.push_back(cur);
-    return run_git_argv(config_dir, parts);
 }
 
 // ── get_tash_config_dir ──────────────────────────────────────
