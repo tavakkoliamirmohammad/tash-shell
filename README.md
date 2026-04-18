@@ -291,6 +291,20 @@ The AI remembers context within a session — ask follow-up questions naturally:
 | `@ai <question>` | AI-powered assistant — ask anything in natural language. |
 | `<question>?` | Trailing `?` routes a natural-language query to the AI (e.g., `find all python files larger than 1MB?`). |
 
+## Configuration
+
+tash reads a small JSON config at `~/.tash/config.json` (or `$TASH_DATA_HOME/config.json` / `$XDG_DATA_HOME/tash/config.json` when those are set). The file is optional; unknown fields are ignored, so it stays forward-compatible.
+
+```json
+{
+  "plugins":  { "disabled": ["safety", "fish"] },
+  "log_level": "info"
+}
+```
+
+- `plugins.disabled` — list of bundled provider names to skip during startup (e.g. `safety`, `alias-suggest`, `ai-error-recovery`, `fish`, `fig`, `manpage`, `starship`, `sqlite-history`). Unknown names print a warning and are ignored.
+- `log_level` — default log verbosity. `TASH_LOG_LEVEL` in the environment overrides this field.
+
 ## Architecture
 
 ```

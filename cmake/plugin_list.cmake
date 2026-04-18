@@ -18,6 +18,14 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME config_file
+    TEST_SOURCES tests/unit/test_config_file.cpp src/util/config_file.cpp src/util/config_resolver.cpp
+    TEST_INCLUDES ${nlohmann_json_SOURCE_DIR}/include
+    TEST_PREFIX "unit/util/"
+    TEST_STANDALONE
+)
+
+tash_register_plugin(
     NAME fish_completion
     SOURCES src/plugins/fish_completion_provider.cpp
     TEST_SOURCES tests/unit/test_fish_completion.cpp
