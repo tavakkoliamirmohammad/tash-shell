@@ -241,6 +241,20 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME io
+    TEST_SOURCES tests/unit/test_io.cpp src/util/io.cpp
+    TEST_PREFIX "unit/util/"
+    TEST_STANDALONE
+)
+
+tash_register_plugin(
+    NAME fd
+    TEST_SOURCES tests/unit/test_fd.cpp
+    TEST_PREFIX "unit/util/"
+    TEST_STANDALONE
+)
+
+tash_register_plugin(
     NAME sqlite_history_like_escape
     REQUIRES TASH_SQLITE_ENABLED
     TEST_SOURCES tests/unit/test_sqlite_history_like_escape.cpp

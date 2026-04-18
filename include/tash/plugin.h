@@ -127,7 +127,7 @@ public:
     void record_history(const HistoryEntry &entry);
 
     // Dispatch: search primary (first) history provider
-    std::vector<HistoryEntry> search_history(
+    [[nodiscard]] std::vector<HistoryEntry> search_history(
         const std::string &query,
         const SearchFilter &filter) const;
 

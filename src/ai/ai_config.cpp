@@ -3,6 +3,7 @@
 #include "tash/ai.h"
 #include "tash/core.h"
 #include "tash/util/config_resolver.h"
+#include "tash/util/io.h"
 #include "theme.h"
 #include <fstream>
 #include <sys/stat.h>
@@ -40,8 +41,8 @@ static bool ensure_config_dir() {
         if (S_ISLNK(st.st_mode)) {
             static bool warned = false;
             if (!warned) {
-                write_stderr("tash: refusing to operate on " + dir
-                             + " — it is a symbolic link; key files would be exposed\n");
+                tash::io::error("refusing to operate on " + dir
+                                + " — it is a symbolic link; key files would be exposed");
                 warned = true;
             }
             return false;  // Refuse to write keys through a symlink.
@@ -55,7 +56,7 @@ static bool ensure_config_dir() {
                 // Only log once per process to avoid noise on every key access.
                 static bool logged = false;
                 if (!logged) {
-                    write_stderr("tash: tightened permissions on " + dir + " to 0700\n");
+                    tash::io::info("tightened permissions on " + dir + " to 0700");
                     logged = true;
                 }
             }
@@ -70,7 +71,7 @@ static bool write_secure_file(const string &path, const string &content) {
     if (path.empty()) return false;
     int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
     if (fd < 0) {
-        write_stderr("tash: could not open " + path + ": " + strerror(errno) + "\n");
+        tash::io::error("could not open " + path + ": " + strerror(errno));
         return false;
     }
     // If the file already existed with looser perms, tighten now.
@@ -89,7 +90,7 @@ static bool write_secure_file(const string &path, const string &content) {
     // filesystem journal flush does not leave a truncated/zero-length key.
     // fsync failure is logged but not fatal — data is already written.
     if (::fsync(fd) != 0) {
-        write_stderr("tash: fsync warning on " + path + ": " + strerror(errno) + "\n");
+        tash::io::warning("fsync on " + path + ": " + strerror(errno));
     }
     bool ok = (::close(fd) == 0);
     return ok;

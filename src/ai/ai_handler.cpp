@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <atomic>
 #include <random>
@@ -61,7 +62,11 @@ static const char *SPINNER_MESSAGES[] = {
 };
 static const int NUM_SPINNER_MESSAGES = 18;
 
-static thread *spinner_thread_ptr = nullptr;
+// std::optional<std::thread> replaces the raw new/delete pair the previous
+// version used. Ownership semantics are identical (nullable, single
+// owner), but the destructor path auto-joins via reset() and the code
+// can't leak the thread on an early return (deep-review finding C3.1).
+static std::optional<std::thread> spinner_thread;
 
 static void spinner_thread_fn() {
     const char *braille[] = {
@@ -98,15 +103,14 @@ static void start_spinner() {
     if (!isatty(STDOUT_FILENO)) return;
     if (spinner_active.load()) return; // prevent double-start
     spinner_active.store(true);
-    spinner_thread_ptr = new thread(spinner_thread_fn);
+    spinner_thread.emplace(spinner_thread_fn);
 }
 
 static void stop_spinner() {
     spinner_active.store(false);
-    if (spinner_thread_ptr) {
-        spinner_thread_ptr->join();
-        delete spinner_thread_ptr;
-        spinner_thread_ptr = nullptr;
+    if (spinner_thread) {
+        spinner_thread->join();
+        spinner_thread.reset();
     }
 }
 

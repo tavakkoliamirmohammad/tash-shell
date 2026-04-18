@@ -162,7 +162,7 @@ TEST(HookOrdering, ExecuteSingleCommandFiresBeforeHook) {
     // the safety hook, and the PR's H6 guarantee is broken.
     auto *rec = install_recorder();
     ShellState state;
-    execute_single_command("echo ai_hook_test", state, nullptr);
+    (void)execute_single_command("echo ai_hook_test", state, nullptr);
     bool saw = false;
     for (const auto &c : rec->before_commands) {
         if (c == "echo ai_hook_test") saw = true;
@@ -177,7 +177,7 @@ TEST(HookOrdering, AiStyleCommandWithSubstitutionFiresHookForInnerToo) {
     // safety providers can block the dangerous substitution.
     auto *rec = install_recorder();
     ShellState state;
-    execute_single_command("echo $(echo inner_ai)", state, nullptr);
+    (void)execute_single_command("echo $(echo inner_ai)", state, nullptr);
     bool saw_outer = false;
     bool saw_inner = false;
     for (const auto &c : rec->before_commands) {
@@ -196,7 +196,7 @@ TEST(HookOrdering, AiStyleCommandRespectsSkipOnInner) {
     auto *rec = install_recorder();
     rec->skip_when_contains = "rm -rf";  // force skip on commands matching
     ShellState state;
-    execute_single_command("echo $(rm -rf /fake)", state, nullptr);
+    (void)execute_single_command("echo $(rm -rf /fake)", state, nullptr);
     // Expect at least one skip was triggered.
     EXPECT_GT(rec->skip_count, 0);
     rec->skip_when_contains.clear();

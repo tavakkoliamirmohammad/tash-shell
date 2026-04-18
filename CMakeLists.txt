@@ -104,6 +104,7 @@ set(SHELL_SOURCES
     src/util/colors.cpp
     src/util/config_file.cpp
     src/util/config_resolver.cpp
+    src/util/io.cpp
     src/util/safe_exec.cpp
     src/util/safe_tmpdir.cpp
     src/util/theme.cpp
@@ -266,6 +267,7 @@ if(TASH_ENABLE_FUZZER)
     # of the shell. Keeps instrumentation tight.
     set(TASH_FUZZ_SOURCES
         src/core/parser.cpp
+        src/util/io.cpp
     )
     add_executable(tash_parser_fuzzer fuzz/parser_fuzz.cpp ${TASH_FUZZ_SOURCES})
     target_include_directories(tash_parser_fuzzer PRIVATE
