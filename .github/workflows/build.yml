@@ -143,24 +143,26 @@ jobs:
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev
-      - name: Build with AddressSanitizer
+      - name: Build with AddressSanitizer + UndefinedBehaviorSanitizer
         run: |
           JOBS=$(getconf _NPROCESSORS_ONLN)
-          cmake -B build -DBUILD_TESTS=ON \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
+          cmake -B build -DBUILD_TESTS=ON -DTASH_SANITIZERS=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo
           cmake --build build -j "$JOBS"
       - name: Run unit tests with sanitizer
         env:
           ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ./build/test_tokenizer
       - name: Run integration tests with sanitizer
         env:
           ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build --output-on-failure -j "$(getconf _NPROCESSORS_ONLN)"
       - name: Smoke test with sanitizer
         env:
           ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: echo -e "pwd\nls\necho hello\nexit" | ./build/tash.out
 
   coverage:
@@ -172,9 +174,8 @@ jobs:
       - name: Build with coverage
         run: |
           JOBS=$(getconf _NPROCESSORS_ONLN)
-          cmake -B build -DBUILD_TESTS=ON \
-            -DCMAKE_CXX_FLAGS="--coverage -fprofile-arcs -ftest-coverage" \
-            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+          cmake -B build -DBUILD_TESTS=ON -DTASH_COVERAGE=ON \
+            -DCMAKE_BUILD_TYPE=Debug
           cmake --build build -j "$JOBS"
       - name: Run tests
         run: ctest --test-dir build --output-on-failure -j "$(getconf _NPROCESSORS_ONLN)"
