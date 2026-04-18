@@ -54,6 +54,11 @@ if(BUILD_TESTS)
     target_link_libraries(test_parser_properties GTest::gtest_main shell_lib)
     gtest_discover_tests(test_parser_properties TEST_PREFIX "unit/")
 
+    add_executable(test_parser_errors tests/unit/test_parser_errors.cpp)
+    target_include_directories(test_parser_errors PRIVATE ${TASH_INCLUDE_DIRS})
+    target_link_libraries(test_parser_errors GTest::gtest_main shell_lib)
+    gtest_discover_tests(test_parser_errors TEST_PREFIX "unit/")
+
     add_executable(test_builtins_help tests/unit/test_builtins_help.cpp)
     target_include_directories(test_builtins_help PRIVATE ${TASH_INCLUDE_DIRS})
     target_link_libraries(test_builtins_help GTest::gtest_main shell_lib)

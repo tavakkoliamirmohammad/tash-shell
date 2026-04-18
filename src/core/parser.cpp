@@ -188,6 +188,9 @@ string expand_variables(const string &input, int last_exit_status) {
                 continue;
             }
             if (i < input.size() && input[i] == '{') {
+                // `i` currently points at '{'; remember its offset so the
+                // diagnostic can point back at the unterminated `${`.
+                size_t brace_off = i - 1; // offset of the leading '$'
                 i++; // skip '{'
                 string var_name;
                 while (i < input.size() && input[i] != '}') {
@@ -196,6 +199,14 @@ string expand_variables(const string &input, int last_exit_status) {
                 }
                 if (i < input.size()) {
                     i++; // skip '}'
+                } else {
+                    // Reached end of input without seeing '}': classic
+                    // `${FOO` with no close. Emit a parse error pointing
+                    // at the opening `$`.
+                    size_t ln = 1, col = 1;
+                    tash::parse::offset_to_line_col(input, brace_off, ln, col);
+                    tash::parse::emit_parse_error(
+                        {"unmatched '${' in variable expansion", ln, col});
                 }
                 const char *val = getenv(var_name.c_str());
                 if (val) {
@@ -280,6 +291,16 @@ string expand_command_substitution(const string &input, ShellState &state) {
                 // inner command.
                 i = j + 1;
             } else {
+                // depth > 0 here means the input ran out before we saw
+                // the closing ')'. Emit a position-tagged diagnostic
+                // pointing at the `$` that opened the substitution, then
+                // fall back to the prior behaviour (copy the `$` through
+                // and keep scanning) so downstream callers still get a
+                // usable string.
+                size_t ln = 1, col = 1;
+                tash::parse::offset_to_line_col(input, i, ln, col);
+                tash::parse::emit_parse_error(
+                    {"unmatched '$(' in command substitution", ln, col});
                 result += input[i];
                 i++;
             }
@@ -442,6 +463,7 @@ Command parse_redirections(const string &command_str,
             }
             // Check for 2>
             else if (i + 2 <= command_str.size() && command_str.compare(i, 2, "2>") == 0) {
+                size_t op_off = i;
                 i += 2;
                 while (i < command_str.size() && command_str[i] == ' ') ++i;
                 string fname;
@@ -452,10 +474,16 @@ Command parse_redirections(const string &command_str,
                 fname = trim(fname);
                 if (!fname.empty()) {
                     cmd.redirections.push_back(make_redir(2, fname, false, false));
+                } else {
+                    size_t ln = 1, col = 1;
+                    tash::parse::offset_to_line_col(command_str, op_off, ln, col);
+                    tash::parse::emit_parse_error(
+                        {"missing filename for '2>'", ln, col});
                 }
             }
             // Check for >>
             else if (i + 2 <= command_str.size() && command_str.compare(i, 2, ">>") == 0) {
+                size_t op_off = i;
                 i += 2;
                 while (i < command_str.size() && command_str[i] == ' ') ++i;
                 string fname;
@@ -466,10 +494,16 @@ Command parse_redirections(const string &command_str,
                 fname = trim(fname);
                 if (!fname.empty()) {
                     cmd.redirections.push_back(make_redir(1, fname, true, false));
+                } else {
+                    size_t ln = 1, col = 1;
+                    tash::parse::offset_to_line_col(command_str, op_off, ln, col);
+                    tash::parse::emit_parse_error(
+                        {"missing filename for '>>'", ln, col});
                 }
             }
             // Check for > (must be after >>)
             else if (c == '>') {
+                size_t op_off = i;
                 i += 1;
                 while (i < command_str.size() && command_str[i] == ' ') ++i;
                 string fname;
@@ -480,10 +514,16 @@ Command parse_redirections(const string &command_str,
                 fname = trim(fname);
                 if (!fname.empty()) {
                     cmd.redirections.push_back(make_redir(1, fname, false, false));
+                } else {
+                    size_t ln = 1, col = 1;
+                    tash::parse::offset_to_line_col(command_str, op_off, ln, col);
+                    tash::parse::emit_parse_error(
+                        {"missing filename for '>'", ln, col});
                 }
             }
             // Check for << (heredoc). Must precede the plain `<` branch.
             else if (i + 2 <= command_str.size() && command_str.compare(i, 2, "<<") == 0) {
+                size_t op_off = i;
                 i += 2;
                 bool strip_tabs = false;
                 if (i < command_str.size() && command_str[i] == '-') {
@@ -514,6 +554,13 @@ Command parse_redirections(const string &command_str,
                     }
                 }
 
+                if (delim.empty()) {
+                    size_t ln = 1, col = 1;
+                    tash::parse::offset_to_line_col(command_str, op_off, ln, col);
+                    tash::parse::emit_parse_error(
+                        {"missing delimiter for '<<' heredoc", ln, col});
+                }
+
                 Redirection r;
                 r.fd = 0;
                 r.append = false;
@@ -533,6 +580,7 @@ Command parse_redirections(const string &command_str,
             }
             // Check for <
             else if (c == '<') {
+                size_t op_off = i;
                 i += 1;
                 while (i < command_str.size() && command_str[i] == ' ') ++i;
                 string fname;
@@ -543,6 +591,11 @@ Command parse_redirections(const string &command_str,
                 fname = trim(fname);
                 if (!fname.empty()) {
                     cmd.redirections.push_back(make_redir(0, fname, false, false));
+                } else {
+                    size_t ln = 1, col = 1;
+                    tash::parse::offset_to_line_col(command_str, op_off, ln, col);
+                    tash::parse::emit_parse_error(
+                        {"missing filename for '<'", ln, col});
                 }
             }
             else {
@@ -615,27 +668,52 @@ vector<CommandSegment> parse_command_line(const string &line) {
     string current;
     bool in_double_quotes = false;
     bool in_single_quotes = false;
+    // Offsets of the most recent unmatched opener, for diagnostics.
+    size_t single_quote_open = 0;
+    size_t double_quote_open = 0;
+    size_t last_paren_open = 0;
     int paren_depth = 0;       // track `(...)` subshells so `;`, `&&`,
                                // `||` inside them don't split segments
+    int cmdsub_depth = 0;      // separate depth for `$(...)` so its
+                               // parens don't confuse the subshell count
     size_t i = 0;
     OperatorType next_op = OP_NONE;
 
     while (i < stripped.size()) {
         char c = stripped[i];
         if (c == '"' && !in_single_quotes) {
+            if (!in_double_quotes) double_quote_open = i;
             in_double_quotes = !in_double_quotes;
             current += c;
             ++i;
         } else if (c == '\'' && !in_double_quotes) {
+            if (!in_single_quotes) single_quote_open = i;
             in_single_quotes = !in_single_quotes;
             current += c;
             ++i;
         } else if (!in_double_quotes && !in_single_quotes && c == '(') {
-            ++paren_depth;
+            // `$(...)` is command substitution, not a subshell — the
+            // expansion pass has its own close-tracking and error path.
+            // Track cmdsub opens in a separate depth so we can match the
+            // corresponding `)` without miscounting the subshell parens.
+            bool is_cmdsub_open = (i > 0 && stripped[i - 1] == '$');
+            if (is_cmdsub_open) {
+                ++cmdsub_depth;
+            } else {
+                if (paren_depth == 0) last_paren_open = i;
+                ++paren_depth;
+            }
             current += c;
             ++i;
         } else if (!in_double_quotes && !in_single_quotes && c == ')') {
-            if (paren_depth > 0) --paren_depth;
+            // Match cmdsub closes against cmdsub opens before popping a
+            // subshell depth — otherwise `$(foo)` inside a subshell would
+            // close the subshell one level early.
+            if (cmdsub_depth > 0) {
+                --cmdsub_depth;
+            } else if (paren_depth > 0) {
+                --paren_depth;
+            }
             current += c;
             ++i;
         } else if (!in_double_quotes && !in_single_quotes && paren_depth == 0 && c == '&' && i + 1 < stripped.size() && stripped[i + 1] == '&') {
@@ -666,7 +744,46 @@ vector<CommandSegment> parse_command_line(const string &line) {
     }
     string cmd = current;
     cmd = trim(cmd);
-    if (!cmd.empty()) segments.push_back(make_segment(cmd, next_op));
+    if (!cmd.empty()) {
+        segments.push_back(make_segment(cmd, next_op));
+    } else if (next_op == OP_AND || next_op == OP_OR) {
+        // Hit EOL with a pending `&&` / `||` from the previous segment
+        // but no command to apply it to. `;` is a terminator, not an
+        // operator, so `ls;` stays silent. The REPL catches trailing
+        // `&&` / `||` before we get here (is_input_complete returns
+        // false), but scripts and `-c` strings can land in this branch.
+        size_t ln = 1, col = 1;
+        tash::parse::offset_to_line_col(stripped, stripped.size(), ln, col);
+        const char *what = (next_op == OP_AND)
+            ? "empty command after '&&'"
+            : "empty command after '||'";
+        tash::parse::emit_parse_error({what, ln, col});
+    }
+
+    // Unmatched quotes / parens: flag at EOL. These guards fire after
+    // segment collection so the partial parse doesn't get lost — the
+    // caller still sees whatever segments we managed to build.
+    if (in_single_quotes) {
+        size_t ln = 1, col = 1;
+        tash::parse::offset_to_line_col(stripped, single_quote_open, ln, col);
+        tash::parse::emit_parse_error(
+            {"unmatched '\\''", ln, col});
+    }
+    if (in_double_quotes) {
+        size_t ln = 1, col = 1;
+        tash::parse::offset_to_line_col(stripped, double_quote_open, ln, col);
+        tash::parse::emit_parse_error(
+            {"unmatched '\"'", ln, col});
+    }
+    // Note: we deliberately do NOT emit for unmatched `(` here — the
+    // executor's subshell + pipeline-subshell branches already report
+    // that with more context ("unmatched '(' in subshell" / "unmatched
+    // '(' in pipeline subshell"), and emitting twice would produce
+    // duplicate diagnostics for the same token. paren_depth tracking
+    // stays because it correctly keeps `;` / `&&` / `||` inside a
+    // subshell from splitting the segment.
+    (void)last_paren_open;
+    (void)paren_depth;
     return segments;
 }
 
@@ -708,6 +825,11 @@ bool is_input_complete(const string &input) {
 // quotes) and return one PendingHeredoc entry per marker, in order.
 // Bodies stay empty; the caller fills them from the input stream.
 vector<PendingHeredoc> scan_pending_heredocs(const string &line) {
+    // NOTE: This helper stays silent on malformed markers. Callers invoke
+    // it several times per line (REPL prefetch, executor per-segment,
+    // parse_redirections), so emitting here would produce duplicate
+    // diagnostics. The empty-delimiter check lives in parse_redirections
+    // where it only runs once per Command.
     vector<PendingHeredoc> pending;
     bool in_double = false, in_single = false;
     size_t i = 0;
