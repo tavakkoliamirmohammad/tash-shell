@@ -2,6 +2,7 @@
 #include "tash/plugin.h"
 #include "tash/ui.h"
 #include "tash/ui/fuzzy_finder.h"
+#include "tash/util/safe_exec.h"
 #include "theme.h"
 
 #include <algorithm>
@@ -154,20 +155,27 @@ Replxx::completions_t completion_callback(const string &input, int &context_len)
         "kill", "bgkill", "bgstop", "bgstart"
     };
     if (kill_cmds.count(cmd)) {
-        FILE *p = popen("ps -eo pid,comm= 2>/dev/null", "r");
-        if (p) {
-            char buf[512];
-            while (fgets(buf, sizeof(buf), p)) {
-                char *s = buf;
-                while (*s == ' ' || *s == '\t') s++;
-                char *space = s;
-                while (*space && *space != ' ' && *space != '\t') space++;
-                if (space == s) continue;
+        // 500ms timeout matches the prompt's git queries -- on a
+        // process-table lookup this is ample.
+        auto ps = tash::util::safe_exec({"ps", "-eo", "pid,comm="}, 500);
+        const std::string &out = ps.stdout_text;
+        size_t line_start = 0;
+        while (line_start < out.size()) {
+            size_t line_end = out.find('\n', line_start);
+            size_t line_len = (line_end == std::string::npos ? out.size() : line_end) - line_start;
+            const char *s = out.c_str() + line_start;
+            const char *e = s + line_len;
+            while (s < e && (*s == ' ' || *s == '\t')) s++;
+            const char *space = s;
+            while (space < e && *space != ' ' && *space != '\t') space++;
+            if (space != s) {
                 std::string pid_str(s, space - s);
-                if (pid_str.compare(0, prefix.size(), prefix) != 0) continue;
-                completions.emplace_back(pid_str, comp_subcmd());
+                if (pid_str.compare(0, prefix.size(), prefix) == 0) {
+                    completions.emplace_back(pid_str, comp_subcmd());
+                }
             }
-            pclose(p);
+            if (line_end == std::string::npos) break;
+            line_start = line_end + 1;
         }
         // /proc fallback — if ps produced nothing (e.g. minimal Linux
         // container), list numeric directories under /proc.

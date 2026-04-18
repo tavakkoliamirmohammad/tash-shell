@@ -212,3 +212,10 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_hook_ordering.cpp
     TEST_PREFIX "unit/core/"
 )
+
+tash_register_plugin(
+    NAME safe_exec
+    TEST_SOURCES tests/unit/test_safe_exec.cpp src/util/safe_exec.cpp
+    TEST_PREFIX "unit/util/"
+    TEST_STANDALONE
+)

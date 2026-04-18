@@ -1,9 +1,11 @@
 #include "tash/plugins/manpage_completion_provider.h"
 #include "tash/shell.h"
+#include "tash/util/safe_exec.h"
 
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <vector>
 
 // ── Help output parsing ──────────────────────────────────────
 
@@ -149,24 +151,18 @@ std::vector<HelpOption> ManpageCompletionProvider::get_help_options(
         return it->second;
     }
 
-    // Run <command> --help 2>&1 with a timeout
-    std::string cmd = command + " --help 2>&1";
+    // Run <command> --help with a 2s timeout. The previous code built
+    // a shell string and sent it through popen, which made `command`
+    // -- a value that originates from completion callbacks -- an
+    // injection vector if a plugin ever passed raw user input. Route
+    // through safe_exec: argv[0] is `command`, argv[1] is "--help",
+    // no shell in the middle.
     std::string output;
 
 #ifndef TESTING_BUILD
-    FILE *pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
-        cache_[command] = {};
-        return {};
-    }
-
-    char buffer[4096];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-        // Safety limit: don't read more than 64KB
-        if (output.size() > 65536) break;
-    }
-    pclose(pipe);
+    auto r = tash::util::safe_exec({command, "--help"}, 2000);
+    output = r.stdout_text;
+    if (output.size() > 65536) output.resize(65536);
 #endif
 
     auto options = parse_help_output(output);
