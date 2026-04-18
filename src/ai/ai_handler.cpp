@@ -183,6 +183,82 @@ static string build_system_context() {
     return ctx;
 }
 
+// ── Menu input hygiene ───────────────────────────────────────
+//
+// Config-menu prompts read user input with getline(cin, ...) in cooked
+// line mode. Two distinct problems when the user pastes:
+//
+// 1. The terminal is in bracketed-paste mode (replxx enables it and
+//    doesn't restore before handing off to us), so the pasted bytes
+//    arrive wrapped in ESC[200~ ... ESC[201~. The kernel tty driver
+//    echoes those raw bytes to the screen — so the user literally
+//    sees "^[[200~gemini-3.1-flash-preview^[[201~" while typing.
+//
+// 2. Even once we read the line, those markers are in the std::string,
+//    and naive code would happily save them to disk as the "model
+//    name".
+//
+// Fix both: temporarily disable bracketed paste (CSI ?2004l) before
+// every menu read, re-enable on the way out, AND sanitize the string
+// anyway to survive paste-without-bracketed-mode (screen, mosh, older
+// emulators) plus any other stray ESC sequence.
+namespace {
+struct BracketedPasteGuard {
+    bool active = false;
+    BracketedPasteGuard() {
+        if (isatty(STDIN_FILENO)) {
+            if (write(STDOUT_FILENO, "\x1b[?2004l", 8)) {}
+            active = true;
+        }
+    }
+    ~BracketedPasteGuard() {
+        if (active) {
+            if (write(STDOUT_FILENO, "\x1b[?2004h", 8)) {}
+        }
+    }
+};
+} // namespace
+static std::string sanitize_menu_input(const std::string &in) {
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size(); ++i) {
+        unsigned char c = static_cast<unsigned char>(in[i]);
+        if (c == 0x1b) {
+            // Skip an ANSI escape sequence: ESC '[' ... final-byte (0x40-0x7E).
+            // Covers bracketed-paste (ESC[200~ / ESC[201~) and generic CSI.
+            if (i + 1 < in.size() && in[i + 1] == '[') {
+                size_t j = i + 2;
+                while (j < in.size() && !(in[j] >= 0x40 && in[j] <= 0x7E)) ++j;
+                i = j; // loop ++ skips past the final byte
+                continue;
+            }
+            // Lone ESC or non-CSI sequence: drop the ESC, keep going.
+            continue;
+        }
+        // Drop other control chars (except tab — turn into space for safety).
+        if (c < 0x20 || c == 0x7f) continue;
+        out.push_back(static_cast<char>(c));
+    }
+    while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+    while (!out.empty() && (out.front() == ' ' || out.front() == '\t')) out.erase(out.begin());
+    return out;
+}
+
+// Model names in the wild: "gemini-3-flash-preview", "gpt-4.1-nano",
+// "llama3.2:3b", "qwen2.5-coder:7b-instruct". Accept the union of
+// identifier-ish chars so new providers' naming schemes don't trip
+// the check. Cap length so nothing absurd lands on disk.
+static bool is_valid_model_name(const std::string &s) {
+    if (s.empty() || s.size() > 128) return false;
+    for (char c : s) {
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') ||
+                  c == '-' || c == '_' || c == '.' || c == ':' || c == '/';
+        if (!ok) return false;
+    }
+    return true;
+}
+
 // ── LLM client helpers ───────────────────────────────────────
 
 static unique_ptr<LLMClient> create_current_client() {
@@ -599,6 +675,10 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         bool key_ok = (provider == "ollama") || key.has_value();
         int usage = ai_get_today_usage();
 
+        // Turn off bracketed-paste for the duration of the menu — otherwise
+        // pasted input echoes ESC[200~ ... ESC[201~ literally to the screen.
+        BracketedPasteGuard paste_guard;
+
         ai_print_label();
         write_stdout("Configuration\n\n");
         write_stdout("  Provider: " + AI_CMD + provider + CAT_RESET "  Model: " + AI_CMD + current_model + CAT_RESET "\n");
@@ -621,8 +701,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
             write_stdout("  Provider (gemini/openai/ollama): ");
             string p;
             if (getline(cin, p)) {
-                while (!p.empty() && p.back() == ' ') p.pop_back();
-                while (!p.empty() && p.front() == ' ') p.erase(p.begin());
+                p = sanitize_menu_input(p);
                 if (p == "gemini" || p == "openai" || p == "ollama") {
                     ai_set_provider(p);
                     ai_set_model_override("");
@@ -636,9 +715,11 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
             write_stdout("  Model name: ");
             string m;
             if (getline(cin, m)) {
-                while (!m.empty() && m.back() == ' ') m.pop_back();
-                while (!m.empty() && m.front() == ' ') m.erase(m.begin());
-                if (!m.empty()) {
+                m = sanitize_menu_input(m);
+                if (!is_valid_model_name(m)) {
+                    ai_print_error("invalid model name (letters, digits, dots, "
+                                   "dashes, underscores only; max 128 chars).");
+                } else if (!m.empty()) {
                     ai_set_model_override(m);
                     ai_print_label();
                     write_stdout(AI_CMD + "Model set to " + m + "." CAT_RESET "\n");
@@ -650,8 +731,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
             write_stdout("  Ollama URL [http://localhost:11434]: ");
             string url;
             if (getline(cin, url)) {
-                while (!url.empty() && url.back() == ' ') url.pop_back();
-                while (!url.empty() && url.front() == ' ') url.erase(url.begin());
+                url = sanitize_menu_input(url);
                 if (url.empty()) url = "http://localhost:11434";
                 ai_set_ollama_url(url);
                 ai_print_label();
