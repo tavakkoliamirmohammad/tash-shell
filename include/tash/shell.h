@@ -114,6 +114,14 @@ struct ShellState {
     // Safety hook
     bool skip_execution;
 
+    // Set to true in a forked subshell child (executor.cpp subshell
+    // branch). execute_command_line uses this to skip history
+    // recording — SQLite forbids cross-fork DB connection sharing
+    // and a racing write deadlocks the child, silently dropping its
+    // subsequent command output. Parent records the subshell command
+    // as a whole, so no history is lost.
+    bool in_subshell;
+
     ShellState()
         : last_exit_status(0)
         , colorful_commands({"ls", "la", "ll", "less", "grep", "egrep", "fgrep", "zgrep"})
@@ -121,7 +129,8 @@ struct ShellState {
         , ctrl_d_count(0)
         , last_cmd_duration(-1)
         , ai_enabled(true)
-        , skip_execution(false) {}
+        , skip_execution(false)
+        , in_subshell(false) {}
 };
 
 // ── Signal-related globals (must be global for signal handlers) ─

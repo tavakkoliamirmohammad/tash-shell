@@ -268,6 +268,13 @@ int execute_single_command(string command, ShellState &state,
                 if (pid == 0) {
                     setup_child_io(redirs);
                     ShellState child_state = state;
+                    // Mark as subshell so execute_command_line skips
+                    // history recording — SQLite forbids sharing the DB
+                    // connection across fork(), and attempting to write
+                    // from the child races with the parent on the file
+                    // lock, dropping the child's subsequent command
+                    // output ~15% of the time.
+                    child_state.in_subshell = true;
                     std::vector<CommandSegment> segs = parse_command_line(inner);
                     execute_command_line(segs, child_state);
                     std::exit(child_state.last_exit_status);
@@ -502,13 +509,21 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
                 state.last_stderr_output, state);
 
             // Record into every registered history provider (e.g. sqlite).
-            HistoryEntry entry;
-            entry.command = segments[i].command;
-            entry.exit_code = last_exit;
-            entry.timestamp = static_cast<int64_t>(time(nullptr));
-            char cwd[MAX_SIZE];
-            if (getcwd(cwd, MAX_SIZE)) entry.directory = cwd;
-            global_plugin_registry().record_history(entry);
+            // Subshells must NOT write: SQLite explicitly forbids sharing
+            // a connection across fork() (the file lock state and WAL
+            // handles are duplicated and both processes race). We'd hang
+            // on lock acquisition ~15% of the time, dropping subsequent
+            // command output. Parent shell records the subshell command
+            // as a whole ("(echo a; echo b)") already.
+            if (!state.in_subshell) {
+                HistoryEntry entry;
+                entry.command = segments[i].command;
+                entry.exit_code = last_exit;
+                entry.timestamp = static_cast<int64_t>(time(nullptr));
+                char cwd[MAX_SIZE];
+                if (getcwd(cwd, MAX_SIZE)) entry.directory = cwd;
+                global_plugin_registry().record_history(entry);
+            }
 
             // Run any trap commands queued by signals received during
             // the command. Fires at a safe point (between commands)
