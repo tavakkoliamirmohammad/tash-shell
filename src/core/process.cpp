@@ -85,13 +85,13 @@ void setup_child_io(const vector<Redirection> &redirections) {
                 in = open_heredoc_fd(r.heredoc_body);
                 if (in < 0) {
                     write_stderr("tash: heredoc: tmpfile failed\n");
-                    exit(1);
+                    _exit(1);
                 }
             } else {
                 in = open(r.filename.c_str(), O_RDONLY);
                 if (in < 0) {
                     write_stderr("tash: " + r.filename + ": No such file or directory\n");
-                    exit(1);
+                    _exit(1);
                 }
             }
             dup2(in, STDIN_FILENO);
@@ -105,7 +105,7 @@ void setup_child_io(const vector<Redirection> &redirections) {
             }
             if (out < 0) {
                 write_stderr("tash: " + r.filename + ": Cannot open file\n");
-                exit(1);
+                _exit(1);
             }
             dup2(out, STDOUT_FILENO);
             close(out);
@@ -113,7 +113,7 @@ void setup_child_io(const vector<Redirection> &redirections) {
             int err = open(r.filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (err < 0) {
                 write_stderr("tash: " + r.filename + ": Cannot open file\n");
-                exit(1);
+                _exit(1);
             }
             dup2(err, STDERR_FILENO);
             close(err);
@@ -190,7 +190,12 @@ int foreground_process(const vector<string> &argv,
         execvp(c_args[0], const_cast<char *const *>(c_args.data()));
         string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
         write_stderr(err_msg);
-        exit(127);
+        // _exit, not exit: the forked child must not run C++ global
+        // destructors (replxx, sqlite, curl, plugin registry) — those
+        // hold resources the parent still owns, and tearing them down
+        // in the child occasionally segfaults (tash issue: $? = 139
+        // instead of 127 on command-not-found, ~1 in 5 on macOS).
+        _exit(127);
     } else {
         // Parent
         if (stderr_pipe[1] >= 0) close(stderr_pipe[1]); // close write end
@@ -277,7 +282,7 @@ void background_process(const vector<string> &argv,
         execvp(c_args[0], const_cast<char *const *>(c_args.data()));
         string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
         write_stderr(err_msg);
-        exit(127);
+        _exit(127);  // see note above foreground exec — skip C++ dtors in child
     } else {
         state.background_processes[pid] = argv[1];
         write_stdout("Background process with " + to_string(pid) + " Executing\n");
@@ -346,21 +351,31 @@ int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
             if (!segments[i].subshell_body.empty()) {
                 ShellState fallback;
                 ShellState &st = state ? *state : fallback;
+                // Same rationale as executor.cpp subshell fork: the child
+                // must not record history while sharing a post-fork SQLite
+                // connection with the parent.
+                st.in_subshell = true;
                 std::vector<CommandSegment> segs =
                     parse_command_line(segments[i].subshell_body);
                 execute_command_line(segs, st);
-                std::exit(st.last_exit_status);
+                // Flush stdio before _exit — the child may have buffered
+                // echo output (stdout is a pipe → fully buffered). _exit
+                // bypasses libc cleanup, so we must flush explicitly.
+                std::fflush(nullptr);
+                _exit(st.last_exit_status);
             }
 
             // Normal segment: builtin or external.
             const vector<string> &argv = segments[i].argv;
-            if (argv.empty()) std::exit(0);
+            if (argv.empty()) { std::fflush(nullptr); _exit(0); }
             const auto &builtins = get_builtins();
             auto bit = builtins.find(argv[0]);
             if (bit != builtins.end()) {
                 ShellState fallback;
                 ShellState &st = state ? *state : fallback;
-                std::exit(bit->second(argv, st));
+                int rc = bit->second(argv, st);
+                std::fflush(nullptr);
+                _exit(rc);
             }
             vector<const char *> c_args;
             for (const string &a : argv) c_args.push_back(a.c_str());
@@ -368,7 +383,7 @@ int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
             execvp(c_args[0], const_cast<char *const *>(c_args.data()));
             string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
             if (write(STDERR_FILENO, err_msg.c_str(), err_msg.size())) {}
-            std::exit(127);
+            _exit(127);
         }
     }
 
