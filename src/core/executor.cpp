@@ -16,7 +16,11 @@
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <fcntl.h>
+#include <fstream>
+#include <sstream>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #ifdef TASH_AI_ENABLED
 #include "tash/core/structured_pipe.h"
