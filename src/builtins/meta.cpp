@@ -7,6 +7,7 @@
 
 #include "tash/builtins.h"
 #include "tash/core.h"
+#include "tash/plugin.h"
 #include "tash/ui/inline_docs.h"
 
 #include <unistd.h>
@@ -16,6 +17,9 @@ using namespace std;
 int builtin_exit(const vector<string> &, ShellState &state) {
     // POSIX: run the EXIT trap (if any) before the shell actually exits.
     fire_exit_trap(state);
+    // Lifecycle: let hook providers do their teardown (flush buffers,
+    // persist state, close resources) while the shell is still alive.
+    global_plugin_registry().fire_exit(state);
     write_stdout("GoodBye! See you soon!\n");
     exit(0);
     return 0;

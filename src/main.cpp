@@ -11,6 +11,7 @@
 #include "tash/ai/bootstrap.h"
 #include "tash/core.h"
 #include "tash/history.h"
+#include "tash/plugin.h"
 #include "tash/repl.h"
 #include "tash/startup.h"
 #include "tash/ui.h"
@@ -95,6 +96,12 @@ int main(int argc, char *argv[]) {
     build_command_cache();
     tash::ai::build_history_context();
     tash::load_tashrc(state);
+
+    // Fire lifecycle on_startup hooks now that state + tashrc are
+    // both ready. Plugins can observe the initialized state (aliases,
+    // env, dir stack) before the first REPL iteration.
+    global_plugin_registry().fire_startup(state);
+
     return tash::run_interactive(state);
 }
 #endif // TESTING_BUILD
