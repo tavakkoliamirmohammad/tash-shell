@@ -231,3 +231,15 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/test_expansion_caps.cpp
     TEST_PREFIX "unit/core/"
 )
+
+tash_register_plugin(
+    NAME sqlite_history_like_escape
+    REQUIRES TASH_SQLITE_ENABLED
+    TEST_SOURCES tests/unit/test_sqlite_history_like_escape.cpp
+                 src/plugins/sqlite_history_provider.cpp
+                 src/util/config_resolver.cpp
+    TEST_INCLUDES ${SQLite3_INCLUDE_DIRS}
+    TEST_LIBS ${SQLite3_LIBRARIES}
+    TEST_PREFIX "unit/sqlite/"
+    TEST_STANDALONE
+)
