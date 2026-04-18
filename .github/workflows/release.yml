@@ -41,11 +41,42 @@ jobs:
         run: |
           dnf install -y cmake gcc-c++ make \
             libcurl-devel sqlite-devel json-devel
+      - name: Pre-fetch FetchContent tarballs
+        # GitHub's codeload CDN returns intermittent 504s; CMake's
+        # file(DOWNLOAD) doesn't retry, so a single blip burns the whole
+        # job (see B6.3 incident — 4+ PR runs lost in a day). curl
+        # retries cleanly; we extract to a known dir and point CMake at
+        # it via FETCHCONTENT_SOURCE_DIR_<NAME>, which makes FetchContent
+        # skip the download entirely. (FETCHCONTENT_SOURCE_DIR_* is a
+        # CMake cache variable, not an env var — so we export the -D
+        # flags as $TASH_FC_ARGS and splice that into every cmake -B.)
+        run: |
+          set -e
+          DEPS_DIR="${RUNNER_TEMP:-/tmp}/tash-deps"
+          mkdir -p "${DEPS_DIR}"
+          fetch() {
+            local name="$1" url="$2"
+            local tgz="${DEPS_DIR}/${name}.tar"
+            echo "Pre-fetching ${name} from ${url}"
+            curl --retry 5 --retry-delay 10 \
+                 --fail --silent --show-error --max-time 120 \
+                 -L -o "${tgz}" "${url}"
+            mkdir -p "${DEPS_DIR}/${name}"
+            tar -xf "${tgz}" --strip-components=1 -C "${DEPS_DIR}/${name}"
+            rm -f "${tgz}"
+          }
+          fetch replxx https://github.com/AmokHuginnsson/replxx/archive/refs/tags/release-0.0.4.tar.gz
+          fetch googletest https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+          fetch nlohmann_json https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+          FC_ARGS="-DFETCHCONTENT_SOURCE_DIR_REPLXX=${DEPS_DIR}/replxx"
+          FC_ARGS="${FC_ARGS} -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=${DEPS_DIR}/googletest"
+          FC_ARGS="${FC_ARGS} -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=${DEPS_DIR}/nlohmann_json"
+          echo "TASH_FC_ARGS=${FC_ARGS}" >> "$GITHUB_ENV"
       - name: Build
         env:
           ARTIFACT: ${{ matrix.artifact }}
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF ${TASH_FC_ARGS:-}
           cmake --build build -j "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
           strip build/tash.out
           cp build/tash.out "$ARTIFACT"
