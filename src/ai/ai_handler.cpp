@@ -2,8 +2,10 @@
 
 #include "tash/ai.h"
 #include "tash/ai/llm_registry.h"
+#include "tash/ai/model_defaults.h"
 #include "tash/core/executor.h"
 #include "tash/core/signals.h"
+#include "tash/util/io.h"
 #include "theme.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -263,8 +265,50 @@ static bool is_valid_model_name(const std::string &s) {
 
 // ── LLM client helpers ───────────────────────────────────────
 
+// Provider-model compatibility check — good enough to self-heal from
+// stale overrides written by pre-#128 test runs (e.g. "gpt-4o" saved
+// while provider was gemini). Prefixes come from the data-driven
+// registry (data/ai_models.json) so bumping provider SKU conventions
+// doesn't require a code change.
+static bool model_matches_provider(const std::string &provider,
+                                    const std::string &model) {
+    if (model.empty()) return true;
+    const auto &prefixes = tash::ai::id_prefixes_for(provider);
+    if (prefixes.empty()) {
+        // Providers without prefix discipline (ollama hosts user-chosen
+        // local model names) accept anything.
+        return true;
+    }
+    for (const auto &p : prefixes) {
+        if (model.rfind(p, 0) == 0) return true;
+    }
+    return false;
+}
+
 static unique_ptr<LLMClient> create_current_client() {
     string provider = ai_get_provider();
+
+    // Self-heal FIRST — before building the client, before the null
+    // check. A missing API key returns client=nullptr on some paths,
+    // and we still want to clean up a bogus model override in that
+    // case (the @ai setup menu runs repeatedly without a valid key
+    // while the user is getting set up, and its display should not
+    // show stale junk from a previous provider).
+    auto model_override = ai_get_model_override();
+    bool override_ok = !model_override ||
+                       model_matches_provider(provider, *model_override);
+    if (model_override && !override_ok) {
+        static bool warned = false;
+        if (!warned) {
+            tash::io::warning("ignoring saved model '" + *model_override +
+                               "' — incompatible with provider '" + provider +
+                               "'. Using provider default.");
+            warned = true;
+        }
+        ai_set_model_override("");
+        model_override.reset();  // so the apply-step below doesn't use it
+    }
+
     string key;
     if (provider == "gemini") {
         key = ai_load_provider_key("gemini").value_or("");
@@ -277,7 +321,6 @@ static unique_ptr<LLMClient> create_current_client() {
     unique_ptr<LLMClient> client = tash::ai::create_llm_client(provider, key);
     if (!client) return client;
 
-    auto model_override = ai_get_model_override();
     if (model_override) {
         client->set_model(*model_override);
     }
@@ -673,8 +716,13 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         }
 
         string provider = ai_get_provider();
-        auto model = ai_get_model_override();
+        // IMPORTANT: call create_current_client() first — it self-heals
+        // stale overrides (e.g. model "gpt-4o" saved while provider was
+        // gemini by pre-#128 test runs) by clearing them from disk.
+        // Read the override AFTER that so the display shows the real
+        // current state, not the junk about to be cleaned up.
         unique_ptr<LLMClient> client = create_current_client();
+        auto model = ai_get_model_override();
         string current_model = client ? client->get_model() : "unknown";
         if (model) current_model = *model;
 

@@ -3,6 +3,7 @@
 #include "tash/llm_client.h"
 #include "tash/ai.h"
 #include "tash/ai/llm_diagnostics.h"
+#include "tash/ai/model_defaults.h"
 #include "tash/util/io.h"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -729,10 +730,15 @@ static string map_gemini_error(int status, const string &body) {
 
 GeminiClient::GeminiClient(const string &api_key)
     : api_key_(api_key),
-      model_("gemini-3-flash-preview"),
+      // Authoritative source: data/ai_models.json. The registry
+      // returns a compiled-in default if the file is missing, so
+      // construction never fails for lack of config.
+      model_(tash::ai::default_model_for("gemini")),
       connect_timeout_(10),
       read_timeout_(30) {
-    fallback_models_.push_back("gemini-2.5-flash");
+    for (const auto &m : tash::ai::fallback_models_for("gemini")) {
+        fallback_models_.push_back(m);
+    }
 }
 
 void GeminiClient::set_model(const string &model) { model_ = model; }
@@ -994,7 +1000,7 @@ static string map_openai_error(int status, const string &body) {
 
 OpenAIClient::OpenAIClient(const string &api_key)
     : api_key_(api_key),
-      model_("gpt-4.1-nano"),
+      model_(tash::ai::default_model_for("openai")),
       connect_timeout_(10),
       read_timeout_(60) {}
 

@@ -4,8 +4,10 @@
 
 #include "tash/ai.h"
 #include "tash/ai/llm_registry.h"
+#include "tash/ai/model_defaults.h"
 #include "tash/llm_client.h"
 #include <nlohmann/json.hpp>
+#include <filesystem>
 #include <fstream>
 #include <cstdlib>
 #include <sys/stat.h>
@@ -81,6 +83,87 @@ TEST(AiParser, RejectsPartialMatch) {
 
 TEST_F(AiTestFixture, KeyPathUsesOverride) {
     EXPECT_EQ(ai_get_key_path(), test_key_path);
+}
+
+// ───────────────────────────────────────────────────────────────
+// Stale model-override self-heal
+// ───────────────────────────────────────────────────────────────
+//
+// Pre-#128, the integration test suite wrote "gpt-4o" into the real
+// ~/.tash/ai/ai_model while the provider was "gemini". The @ai config
+// menu then displayed the stale junk on every invocation. create_current_
+// client() now self-heals by ignoring incompatible overrides AND
+// clearing them from disk.
+
+class AiModelOverrideHealTest : public ::testing::Test {
+protected:
+    std::string tmp_config_dir;
+    void SetUp() override {
+        tmp_config_dir = "/tmp/tash_ai_heal_" + std::to_string(getpid());
+        mkdir(tmp_config_dir.c_str(), 0700);
+        setenv("TASH_AI_CONFIG_DIR", tmp_config_dir.c_str(), 1);
+    }
+    void TearDown() override {
+        // Best-effort cleanup.
+        std::filesystem::remove_all(tmp_config_dir);
+        unsetenv("TASH_AI_CONFIG_DIR");
+    }
+};
+
+TEST_F(AiModelOverrideHealTest, IncompatibleOverrideIsClearedOnClientBuild) {
+    // Stage a provider/model mismatch the way the old test suite did.
+    ai_set_provider("gemini");
+    ai_set_model_override("gpt-4o");
+    ASSERT_TRUE(ai_get_model_override().has_value());
+    ASSERT_EQ(*ai_get_model_override(), "gpt-4o");
+
+    // Build a client. This is the path every @ai entrypoint goes
+    // through; it must self-heal.
+    auto client = ai_create_client();
+    // No API key is set so client build may return null on some
+    // providers; that's fine — the heal runs before the null-check
+    // path exits.
+
+    // Override should now be cleared.
+    EXPECT_FALSE(ai_get_model_override().has_value())
+        << "Incompatible override 'gpt-4o' should be cleared when "
+           "provider is 'gemini'.";
+}
+
+TEST_F(AiModelOverrideHealTest, MatchingOverrideIsPreserved) {
+    ai_set_provider("gemini");
+    ai_set_model_override("gemini-2.5-pro");
+
+    auto client = ai_create_client();
+
+    auto after = ai_get_model_override();
+    ASSERT_TRUE(after.has_value())
+        << "Matching override 'gemini-2.5-pro' must survive.";
+    EXPECT_EQ(*after, "gemini-2.5-pro");
+}
+
+TEST_F(AiModelOverrideHealTest, NoOverrideIsStillNone) {
+    ai_set_provider("openai");
+    // Explicitly clear so we start from nullopt.
+    ai_set_model_override("");
+    ASSERT_FALSE(ai_get_model_override().has_value());
+
+    auto client = ai_create_client();
+
+    EXPECT_FALSE(ai_get_model_override().has_value());
+}
+
+TEST_F(AiModelOverrideHealTest, OllamaAcceptsAnyModel) {
+    // Ollama hosts user-chosen models (`llama3.2:3b`, `qwen2.5-coder:7b`,
+    // etc.) so the compat gate must not reject arbitrary names.
+    ai_set_provider("ollama");
+    ai_set_model_override("llama3.2:3b");
+
+    auto client = ai_create_client();
+
+    auto after = ai_get_model_override();
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(*after, "llama3.2:3b");
 }
 
 TEST_F(AiTestFixture, SaveAndLoadKey) {
@@ -480,17 +563,23 @@ TEST(RetryLogic, NotRetryableOnNotFound) {
 // ═══════════════════════════════════════════════════════════════
 
 TEST(LLMFactory, GeminiDefaultModel) {
+    // Default model now comes from data/ai_models.json (see
+    // tash::ai::default_model_for). Assert the registry-backed value
+    // rather than hardcoding — otherwise this test fights the whole
+    // point of extracting defaults to data.
     tash::ai::register_builtin_llm_providers();
     auto c = tash::ai::create_llm_client("gemini", "key");
     ASSERT_NE(c, nullptr);
-    EXPECT_EQ(c->get_model(), "gemini-3-flash-preview");
+    EXPECT_EQ(c->get_model(), tash::ai::default_model_for("gemini"));
+    EXPECT_FALSE(c->get_model().empty());
 }
 
 TEST(LLMFactory, OpenAIDefaultModel) {
     tash::ai::register_builtin_llm_providers();
     auto c = tash::ai::create_llm_client("openai", "key");
     ASSERT_NE(c, nullptr);
-    EXPECT_EQ(c->get_model(), "gpt-4.1-nano");
+    EXPECT_EQ(c->get_model(), tash::ai::default_model_for("openai"));
+    EXPECT_FALSE(c->get_model().empty());
 }
 
 TEST(LLMFactory, OllamaDefaultModel) {

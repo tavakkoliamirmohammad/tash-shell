@@ -1,0 +1,27 @@
+{
+  "_comment": "Primary + fallback model IDs per AI provider. tash reads this at startup (see src/ai/model_defaults.cpp). Updating a model name here is a data change, not a code change — bump this file when Google/OpenAI rotate their SKUs. A compiled-in fallback inside model_defaults.cpp keeps the shell working if this file is missing. Last refreshed: 2026-04-18 (Google Gemini 3.1 family, OpenAI GPT-5.4 family).",
+
+  "gemini": {
+    "default": "gemini-3.1-flash-lite-preview",
+    "fallbacks": [
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash"
+    ],
+    "id_prefixes": ["gemini-", "models/"]
+  },
+
+  "openai": {
+    "default": "gpt-5.4-nano",
+    "fallbacks": [
+      "gpt-5.4-mini",
+      "gpt-4.1-nano"
+    ],
+    "id_prefixes": ["gpt-", "o1-", "o3-", "o4-", "chatgpt-"]
+  },
+
+  "ollama": {
+    "default": "llama3.2",
+    "fallbacks": [],
+    "id_prefixes": []
+  }
+}
