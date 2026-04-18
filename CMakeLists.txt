@@ -148,6 +148,25 @@ if(TASH_COVERAGE)
     add_link_options(--coverage)
 endif()
 
+# ── Static linking (musl / Alpine) ────────────────────────────
+# Produces a fully-static tash binary. Realistically only works on
+# Linux with musl — glibc's NSS pulls in libc internals at runtime
+# that a `-static` link can't resolve cleanly, and macOS has no
+# static libSystem at all. Kept permissive (warn, don't abort) so a
+# developer on macOS/glibc can still attempt a config, and so CI's
+# config-only smoke tests don't need to special-case the option.
+option(TASH_STATIC "Link the tash binary statically (requires static libs for deps)" OFF)
+if(TASH_STATIC)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(WARNING "TASH_STATIC is only well-tested on Linux/musl (Alpine). Proceeding anyway.")
+    endif()
+    message(STATUS "Static linking enabled (-static)")
+    # .a-first search so find_library prefers static. Fall back to shared
+    # if no static variant is installed.
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a;.so;.dylib")
+    add_link_options(-static)
+endif()
+
 if(BUILD_TESTS)
     enable_testing()
     include(GoogleTest)
