@@ -102,6 +102,7 @@ set(SHELL_SOURCES
     src/history/history.cpp
     src/history/frecency.cpp
     src/util/colors.cpp
+    src/util/config_file.cpp
     src/util/config_resolver.cpp
     src/util/theme.cpp
 )
