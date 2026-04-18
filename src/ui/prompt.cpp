@@ -10,7 +10,12 @@ using namespace std;
 string get_git_branch() {
     // 500ms timeout is plenty for a local repo and short enough not to
     // stall the prompt when cwd sits on a network mount that hangs.
-    auto r = tash::util::safe_exec({"git", "rev-parse", "--abbrev-ref", "HEAD"}, 500);
+    // suppress_stderr=true: in a non-repo cwd git writes
+    // "fatal: not a git repository" to stderr — we must not leak that
+    // to the terminal on every prompt render.
+    auto r = tash::util::safe_exec(
+        {"git", "rev-parse", "--abbrev-ref", "HEAD"}, 500,
+        /*suppress_stderr=*/true);
     if (r.exit_code != 0) return "";
     string branch = r.stdout_text;
     while (!branch.empty() && (branch.back() == '\n' || branch.back() == '\r')) {
@@ -20,7 +25,9 @@ string get_git_branch() {
 }
 
 string get_git_status_indicators() {
-    auto r = tash::util::safe_exec({"git", "status", "--porcelain"}, 500);
+    auto r = tash::util::safe_exec(
+        {"git", "status", "--porcelain"}, 500,
+        /*suppress_stderr=*/true);
     if (r.exit_code < 0) return "";
     bool has_staged = false, has_unstaged = false, has_untracked = false;
     const string &out = r.stdout_text;

@@ -24,7 +24,7 @@ long long now_ms() {
 
 } // namespace
 
-ExecResult safe_exec(const std::vector<std::string>& argv, int timeout_ms) {
+ExecResult safe_exec(const std::vector<std::string>& argv, int timeout_ms, bool suppress_stderr) {
     ExecResult result;
     result.exit_code = -1;
 
@@ -50,6 +50,18 @@ ExecResult safe_exec(const std::vector<std::string>& argv, int timeout_ms) {
         if (pfd[1] != STDOUT_FILENO) {
             ::dup2(pfd[1], STDOUT_FILENO);
             ::close(pfd[1]);
+        }
+
+        // Silence the child's stderr if requested. Used for probe calls
+        // (`git rev-parse` in the prompt) where the error output is
+        // expected when the command "fails" and has nothing useful to
+        // tell the user.
+        if (suppress_stderr) {
+            int devnull = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+            if (devnull >= 0) {
+                ::dup2(devnull, STDERR_FILENO);
+                if (devnull != STDERR_FILENO) ::close(devnull);
+            }
         }
 
         // Build a C argv vector; the callee wants a null-terminated
