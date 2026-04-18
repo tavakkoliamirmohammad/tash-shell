@@ -5,7 +5,6 @@
 #include "tash/core/signals.h"
 #include "theme.h"
 #include <nlohmann/json.hpp>
-#include <iostream>
 #include <termios.h>
 #include <unistd.h>
 
