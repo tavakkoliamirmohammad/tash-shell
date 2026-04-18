@@ -9,6 +9,7 @@
 #include "tash/history.h"
 #include "tash/ui.h"
 #include "tash/repl.h"
+#include "tash/util/parse_error.h"
 #include "theme.h"
 
 #include <cstring>
@@ -268,7 +269,11 @@ int run_interactive(ShellState &state) {
                     return true;
                 });
             if (!ok) {
-                write_stderr("tash: heredoc: unexpected EOF\n");
+                // REPL heredoc aborts on Ctrl-D. Column is elided (0)
+                // because the EOF is interactive and has no meaningful
+                // offset into the original command line.
+                tash::parse::emit_parse_error(
+                    {"unexpected EOF while looking for heredoc delimiter", 1, 0});
                 continue;
             }
         }

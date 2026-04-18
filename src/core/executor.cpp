@@ -585,7 +585,11 @@ int execute_script_file(const string &path, ShellState &state) {
                     return static_cast<bool>(getline(file, out));
                 });
             if (!ok) {
-                tash::io::error("heredoc: unexpected EOF in script");
+                // We don't carry a precise offset into the script's
+                // heredoc body here; column 0 tells emit_parse_error to
+                // elide the column and print just `tash: error: L: ...`.
+                tash::parse::emit_parse_error(
+                    {"unexpected EOF while looking for heredoc delimiter", 1, 0});
                 return 1;
             }
         }
