@@ -6,6 +6,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -52,11 +53,35 @@ static std::string escape_like(const std::string &s) {
     return out;
 }
 
+// ── Global SQLite configuration ───────────────────────────────
+//
+// Install a no-op error-log callback *before* any sqlite3_open runs.
+// Default SQLite on macOS routes errors through os_log, and during
+// process shutdown that logger can be in a half-torn-down state —
+// we've reproduced a SIGSEGV in os_log_preferences_refresh while
+// sqlite3_close walked its WAL cleanup. Intercepting the log callback
+// keeps SQLite's diagnostics internal and avoids touching os_log at
+// teardown. No-op is acceptable here because we already surface real
+// errors via sqlite3_errmsg() at the call sites that care.
+//
+// sqlite3_config must be called before the first sqlite3_open in the
+// process — wrap in std::call_once so every SqliteHistoryProvider
+// instance is safe.
+static void install_no_op_sqlite_logger() {
+    static std::once_flag once;
+    std::call_once(once, []() {
+        sqlite3_config(SQLITE_CONFIG_LOG,
+                       +[](void *, int, const char *) {}, nullptr);
+    });
+}
+
 // ── Constructor / Destructor ──────────────────────────────────
 
 SqliteHistoryProvider::SqliteHistoryProvider(const std::string &db_path)
     : db_(nullptr)
     , db_path_(db_path.empty() ? default_db_path() : db_path) {
+
+    install_no_op_sqlite_logger();
 
     if (db_path_.empty()) {
         return;
@@ -73,7 +98,7 @@ SqliteHistoryProvider::SqliteHistoryProvider(const std::string &db_path)
         write_stderr(std::string("tash: failed to open history database: ") +
                      sqlite3_errmsg(db_) + "\n");
         if (db_) {
-            sqlite3_close(db_);
+            sqlite3_close_v2(db_);
             db_ = nullptr;
         }
         return;
@@ -94,7 +119,7 @@ SqliteHistoryProvider::SqliteHistoryProvider(const std::string &db_path)
 
 SqliteHistoryProvider::~SqliteHistoryProvider() {
     if (db_) {
-        sqlite3_close(db_);
+        sqlite3_close_v2(db_);
         db_ = nullptr;
     }
 }

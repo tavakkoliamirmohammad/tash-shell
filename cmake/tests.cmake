@@ -35,6 +35,9 @@ if(BUILD_TESTS)
         TASH_VERSION_STRING="${PROJECT_VERSION}"
         TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
 
+    # Same embed as tash.out — tests need the AI model registry too.
+    target_sources(shell_lib PRIVATE "${CMAKE_BINARY_DIR}/generated/ai_models_embedded.cpp")
+
     target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
     target_link_libraries(shell_lib PRIVATE CURL::libcurl Threads::Threads)
 

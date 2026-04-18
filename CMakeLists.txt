@@ -26,6 +26,7 @@ set(SHELL_SOURCES
     src/repl.cpp
     src/startup.cpp
     src/ai/ai_bootstrap.cpp
+    src/ai/model_defaults.cpp
     src/core/executor.cpp
     src/core/signals.cpp
     src/core/parser.cpp
@@ -75,6 +76,18 @@ target_compile_options(tash.out PRIVATE -Wall -Wextra)
 target_compile_definitions(tash.out PRIVATE
     TASH_VERSION_STRING="${PROJECT_VERSION}"
     TASH_THEMES_DIR="${CMAKE_SOURCE_DIR}/data/themes")
+
+# Embed data/ai_models.json into the binary as a raw string literal.
+# Single source of truth — bumping the JSON regenerates the embedded
+# copy at build time. The env-var TASH_AI_MODELS_JSON still takes
+# precedence for runtime overrides (tests, ops).
+file(READ "${CMAKE_SOURCE_DIR}/data/ai_models.json" TASH_AI_MODELS_JSON_CONTENT)
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/ai_models_embedded.cpp.in"
+    "${CMAKE_BINARY_DIR}/generated/ai_models_embedded.cpp"
+    @ONLY)
+target_sources(tash.out PRIVATE "${CMAKE_BINARY_DIR}/generated/ai_models_embedded.cpp")
+target_include_directories(tash.out PRIVATE "${CMAKE_BINARY_DIR}/generated")
 
 target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
 target_link_libraries(tash.out PRIVATE CURL::libcurl Threads::Threads)
