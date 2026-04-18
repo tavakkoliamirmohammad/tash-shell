@@ -14,6 +14,7 @@
 
 #include "tash/ai.h"
 #include "tash/ai/bootstrap.h"
+#include "tash/ai/llm_registry.h"
 #include "tash/core.h"
 #include "tash/history.h"
 #include "theme.h"
@@ -26,7 +27,11 @@ namespace tash::ai {
 
 // Build the context-aware suggestion map from the recorded history
 // file so repl hints can offer "after X, people run Y" completions.
+// Also installs the built-in LLM provider factories (gemini/openai/
+// ollama) into the registry — this is the well-defined startup point
+// where every AI-enabled code path begins.
 void build_history_context() {
+    register_builtin_llm_providers();
     std::string hist = history_file_path();
     if (hist.empty()) return;
     build_transition_map(hist, get_transition_map());
