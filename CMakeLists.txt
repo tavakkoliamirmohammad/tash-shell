@@ -109,6 +109,38 @@ set(SHELL_SOURCES
 # ── Testing option ────────────────────────────────────────────
 option(BUILD_TESTS "Build test suite" ON)
 
+# ── Sanitizers (ASan + UBSan) ─────────────────────────────────
+# Opt-in instrumentation for CI and local debugging. Intentionally
+# applied via add_compile_options/add_link_options so every target —
+# tash.out, shell_lib, test_* — picks the flags up without each one
+# having to opt in individually. Let CMAKE_BUILD_TYPE drive -O/-g;
+# RelWithDebInfo gives readable stack traces without killing speed.
+option(TASH_SANITIZERS "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+if(TASH_SANITIZERS)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        message(FATAL_ERROR "TASH_SANITIZERS is not supported on MSVC")
+    endif()
+    message(STATUS "Sanitizers enabled: address,undefined")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
+# ── Coverage (gcov/lcov) ──────────────────────────────────────
+# --coverage is the portable spelling; GCC and Clang both accept it
+# and emit gcov-compatible notes/data files. MSVC has no equivalent,
+# so we hard-gate to GCC/Clang.
+option(TASH_COVERAGE "Enable gcov-compatible coverage instrumentation" OFF)
+if(TASH_COVERAGE)
+    if(NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
+            CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+        message(FATAL_ERROR
+            "TASH_COVERAGE requires GCC or Clang (got ${CMAKE_CXX_COMPILER_ID})")
+    endif()
+    message(STATUS "Coverage instrumentation enabled (--coverage)")
+    add_compile_options(--coverage)
+    add_link_options(--coverage)
+endif()
+
 if(BUILD_TESTS)
     enable_testing()
     include(GoogleTest)
