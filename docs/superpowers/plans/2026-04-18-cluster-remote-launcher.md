@@ -516,10 +516,20 @@ Goal: completion provider covers every positional slot, all destructive commands
 - Modify: `cmake/plugin_list.cmake`
 - Modify: `src/plugins/plugin_registry.cpp`
 
-- [ ] **Step 1:** Tests cover every positional slot: subcommand (from static list), `--via <cluster>` (from config), `--profile` (from config), `<resource>` (from config), `<workspace>/<instance>` (from registry); typo → did-you-mean suggestions; empty current-word returns full candidate list
-- [ ] **Step 2:** Implement provider reading config + registry
-- [ ] **Step 3:** Tests pass
-- [ ] **Step 4:** Commit: `feat(cluster): completion provider for every positional slot`
+Plan drift: did-you-mean suggestions are tash's existing `!didyoumean`
+machinery for command typos (Damerau-Levenshtein when exit code 127),
+not a completion-time feature. The provider ships prefix-match
+completions; fuzzy-match suggestions can be layered on later if users
+want. The "--profile" slot from the plan is actually --via (profile =
+cluster entry in config.toml; section 4 terminology note) — covered.
+Registration into `plugin_registry.cpp` (via `register_default_plugins()`
+in `startup.cpp`) is deferred to a later iteration along with the
+watcher hook provider registration — both happen together.
+
+- [x] **Step 1:** 13 tests cover every slot: can_complete discriminator, name ID, empty current-word yields all 10 subcommands, prefix filtering, works without active_engine (fallback), -r/--resource → resources, --via → clusters, --preset → presets, --workspace → existing workspace names (deduped), --alloc → allocation ids, attach positional → workspace/instance pairs, down positional → allocation ids, `up --` → up's flag list
+- [x] **Step 2:** Implemented with static subcommand table + per-subcommand flag lists + dynamic lookups via `active_engine() → config() / registry()`. Exposes `ClusterEngine::config()` + `registry()` accessors
+- [x] **Step 3:** 13/13 pass; full suite 1139 (was 1126)
+- [x] **Step 4:** Commit: `feat(cluster): completion provider for every positional slot`
 
 ### Task M4.2: Safety-hook integration for destructive commands
 
