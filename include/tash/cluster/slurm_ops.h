@@ -1,0 +1,32 @@
+// SLURM command seam. Parses + emits sbatch / squeue / sinfo / scancel
+// via an ISshClient. Real impl in src/cluster/slurm_ops.cpp (lands in M2);
+// test fake in tests/unit/cluster/fakes/fake_slurm_ops.h.
+
+#ifndef TASH_CLUSTER_SLURM_OPS_H
+#define TASH_CLUSTER_SLURM_OPS_H
+
+#include "tash/cluster/ssh_client.h"
+#include "tash/cluster/types.h"
+
+#include <string>
+#include <vector>
+
+namespace tash::cluster {
+
+class ISlurmOps {
+public:
+    virtual ~ISlurmOps() = default;
+
+    virtual SubmitResult sbatch(const SubmitSpec&, ISshClient&) = 0;
+    virtual std::vector<JobState>       squeue (const std::string& cluster, ISshClient&) = 0;
+    virtual std::vector<PartitionState> sinfo  (const std::string& cluster,
+                                                  const std::string& partition,
+                                                  ISshClient&) = 0;
+    virtual void scancel(const std::string& cluster,
+                          const std::string& jobid,
+                          ISshClient&) = 0;
+};
+
+}  // namespace tash::cluster
+
+#endif  // TASH_CLUSTER_SLURM_OPS_H

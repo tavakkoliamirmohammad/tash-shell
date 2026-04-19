@@ -311,3 +311,12 @@ tash_register_plugin(
     TEST_PREFIX "unit/cluster/"
     TEST_DEFS TASH_CLUSTER_STOP_HOOKS_DIR="${CMAKE_SOURCE_DIR}/data/cluster/stop-hooks"
 )
+
+# ── Cluster seam fakes (header-only test doubles; shared by later
+#    ClusterEngine / watcher tests) ────────────────────────────────
+tash_register_plugin(
+    NAME cluster_fakes
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/fakes/fakes_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
