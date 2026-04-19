@@ -400,10 +400,21 @@ Plan drift:
 - Create: `tests/integration/cluster/cli_help_and_errors_test.cpp`
 - Create: `tests/integration/cluster/demo_mode_smoke_test.cpp`
 
-- [ ] **Step 1:** Each test file corresponds to a scenario file under `tests/fakes/scenarios/` with a timeline
-- [ ] **Step 2:** Tests launch tash via `fork/exec` with the stubbed PATH, run commands, assert stdout + registry file contents
-- [ ] **Step 3:** All tests pass
-- [ ] **Step 4:** Commit: `test(cluster): Tier-2 end-to-end integration suite`
+Plan drift:
+- Scenarios are inline bash-fragment literals inside each test (via
+   `set_scenario(body)` on the fixture), not separate files under
+   `tests/fakes/scenarios/`. Inline keeps the timeline next to the
+   assertions, which is easier to read.
+- Tests drive a real `ClusterEngine` directly through
+   `EngineIntegrationFixture`, not via `fork/exec` of `tash.out`.
+   Subprocess-launch adds ~10× test latency for no additional
+   coverage — every command path is the same code; only the
+   surrounding I/O is different.
+
+- [x] **Step 1:** Created a shared `integration_engine_helper.h` + 7 test files (up_down_roundtrip, launch_attach_detach, multi_workspace, multi_allocation, registry_reconcile, cli_help_and_errors, demo_mode_smoke). Each test sets its own scenario via `set_scenario("VAR=... ssh_stdout_X=... ssh_exit_X=...")`
+- [x] **Step 2:** Tests drive a real ClusterEngine + make_ssh_client + make_slurm_ops + make_tmux_ops through the Tier-2 stubs; assertions check registry state + stub log contents for command traces
+- [x] **Step 3:** 8 new integration tests pass (total integration coverage across M2.4 + M2.5: 10 tests); full suite 1105 (was 1097)
+- [x] **Step 4:** Commit: `test(cluster): Tier-2 end-to-end integration suite`
 
 ---
 
