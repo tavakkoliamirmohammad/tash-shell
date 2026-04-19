@@ -56,8 +56,8 @@ Goal: tash builds with the new `cluster` builtin stubbed, new directories exist,
 - Create: `tests/smoke/cluster/.gitkeep`
 - Create: `data/cluster/stop-hooks/.gitkeep`
 
-- [ ] **Step 1:** Create all the directories with `.gitkeep` files (one `git add` so they're tracked)
-- [ ] **Step 2:** Commit: `build(cluster): create directory skeleton for cluster subsystem`
+- [x] **Step 1:** Create all the directories with `.gitkeep` files (one `git add` so they're tracked)
+- [x] **Step 2:** Commit: `build(cluster): create directory skeleton for cluster subsystem`
 
 ### Task M0.3: Stub `cluster` builtin wired into dispatch table
 
