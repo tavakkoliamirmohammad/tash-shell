@@ -438,3 +438,13 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/cluster/ssh_client_test.cpp
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_tmux_ops
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/tmux_compose.cpp src/cluster/tmux_ops.cpp
+    TEST_SOURCES tests/unit/cluster/tmux_ops_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_RECORDINGS_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/recordings"
+)

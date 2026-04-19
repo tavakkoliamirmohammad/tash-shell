@@ -12,6 +12,7 @@
 #include "tash/cluster/ssh_client.h"
 #include "tash/cluster/types.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -56,6 +57,10 @@ public:
                               const std::string& session,
                               const std::string& window) = 0;
 };
+
+// Production TmuxOps — composes tmux commands + shell-quotes them,
+// dispatches through an ISshClient supplied at call time.
+std::unique_ptr<ITmuxOps> make_tmux_ops();
 
 }  // namespace tash::cluster
 
