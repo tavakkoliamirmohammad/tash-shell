@@ -596,8 +596,8 @@ Goal: documentation and a user-runnable smoke test against a real cluster.
 **Files:**
 - Create: `docs/cluster.md`
 
-- [ ] **Step 1:** Write walkthrough: config setup → first `cluster up` → launch → attach → down. Include example `config.toml` snippets per spec Section 5
-- [ ] **Step 2:** Commit: `docs(cluster): user walkthrough for cluster subsystem`
+- [x] **Step 1:** 335-line `docs/cluster.md` covering: prerequisites, ~/.ssh/config setup, config.toml schema (minimal + full examples), `cluster doctor` sanity check, full typical workflow (connect→up→launch→list→attach→kill→down→disconnect), commands reference table, notifications (both hook + tmux fallback paths), demo-mode invitation, troubleshooting for the 5 common pain points
+- [x] **Step 2:** Commit: `docs(cluster): user walkthrough for cluster subsystem`
 
 ### Task M5.2: Demo-mode walkthrough
 
