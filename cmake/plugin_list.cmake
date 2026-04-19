@@ -551,3 +551,12 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/cluster/watcher_fallback_test.cpp
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_completion
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/plugins/cluster_completion_provider.cpp
+    TEST_SOURCES tests/unit/cluster/cluster_completion_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
