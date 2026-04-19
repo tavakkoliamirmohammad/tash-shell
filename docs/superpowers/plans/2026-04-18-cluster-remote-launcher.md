@@ -175,20 +175,23 @@ Goal: full `Config`, `Registry`, `Presets`, `ClusterEngine` logic implemented ag
 - Create: `include/tash/cluster/tmux_ops.h`
 - Create: `include/tash/cluster/notifier.h`
 - Create: `tests/unit/cluster/fakes/fake_ssh_client.h`
-- Create: `tests/unit/cluster/fakes/fake_ssh_client.cpp`
 - Create: `tests/unit/cluster/fakes/fake_slurm_ops.h`
-- Create: `tests/unit/cluster/fakes/fake_slurm_ops.cpp`
 - Create: `tests/unit/cluster/fakes/fake_tmux_ops.h`
-- Create: `tests/unit/cluster/fakes/fake_tmux_ops.cpp`
 - Create: `tests/unit/cluster/fakes/fake_notifier.h`
-- Create: `tests/unit/cluster/fakes/fake_notifier.cpp`
 - Create: `tests/unit/cluster/fakes/fakes_test.cpp`
 
-- [ ] **Step 1:** Create all four seam headers with the signatures in spec Section 8.2
-- [ ] **Step 2:** Create all four fake impls — each has `expect(...)` to script responses, records invocations, and `verify_and_reset()` to assert all expectations consumed
-- [ ] **Step 3:** Write `fakes_test.cpp` with tests that prove each fake respects its scripted responses and records invocations correctly
-- [ ] **Step 4:** Run tests — pass
-- [ ] **Step 5:** Commit: `test(cluster): seams and fake implementations for unit tests`
+Plan drift: the fakes are header-only (tiny inline classes); the separate
+`.cpp` files from the original plan added nothing. Additionally, instead
+of the `expect(…)/verify_and_reset()` matcher-style API originally sketched,
+the fakes expose (a) a public `…_calls` vector recording every invocation
+and (b) a FIFO `…_queue` of canned return values for value-returning
+methods. Tests read directly; no matcher DSL to learn.
+
+- [x] **Step 1:** Created all four seam headers with the signatures in spec Section 8.2
+- [x] **Step 2:** Created all four header-only fakes; each records invocations, queues canned returns, and has a `reset()` that wipes state
+- [x] **Step 3:** Wrote `fakes_test.cpp` (13 tests) proving: SSH records + FIFO + connect/disconnect toggles master + set_master_alive + reset; Slurm sbatch records spec + queues; squeue FIFO sequence; sinfo + scancel recorded; Tmux session/window/kill/exec_attach recorded + list_sessions FIFO; Notifier desktop + bell + reset
+- [x] **Step 4:** 13/13 green on first run; full suite 936 (was 923)
+- [x] **Step 5:** Commit: `test(cluster): seams and fake implementations for unit tests`
 
 ### Task M1.6: ClusterEngine — `up`
 
