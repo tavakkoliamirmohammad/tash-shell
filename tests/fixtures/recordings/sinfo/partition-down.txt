@@ -1,0 +1,2 @@
+notchpeak-gpu|down*|5|gpu:a100:2
+notchpeak-gpu|drain|3|gpu:a100:2

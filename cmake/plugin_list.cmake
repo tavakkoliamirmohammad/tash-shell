@@ -415,3 +415,18 @@ tash_register_plugin(
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_slurm_parse
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/slurm_parse.cpp
+    TEST_SOURCES tests/unit/cluster/slurm_ops_parser_test.cpp
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_RECORDINGS_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/recordings"
+)
+
+tash_register_plugin(
+    NAME cluster_slurm_ops
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/slurm_ops.cpp
+)

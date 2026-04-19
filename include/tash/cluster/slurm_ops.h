@@ -8,6 +8,7 @@
 #include "tash/cluster/ssh_client.h"
 #include "tash/cluster/types.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,9 @@ public:
                           const std::string& jobid,
                           ISshClient&) = 0;
 };
+
+// Construct the production ISlurmOps backed by SLURM's command-line tools.
+std::unique_ptr<ISlurmOps> make_slurm_ops();
 
 }  // namespace tash::cluster
 
