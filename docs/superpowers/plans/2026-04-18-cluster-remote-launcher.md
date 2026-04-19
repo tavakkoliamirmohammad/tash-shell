@@ -488,10 +488,18 @@ along with the real `default_watcher_factory` wiring.
 - Modify: `src/cluster/watcher.cpp`
 - Create: `tests/unit/cluster/watcher_fallback_test.cpp`
 
-- [ ] **Step 1:** Tests cover: tmux window disappears → `window_exited` event; window silent for `notify_silence_sec` → `silence_threshold` event; silence event dedup (don't re-fire for the same silence streak)
-- [ ] **Step 2:** Add polling loop that runs `tmux list-windows -F ...` through SshClient at a tunable interval, diffs against last-seen state, emits fallback events
-- [ ] **Step 3:** Tests pass
-- [ ] **Step 4:** Commit: `feat(cluster): watcher fallbacks via tmux silence + window death`
+Plan drift: this iteration splits the task into two layers — the
+**pure detector** (`TmuxFallbackDetector` in `include/tash/cluster/watcher.h`)
+ships now with unit tests driven by caller-supplied timestamps; the
+**polling loop** that calls `tmux list-windows` via `ISshClient` and
+feeds the detector is deferred to a later iteration (mechanical plumbing
+on top of the tested detector). This keeps TDD tight and avoids
+entangling fallback-detection logic with the subprocess/timing fixture.
+
+- [x] **Step 1:** 8 tests covering first-snapshot-is-silent, window-vanished emits window_exited once, stable-pid-emits-silence-after-threshold, silence dedup per streak, pid-change-resets-streak, independent multi-window tracking, vanish-and-silence-at-same-poll yields only window_exited
+- [x] **Step 2:** `TmuxFallbackDetector::observe(workspace, snapshot, now, now_ts)` implemented via a mark-sweep over an internal `tracks_` map. Returns `vector<Event>` with the two fallback kinds, fully compatible with the `apply_event` pipeline (their state mappings already exist: window_exited→Exited, silence_threshold→Idle). Polling-loop wiring is mechanical plumbing, deferred — see commit message
+- [x] **Step 3:** 8/8 green; full suite 1126 (was 1118)
+- [x] **Step 4:** Commit: `feat(cluster): watcher fallbacks via tmux silence + window death`
 
 ---
 
