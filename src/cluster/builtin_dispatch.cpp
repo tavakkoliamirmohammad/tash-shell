@@ -136,7 +136,10 @@ void print_subcommand_help(std::string_view sub, std::ostream& out) {
     } else if (sub == "probe") {
         out << "cluster probe — show current capacity across a resource's routes\n"
                "\n"
-               "usage: cluster probe -r <resource>\n";
+               "usage: cluster probe -r <resource>\n"
+               "\n"
+               "options:\n"
+               "  -r, --resource <name>    resource type (required)\n";
     } else if (sub == "import") {
         out << "cluster import — adopt an externally-submitted SLURM jobid\n"
                "\n"
