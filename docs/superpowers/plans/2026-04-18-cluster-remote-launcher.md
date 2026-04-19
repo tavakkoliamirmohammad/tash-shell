@@ -100,8 +100,8 @@ there is no separate `cluster_lib` (cluster sources go into
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1:** Add one row to the feature matrix table mentioning "Cluster (experimental): SLURM-backed remote launcher, ControlMaster-multiplexed SSH, tmux-persistent instances, desktop notifications"
-- [ ] **Step 2:** Commit: `docs: note cluster subsystem in README feature matrix`
+- [x] **Step 1:** Add one row to the feature matrix table mentioning "Cluster (experimental): SLURM-backed remote launcher, ControlMaster-multiplexed SSH, tmux-persistent instances, desktop notifications" — inserted between **Sessions** and **Config** as a natural sibling of the other persistence-oriented rows
+- [x] **Step 2:** Commit: `docs: note cluster subsystem in README feature matrix`
 
 ---
 
