@@ -452,10 +452,19 @@ exposed so cross-platform tests can exercise both.
 - Modify: `cmake/plugin_list.cmake` (add `cluster_watcher_hook_provider`)
 - Modify: `src/plugins/plugin_registry.cpp` (register it when TASH_CLUSTER is defined)
 
-- [ ] **Step 1:** Tests cover: `on_startup` reconciles registry and spawns a watcher thread per running allocation; `on_exit` cancels stop-tokens and joins (with a 2s backstop assertion); `on_after_command` updates last-prompt time
-- [ ] **Step 2:** Implement provider owning a `std::vector<std::thread>` and per-thread `StopToken`
-- [ ] **Step 3:** Tests pass
-- [ ] **Step 4:** Commit: `feat(cluster): watcher hook provider lifecycle wiring`
+Plan drift:
+- No modification of `src/plugins/plugin_registry.cpp`. Registration in tash's
+  PluginRegistry is done in `src/startup.cpp::register_default_plugins()`.
+  Wiring the provider into startup lands with M3.3's real watcher factory
+  (no value in registering a NoOpWatcher into production yet).
+- `on_after_command` last-prompt-time tracking is deferred to M3.4 (silence
+  fallback); the hook is present but no-op for M3.2. This keeps M3.2 focused
+  on the thread-lifecycle contract.
+
+- [x] **Step 1:** Wrote 6 tests covering empty-registry, one-thread-per-Running (skips Ended + Pending), on_exit-joins-quickly (< 200ms), idempotent repeated on_exit, destructor-as-safety-net, default_factory-usable. FakeWatcher shares an atomic counter so tests deterministically wait for all threads to start before calling on_exit
+- [x] **Step 2:** Implemented `ClusterWatcherHookProvider(reg, factory)` with a shared `stop_and_join_all()` used by both `on_exit` and the destructor (destructor can't construct a ShellState). Join-with-backstop uses a helper thread + condition_variable + timeout so one hung watcher can't burn the entire 2s budget. `default_watcher_factory()` returns a NoOpWatcher (blocks on CV until stop) as a placeholder — M3.3 replaces it with the real tail-F + event-decode loop
+- [x] **Step 3:** 6/6 pass; full suite 1115 (was 1109)
+- [x] **Step 4:** Commit: `feat(cluster): watcher hook provider lifecycle wiring`
 
 ### Task M3.3: End-to-end notification test via scenario timeline
 
