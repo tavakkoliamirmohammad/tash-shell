@@ -604,8 +604,8 @@ Goal: documentation and a user-runnable smoke test against a real cluster.
 **Files:**
 - Create: `docs/cluster-demo.md`
 
-- [ ] **Step 1:** Step-by-step guide to trying `TASH_CLUSTER_DEMO=1` without any real cluster
-- [ ] **Step 2:** Commit: `docs(cluster): demo-mode walkthrough`
+- [x] **Step 1:** 184-line `docs/cluster-demo.md`: 2-minute quick tour (up → list → launch two workspaces → probe → preset → attach-noop → kill → down), script-file alternative, explicit "what demo mode does NOT exercise" boundary (no real ssh / slurm / tmux / notifications), pointer to `demo_mode_smoke_test.cpp` as a contributor template, cross-links to cluster.md + design spec
+- [x] **Step 2:** Commit: `docs(cluster): demo-mode walkthrough`
 
 ### Task M5.3: Real-cluster smoke suite
 
