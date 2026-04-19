@@ -615,10 +615,15 @@ Goal: documentation and a user-runnable smoke test against a real cluster.
 - Create: `tests/smoke/cluster/run_smoke.sh`
 - Create: `tests/smoke/cluster/expect/attach_detach.exp`
 
-- [ ] **Step 1:** `run_smoke.sh` runs: `cluster connect`, `cluster up -r <profile-res> -t 15m`, `cluster launch --workspace smoke --cmd 'sleep 600'`, `cluster list`, attach/detach via `expect`, `cluster kill`, `cluster down -y`, `cluster sync`
-- [ ] **Step 2:** Each step prints `OK` or `FAIL`; script exits non-zero on any FAIL
-- [ ] **Step 3:** README documents setup (fill in `smoke-profile.toml` from template, export `TASH_CLUSTER_SMOKE_PROFILE=<name>`)
-- [ ] **Step 4:** Commit: `test(cluster): real-cluster smoke suite (manual opt-in)`
+Plan drift: no `TASH_CLUSTER_SMOKE_PROFILE` env var — the script
+drives exactly one profile file (`tests/smoke/cluster/smoke-profile.toml`,
+gitignored) and isolates via `$TASH_CLUSTER_HOME` pointed at a
+per-run tmpdir. Simpler to explain, one less moving part.
+
+- [x] **Step 1:** 12-step script: connect, doctor, up -r smoke-res -t 00:15:00, list (alloc), launch smoke preset (command `sleep 600`), list (inst), attach-via-expect (skipped if expect missing), sync, kill smoke/1, down -y, list (empty), disconnect
+- [x] **Step 2:** Each step prints `[ok  ]` / `[FAIL]` / `[skip]`; aborts on first failure (leaves alloc in place for diagnosis); exit 0/1/2 (all-pass / any-fail / setup-missing)
+- [x] **Step 3:** README explains prereqs (working ssh alias), setup (copy template, fill in FIXMEs, install expect), running, sample output, what each "ok" covers, per-step troubleshooting, why it isn't in CI
+- [x] **Step 4:** Commit: `test(cluster): real-cluster smoke suite (manual opt-in)`
 
 ### Task M5.4: Final README update
 
