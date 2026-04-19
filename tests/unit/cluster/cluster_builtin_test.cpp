@@ -272,7 +272,8 @@ TEST(ClusterBuiltin, DownDispatches) {
 
     auto eng = h.engine();
     std::ostringstream out, err;
-    int rc = dispatch_cluster(argv_of({"cluster", "down", "c1:100"}), eng, out, err);
+    int rc = dispatch_cluster(argv_of({"cluster", "down", "c1:100", "-y"}),
+                                eng, out, err);
     EXPECT_EQ(rc, 0) << err.str();
     EXPECT_NE(out.str().find("cancelled"), std::string::npos);
     EXPECT_EQ(h.slurm.scancel_calls.size(), 1u);
@@ -299,7 +300,8 @@ TEST(ClusterBuiltin, KillDispatches) {
 
     auto eng = h.engine();
     std::ostringstream out, err;
-    int rc = dispatch_cluster(argv_of({"cluster", "kill", "w/1"}), eng, out, err);
+    int rc = dispatch_cluster(argv_of({"cluster", "kill", "w/1", "-y"}),
+                                eng, out, err);
     EXPECT_EQ(rc, 0) << err.str();
     EXPECT_NE(out.str().find("killed"), std::string::npos);
     EXPECT_EQ(h.tmux.kill_window_calls.size(), 1u);

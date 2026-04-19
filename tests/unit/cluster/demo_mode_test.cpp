@@ -105,7 +105,7 @@ TEST_F(DemoFixture, EndToEndUpListLaunchAttachDown) {
     // Down uses the jobid produced by the demo engine. The demo's
     // DemoSlurmOps::sbatch starts at 10000 and increments.
     out.str(""); err.str("");
-    rc = dispatch_cluster(argv_of({"cluster", "down", "demo-cluster:10000"}),
+    rc = dispatch_cluster(argv_of({"cluster", "down", "demo-cluster:10000", "-y"}),
                            eng, out, err);
     ASSERT_EQ(rc, 0) << err.str();
     EXPECT_NE(out.str().find("cancelled"), std::string::npos) << out.str();

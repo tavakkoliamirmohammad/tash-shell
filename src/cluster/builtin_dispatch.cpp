@@ -325,12 +325,35 @@ int cmd_down(std::vector<std::string> rest, ClusterEngine& eng,
               std::ostream& out, std::ostream& err) {
     if (handled_help(rest, "down", out)) return 0;
 
+    bool yes = false;
+    for (auto& t : rest) {
+        if (t == "-y" || t == "--yes") { yes = true; t.clear(); }
+    }
+
     auto pos = positionals(rest);
     if (pos.size() != 1) {
         print_err(err, "cluster down: exactly one <allocation-id> is required");
         return 1;
     }
-    DownSpec spec; spec.alloc_id = pos[0];
+    const std::string alloc_id = pos[0];
+
+    if (!yes) {
+        // Build a preview. Pull allocation details if we can find it;
+        // otherwise fall back to a terser prompt.
+        std::string preview = "cancel allocation " + alloc_id;
+        if (const Allocation* a = eng.registry().find_allocation(alloc_id)) {
+            if (!a->resource.empty()) preview += " (" + a->resource + ")";
+            if (!a->node.empty())     preview += " on "    + a->node;
+        }
+        preview += "? [y/n]";
+        const char c = eng.prompt().choice(preview, "yn");
+        if (c != 'y' && c != 'Y') {
+            print_err(err, "cancelled by user");
+            return 1;
+        }
+    }
+
+    DownSpec spec; spec.alloc_id = alloc_id;
     auto r = eng.down(spec);
     if (auto* a = std::get_if<Allocation>(&r)) {
         out << "cancelled allocation " << a->id << "\n";
@@ -344,10 +367,12 @@ int cmd_kill(std::vector<std::string> rest, ClusterEngine& eng,
               std::ostream& out, std::ostream& err) {
     if (handled_help(rest, "kill", out)) return 0;
 
+    bool yes = false;
     KillSpec spec;
     std::string positional;
     for (std::size_t i = 0; i < rest.size(); ++i) {
         if (rest[i].empty()) continue;
+        if (rest[i] == "-y" || rest[i] == "--yes") { yes = true; rest[i].clear(); continue; }
         bool f;
         if (auto v = eat_value(rest, i, {"--alloc"}, f, err); f)
             { if (!v) return 1; spec.alloc_id = *v; continue; }
@@ -366,6 +391,16 @@ int cmd_kill(std::vector<std::string> rest, ClusterEngine& eng,
     }
     spec.workspace = positional.substr(0, slash);
     spec.instance  = positional.substr(slash + 1);
+
+    if (!yes) {
+        const std::string preview =
+            "kill " + spec.workspace + "/" + spec.instance + "? [y/n]";
+        const char c = eng.prompt().choice(preview, "yn");
+        if (c != 'y' && c != 'Y') {
+            print_err(err, "cancelled by user");
+            return 1;
+        }
+    }
 
     auto r = eng.kill(spec);
     if (auto* i = std::get_if<Instance>(&r)) {

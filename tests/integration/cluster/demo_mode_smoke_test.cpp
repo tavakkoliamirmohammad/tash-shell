@@ -57,7 +57,7 @@ TEST_F(DemoModeIntegrationFixture, FullUserFlow) {
     EXPECT_NE(out.str().find("4 matching"), std::string::npos) << out.str();
 
     out.str(""); err.str("");
-    rc = dispatch_cluster(argv_of({"cluster", "down", "demo-cluster:10000"}),
+    rc = dispatch_cluster(argv_of({"cluster", "down", "demo-cluster:10000", "-y"}),
                            eng, out, err);
     ASSERT_EQ(rc, 0) << err.str();
 }

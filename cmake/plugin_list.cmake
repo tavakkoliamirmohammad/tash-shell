@@ -560,3 +560,11 @@ tash_register_plugin(
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_safety
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_safety_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)

@@ -134,11 +134,13 @@ public:
     // on the cluster, finds the jobid, creates an Allocation entry.
     ClusterResult<Allocation> import(const ImportSpec& spec);
 
-    // Accessors so cosmetic subsystems (completion, doctor, help)
-    // can read the engine's state without going through a command.
+    // Accessors so cosmetic subsystems (completion, doctor, help,
+    // safety-confirmation prompts in dispatch_cluster) can read the
+    // engine's state without going through a command.
     const Config&   config()    const { return cfg_; }
     Registry&       registry()        { return reg_; }
     const Registry& registry()  const { return reg_; }
+    IPrompt&        prompt()          { return prompt_; }
 
 private:
     const Config& cfg_;

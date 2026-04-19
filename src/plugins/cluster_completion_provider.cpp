@@ -33,8 +33,8 @@ const std::vector<std::string>& flags_for(std::string_view sub) {
         "--workspace", "--cwd", "--name", "--preset", "--cmd", "--alloc",
     };
     static const std::vector<std::string> attach = { "--alloc" };
-    static const std::vector<std::string> down;
-    static const std::vector<std::string> kill_  = { "--alloc" };
+    static const std::vector<std::string> down   = { "--yes", "-y" };
+    static const std::vector<std::string> kill_  = { "--alloc", "--yes", "-y" };
     static const std::vector<std::string> sync;
     static const std::vector<std::string> probe  = { "--resource" };
     static const std::vector<std::string> imp    = { "--via", "--resource" };
