@@ -573,7 +573,6 @@ M4.3 only wires the doctor CLI surface.
 - [x] **Step 2:** probe already in M1.8 — no change this iteration
 - [x] **Step 3:** 8 tests: all-OK / unreachable-skips-rest / sbatch-missing / tmux-missing / empty-which-output / multi-cluster-all / --cluster-filter / unknown-filter-errors
 - [x] **Step 4:** Commit: `feat(cluster): doctor and probe diagnostics`
-- [ ] **Step 4:** Commit: `feat(cluster): doctor and probe diagnostics`
 
 ### Task M4.4: Per-subcommand help text + error audit
 
@@ -581,10 +580,10 @@ M4.3 only wires the doctor CLI surface.
 - Modify: `src/builtins/cluster.cpp`
 - Create: `tests/unit/cluster/cluster_help_test.cpp`
 
-- [ ] **Step 1:** Every `cluster <cmd> --help` renders a help message with usage, flags, examples
-- [ ] **Step 2:** Audit every user-visible error string for `tash: cluster: <msg>` format
-- [ ] **Step 3:** Tests snapshot-test the help output (golden strings)
-- [ ] **Step 4:** Commit: `feat(cluster): per-subcommand help and error format audit`
+- [x] **Step 1:** All 10 subcommands (up, launch, attach, list, down, kill, sync, probe, import, doctor) render usage + flag docs on `--help`. `cluster probe --help` was enriched with an `options:` section listing `-r, --resource` (only had the short form in the usage line before)
+- [x] **Step 2:** Audit via tests: 9 scenarios exercising unknown subcommand + missing-required-flag / missing-positional / unknown-option for every subcommand that can fail them, each verifying the error line starts with `tash: cluster: ` (the convention from commit 55faeba). Previously-shipped errors already conformed; no impl changes needed
+- [x] **Step 3:** 13 snapshot-style tests (top-level help mentions all subcommands, `help <sub>` routes correctly, every subcommand --help carries usage + name + its key flags)
+- [x] **Step 4:** Commit: `feat(cluster): per-subcommand help and error format audit`
 
 ---
 
