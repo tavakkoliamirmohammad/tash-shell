@@ -250,13 +250,21 @@ methods. Tests read directly; no matcher DSL to learn.
 ### Task M1.10: Builtin `cluster` dispatches to ClusterEngine (Tier-1 integration via fakes)
 
 **Files:**
+- Create: `include/tash/cluster/builtin_dispatch.h` (new; public surface of the dispatcher)
+- Create: `src/cluster/builtin_dispatch.cpp` (new; argv parser + formatter)
 - Modify: `src/builtins/cluster.cpp`
 - Create: `tests/unit/cluster/cluster_builtin_test.cpp`
 
-- [ ] **Step 1:** Write `cluster_builtin_test.cpp` that constructs a ClusterEngine with fakes, wraps it in the builtin's argv-parsing logic, and asserts: `cluster up -r a100 -t 12h` parses correctly; `cluster list` formats output exactly matching the expected string; `cluster attach repoA/1` resolves correctly; every `cluster <cmd> --help` renders; unknown subcommand → error with usage; missing required flag → error with usage
-- [ ] **Step 2:** Rewrite the stub `builtin_cluster` to parse argv and dispatch to a ClusterEngine reference injected via `ShellState` (add a `std::shared_ptr<ClusterEngine> cluster_engine` slot to ShellState under a TASH_CLUSTER guard). At builtin-call time, if the slot is empty, construct with real seams on demand (constructor will happen in M2 when the real seams exist — for now, return "not implemented" if slot is empty and the user is not in demo mode)
-- [ ] **Step 3:** Tests pass
-- [ ] **Step 4:** Commit: `feat(cluster): cluster builtin dispatches to ClusterEngine`
+Plan drift: original plan added a `std::shared_ptr<ClusterEngine>` slot
+to `ShellState`. That crossed many module boundaries for thin value;
+instead the active engine lives in a module-local setter/getter
+(`set_active_engine` / `active_engine` in `tash::cluster`). `ShellState`
+is unchanged; the builtin pulls from `active_engine()` at call time.
+
+- [x] **Step 1:** Wrote 12 tests against `dispatch_cluster` directly (decoupled from ShellState via the factored-out function that takes argv + engine + ostreams)
+- [x] **Step 2:** Implemented the full dispatcher — every subcommand has its own argv-scan + spec-build + engine call + output formatter. Shim at `src/builtins/cluster.cpp` wraps with `std::ostringstream` capture and forwards via `write_stdout`/`write_stderr`. Missing-engine path prints a clear one-line message pointing at TASH_CLUSTER_DEMO=1 / M2
+- [x] **Step 3:** 12/12 pass; full suite 1023 (was 1011)
+- [x] **Step 4:** Commit: `feat(cluster): cluster builtin dispatches to ClusterEngine`
 
 ### Task M1.11: Demo mode wiring
 
