@@ -242,10 +242,10 @@ methods. Tests read directly; no matcher DSL to learn.
 - Create: `src/cluster/watcher.cpp`
 - Create: `tests/unit/cluster/watcher_test.cpp`
 
-- [ ] **Step 1:** Write `watcher_test.cpp` covering: event line parse (`<workspace>/<instance> <event> <ts> <payload>`), dedup via (instance, ts), state transition rules per event type (claude_stopped → idle; window_exited → exited; etc.), backoff sequence calculation (1s → 2s → 4s → ... → 30s capped → abandon after 3min), stop-token cancels the decode loop promptly
-- [ ] **Step 2:** Implement the pure logic: `EventDecoder::decode(std::string_view line) → std::optional<Event>` and `WatcherLoop::step(...)` that takes a line source, emits events, updates registry, calls notifier
-- [ ] **Step 3:** Tests pass (no real ssh — line source is a fake in-memory channel)
-- [ ] **Step 4:** Commit: `feat(cluster): watcher event decoder and dedup logic`
+- [x] **Step 1:** Wrote 22 tests — JSON decode of valid/malformed/missing-field events + workspace/instance splitting on '/', kind → state mapping for all 5 known kinds + unknown, dedup by (workspace, instance, ts, kind), apply_event integration with Registry + FakeNotifier, Backoff sequence/reset/abandon, StopToken state + reset
+- [x] **Step 2:** Implemented pure logic only — EventDecoder (JSON via nlohmann), EventDedup (set-backed), state_for_kind, apply_event (instance lookup across allocations + notifier dispatch), Backoff, StopToken. Plan's "WatcherLoop::step with a line source" is deferred to M3 when the actual thread + tail-F pipe land; the pure logic this task targets is now complete
+- [x] **Step 3:** 22/22 pass; full suite 1011 (was 989)
+- [x] **Step 4:** Commit: `feat(cluster): watcher event decoder and dedup logic`
 
 ### Task M1.10: Builtin `cluster` dispatches to ClusterEngine (Tier-1 integration via fakes)
 
