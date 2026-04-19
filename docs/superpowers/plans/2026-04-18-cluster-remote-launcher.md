@@ -431,10 +431,17 @@ Goal: watcher threads tail remote event markers through ControlMaster, fire desk
 - Create: `include/tash/cluster/notifier_factory.h`
 - Create: `tests/integration/cluster/notifier_integration_test.cpp`
 
-- [ ] **Step 1:** Tests use the `osascript` / `notify-send` stub binaries to assert the right argv + body were sent
-- [ ] **Step 2:** Implement `NotifierFactory::create()` returning the right impl at runtime; conditional compilation for platform
-- [ ] **Step 3:** Tests pass on both linux and macOS CI
-- [ ] **Step 4:** Commit: `feat(cluster): platform-specific desktop notifiers`
+Plan drift: consolidated `notifier_mac.cpp` + `notifier_linux.cpp` +
+`notifier_factory.cpp` into a single `notifier_factory.cpp`. Each
+class is ~15 lines; three files added cmake plumbing for no clarity
+gain. Both impls still compile on every platform via conditional
+compilation of the factory itself, with `make_{mac,linux}_notifier_for_testing`
+exposed so cross-platform tests can exercise both.
+
+- [x] **Step 1:** 4 integration tests use osascript + notify-send stubs to verify argv: MacNotifier includes "display notification" + title + body + AppleScript-escaped quotes; LinuxNotifier passes title + body as notify-send positional args; factory returns non-null on every build
+- [x] **Step 2:** `make_notifier()` uses `#if defined(__APPLE__) / #elif defined(__linux__) / #else` to pick. Both impls fire-and-forget through `tash::util::safe_exec` with a 1s timeout so tests can read the stub log deterministically. bell() emits `\a` on stderr on every platform
+- [x] **Step 3:** 4/4 pass; full suite 1109 (was 1105)
+- [x] **Step 4:** Commit: `feat(cluster): platform-specific desktop notifiers`
 
 ### Task M3.2: ClusterWatcherHookProvider lifecycle
 
