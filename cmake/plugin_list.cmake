@@ -448,3 +448,14 @@ tash_register_plugin(
     TEST_PREFIX "unit/cluster/"
     TEST_DEFS TASH_CLUSTER_RECORDINGS_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/recordings"
 )
+
+# Tier-2 integration: real SshClient / SlurmOps / TmuxOps driving
+# tests/fakes/bin/ stubs on PATH. Uses the integration_fixture header.
+tash_register_plugin(
+    NAME cluster_integration_stubs
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/stub_smoke_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS TASH_CLUSTER_STUB_BIN_DIR="${CMAKE_SOURCE_DIR}/tests/fakes/bin"
+)
