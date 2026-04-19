@@ -450,12 +450,71 @@ tash_register_plugin(
 )
 
 # Tier-2 integration: real SshClient / SlurmOps / TmuxOps driving
-# tests/fakes/bin/ stubs on PATH. Uses the integration_fixture header.
+# tests/fakes/bin/ stubs on PATH. Every test file under
+# tests/integration/cluster/ goes through the same fixture glue and
+# needs the same TASH_CLUSTER_STUB_BIN_DIR define.
+set(TASH_CLUSTER_INTEGRATION_DEFS
+    TASH_CLUSTER_STUB_BIN_DIR="${CMAKE_SOURCE_DIR}/tests/fakes/bin")
+
 tash_register_plugin(
     NAME cluster_integration_stubs
     REQUIRES TASH_CLUSTER_ENABLED
     TEST_SOURCES tests/integration/cluster/stub_smoke_test.cpp
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
     TEST_PREFIX "integration/cluster/"
-    TEST_DEFS TASH_CLUSTER_STUB_BIN_DIR="${CMAKE_SOURCE_DIR}/tests/fakes/bin"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_up_down_roundtrip
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/up_down_roundtrip_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_launch_attach
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/launch_attach_detach_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_multi_ws
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/multi_workspace_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_multi_alloc
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/multi_allocation_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_reconcile
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/registry_reconcile_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_cli_errors
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/cli_help_and_errors_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_demo_mode
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/demo_mode_smoke_test.cpp
+    TEST_PREFIX "integration/cluster/"
 )
