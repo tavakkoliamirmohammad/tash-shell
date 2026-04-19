@@ -134,11 +134,11 @@ Goal: full `Config`, `Registry`, `Presets`, `ClusterEngine` logic implemented ag
 - Create: `tests/fixtures/configs/invalid_missing_required_field.toml`
 - Create: `tests/fixtures/configs/invalid_bad_toml.toml`
 
-- [ ] **Step 1:** Write `config_test.cpp` with tests for: valid-minimal round-trips, valid-full captures all fields, unknown cluster in route → error with field location, missing required field → error with field location, bad TOML → `tash: cluster: <path>:<L>:<C>: <msg>`, environment-variable expansion in `env_file` / `workspace_base`
-- [ ] **Step 2:** Run — must fail (no impl)
-- [ ] **Step 3:** Implement `Config::load(std::filesystem::path) → std::variant<Config, ConfigError>` using `toml++`; validate post-parse; look up routes' cluster names against declared clusters
-- [ ] **Step 4:** Run tests — must pass
-- [ ] **Step 5:** Commit: `feat(cluster): TOML config loader with validation`
+- [x] **Step 1:** Wrote `config_test.cpp` with 9 tests covering minimal + full round-trip, unknown-cluster-in-route, missing-required-field with line info, bad-TOML format line, env-var expansion in both workspace_base and env_file, find_* helpers, invalid resource kind, and missing-file reporting
+- [x] **Step 2:** Shimmed `src/cluster/config.cpp` with `not implemented` stubs → built + ran → 9/9 failed (red phase confirmed)
+- [x] **Step 3:** Implemented real `ConfigLoader::load / ::load_from_string` using `toml++`; env expansion; cross-validation of route→cluster references; source-region-aware errors
+- [x] **Step 4:** Re-ran tests — 9/9 pass; full ctest green (900 total)
+- [x] **Step 5:** Commit: `feat(cluster): TOML config loader with validation`
 
 ### Task M1.3: Registry state, locking, reconciliation logic
 
