@@ -535,3 +535,12 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/cluster/watcher_hook_provider_test.cpp
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_stream_watcher
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/stream_watcher.cpp
+    TEST_SOURCES tests/integration/cluster/notification_end_to_end_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "integration/cluster/"
+)
