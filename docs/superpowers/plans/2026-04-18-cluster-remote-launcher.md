@@ -373,11 +373,21 @@ The real-SSH validation is deferred to M5.3's opt-in real-cluster smoke suite (w
 - Create: `tests/integration/cluster/CMakeLists.txt`
 - Create: `tests/integration/cluster/integration_fixture.h` (helper to set PATH and TASH_FAKE_SCENARIO)
 
-- [ ] **Step 1:** Write each stub binary as a bash script ≤50 lines that reads `$TASH_FAKE_SCENARIO`, matches by argv, emits canned stdout + exit code
-- [ ] **Step 2:** Make them executable
-- [ ] **Step 3:** Write `integration_fixture.h` that sets `PATH=<build>/tests/fakes/bin:$PATH` and `TASH_FAKE_SCENARIO` per test
-- [ ] **Step 4:** One smoke test that calls `ssh` via the fixture and asserts scenario-driven output
-- [ ] **Step 5:** Commit: `test(cluster): Tier-2 stub binaries and scenario runtime`
+Plan drift:
+- Scenario format is bash fragments (`VAR=value` per line), not `.json`
+   — no `jq` dependency, and stubs source directly via `source`.
+- No per-dir `tests/integration/cluster/CMakeLists.txt` — tash
+   registers tests via `tash_register_plugin` in `cmake/plugin_list.cmake`
+   everywhere else, so the integration suite does the same.
+- One shared `_stub_runner.sh` + 8 two-line wrappers (ssh/sbatch/
+   squeue/sinfo/scancel/tmux/osascript/notify-send), rather than 8
+   independent ≤50-line scripts — ~150 lines total vs ~400.
+
+- [x] **Step 1:** Wrote `_stub_runner.sh` (40 lines) + 8 wrappers. Runner sources `$TASH_FAKE_SCENARIO`, logs invocation to `$TASH_FAKE_LOG`, routes ssh remote-commands by argv token to per-tool `ssh_stdout_<cmd>` / `ssh_exit_<cmd>` overrides, emits scripted stdout+stderr+exit
+- [x] **Step 2:** Stubs marked executable (git stores the bit)
+- [x] **Step 3:** Wrote `integration_fixture.h` — GTest fixture that prepends stub dir to PATH, manages per-test scenario file + log file, restores env on teardown; `set_scenario(body)` and `read_log()` helpers
+- [x] **Step 4:** `stub_smoke_test.cpp` with 2 tests: full up→success flow (sinfo→sbatch→squeue), sbatch-rejected flow. Both drive *real* SshClient / SlurmOps / TmuxOps end-to-end
+- [x] **Step 5:** Commit: `test(cluster): Tier-2 stub binaries and scenario runtime`
 
 ### Task M2.5: Tier-2 end-to-end integration tests
 
