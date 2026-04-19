@@ -11,6 +11,7 @@
 
 #include <deque>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace tash::cluster::testing {
@@ -30,18 +31,27 @@ public:
         std::string  cmd;
     };
     struct ListSessionsCall { RemoteTarget target; };
-    struct KillWindowCall   { RemoteTarget target; std::string session; std::string window; };
-    struct ExecAttachCall   { RemoteTarget target; std::string session; std::string window; };
+    struct KillWindowCall      { RemoteTarget target; std::string session; std::string window; };
+    struct IsWindowAliveCall   { RemoteTarget target; std::string session; std::string window; };
+    struct ExecAttachCall      { RemoteTarget target; std::string session; std::string window; };
 
-    std::vector<NewSessionCall>    new_session_calls;
-    std::vector<NewWindowCall>     new_window_calls;
-    std::vector<ListSessionsCall>  list_sessions_calls;
-    std::vector<KillWindowCall>    kill_window_calls;
-    std::vector<ExecAttachCall>    exec_attach_calls;
+    std::vector<NewSessionCall>       new_session_calls;
+    std::vector<NewWindowCall>        new_window_calls;
+    std::vector<ListSessionsCall>     list_sessions_calls;
+    std::vector<KillWindowCall>       kill_window_calls;
+    std::vector<IsWindowAliveCall>    is_window_alive_calls;
+    std::vector<ExecAttachCall>       exec_attach_calls;
 
     std::deque<std::vector<SessionInfo>> list_sessions_queue;
 
+    // Windows flagged as dead; keyed by "<session>/<window>". Tests use
+    // mark_dead() to simulate a command that exited immediately.
+    std::unordered_set<std::string> dead_windows;
+
     void queue_list_sessions(std::vector<SessionInfo> s) { list_sessions_queue.push_back(std::move(s)); }
+    void mark_dead(const std::string& session, const std::string& window) {
+        dead_windows.insert(session + "/" + window);
+    }
 
     void new_session(const RemoteTarget& t, const std::string& s,
                       const std::string& cwd, ISshClient&) override {
@@ -66,6 +76,12 @@ public:
         kill_window_calls.push_back({t, s, w});
     }
 
+    bool is_window_alive(const RemoteTarget& t, const std::string& s,
+                           const std::string& w, ISshClient&) override {
+        is_window_alive_calls.push_back({t, s, w});
+        return dead_windows.find(s + "/" + w) == dead_windows.end();
+    }
+
     void exec_attach(const RemoteTarget& t, const std::string& s,
                       const std::string& w) override {
         exec_attach_calls.push_back({t, s, w});
@@ -76,8 +92,10 @@ public:
         new_window_calls.clear();
         list_sessions_calls.clear();
         kill_window_calls.clear();
+        is_window_alive_calls.clear();
         exec_attach_calls.clear();
         list_sessions_queue.clear();
+        dead_windows.clear();
     }
 };
 

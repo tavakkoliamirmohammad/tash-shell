@@ -41,6 +41,15 @@ public:
                               const std::string& window,
                               ISshClient& ssh) = 0;
 
+    // Returns true if the window exists AND its pid is alive. Used by
+    // launch() after `new_window` to detect commands that exit almost
+    // immediately (typo in --cmd, bad preset, etc.). Real impl uses
+    // `tmux list-windows -F '#{pane_pid}'` + kill(0, pid).
+    virtual bool is_window_alive(const RemoteTarget& target,
+                                   const std::string& session,
+                                   const std::string& window,
+                                   ISshClient& ssh) = 0;
+
     // exec-style: replaces the current process image with ssh -t <host>
     // tmux attach-session -t <session>. Returns only on spawn failure.
     virtual void exec_attach(const RemoteTarget& target,

@@ -82,8 +82,21 @@ public:
     // ── Commands ──────────────────────────────────────────────
     ClusterResult<Allocation> up(const UpSpec& spec);
 
-    // Future tasks (M1.7, M1.8): launch, attach, list, down, kill,
-    // probe, sync, import.
+    // launch: start a long-running instance inside a workspace. Resolves
+    // to an allocation (either `spec.alloc_id` or the unique running one),
+    // creates the tmux session if the workspace is new, runs the preset
+    // (or --cmd) command in a new window. If the command exits within
+    // the "liveness window" (~2 clock ticks), marks the instance Exited
+    // and fires a notification — never silently reports a failed launch.
+    ClusterResult<Instance> launch(const LaunchSpec& spec);
+
+    // attach: exec into the given <workspace>/<instance> on its allocation.
+    // On success, exec_attach() is called (real impl replaces the process
+    // image; the fake just records). The result Instance is a snapshot of
+    // what we handed off.
+    ClusterResult<Instance> attach(const AttachSpec& spec);
+
+    // Future tasks (M1.8): list, down, kill, probe, sync, import.
 
 private:
     const Config& cfg_;
