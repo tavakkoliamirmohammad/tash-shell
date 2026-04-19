@@ -200,11 +200,11 @@ methods. Tests read directly; no matcher DSL to learn.
 - Create: `src/cluster/cluster_engine.cpp`
 - Create: `tests/unit/cluster/cluster_engine_up_test.cpp`
 
-- [ ] **Step 1:** Write `cluster_engine_up_test.cpp`: all-routes-idle → first declared wins; first-route-busy + second-idle → second picked; all-busy → first declared (falls through to queue); sbatch rejected → no registry write; squeue polling transitions PD→R→success; polling exceeds wait-timeout → user-visible detach/cancel prompt (test via callback injection); `--via` forces route; invalid resource name → error
-- [ ] **Step 2:** Create `ClusterEngine` skeleton with constructor accepting `Config&, Registry&, ISshClient&, ISlurmOps&, ITmuxOps&, INotifier&, IPrompt&` (new seam `IPrompt` for the wait-timeout interactive choice — define in `types.h`)
-- [ ] **Step 3:** Implement `ClusterResult<Allocation> up(UpSpec)` against fakes
-- [ ] **Step 4:** All `cluster_engine_up_test.cpp` tests pass
-- [ ] **Step 5:** Commit: `feat(cluster): ClusterEngine::up with route selection and polling`
+- [x] **Step 1:** Wrote 11 up-tests — all-idle first-wins, first-busy+second-idle picks second, all-busy falls back + queues, sbatch rejection leaves registry empty, PD→R polling, wait-timeout×{cancel, detach}, --via forces route, --via unknown cluster fails, invalid resource rejected, user overrides take precedence over resource defaults
+- [x] **Step 2:** Built `ClusterEngine` with constructor taking refs to `Config`, `Registry`, `ISshClient`, `ISlurmOps`, `ITmuxOps`, `INotifier`, `IPrompt`, `IClock`. IPrompt + IClock placed in `cluster_engine.h` (engine-local seams), not `types.h` (which holds POD value types). Added FakePrompt + FakeClock under tests/unit/cluster/fakes/. Also emitted RealClock for production
+- [x] **Step 3:** Implemented `up(UpSpec) -> ClusterResult<Allocation>` — resource lookup → --via filter → sinfo idle-probe → SubmitSpec build (resource defaults + overrides + route) → sbatch → squeue poll loop with IClock-driven deadline + IPrompt on timeout (cancel/keep/detach) → Registry persist
+- [x] **Step 4:** 11/11 up-tests pass; full suite 947 (was 936)
+- [x] **Step 5:** Commit: `feat(cluster): ClusterEngine::up with route selection and polling`
 
 ### Task M1.7: ClusterEngine — `launch` + `attach`
 
