@@ -161,11 +161,11 @@ Goal: full `Config`, `Registry`, `Presets`, `ClusterEngine` logic implemented ag
 - Create: `tests/unit/cluster/presets_test.cpp`
 - Create: `data/cluster/stop-hooks/claude-stop-hook.sh` (may be simple placeholder at this milestone)
 
-- [ ] **Step 1:** Write `presets_test.cpp` covering: `builtin:claude` resolves to the packaged script path, unknown `builtin:xyz` → error, explicit absolute path passes through, `$VAR` expansion in command/env_file, env_file sourcing returns key=value map
-- [ ] **Step 2:** Write the failing tests and watch them fail
-- [ ] **Step 3:** Implement `resolve_preset(const Preset&, const Defaults&) → ResolvedPreset` and a minimal `claude-stop-hook.sh` that writes an event marker (payload format per spec Section 7.3)
-- [ ] **Step 4:** Run tests — pass
-- [ ] **Step 5:** Commit: `feat(cluster): preset resolution and packaged claude stop hook`
+- [x] **Step 1:** Wrote 9 tests — builtin:claude resolves to packaged path (exists); unknown builtin:xyz rejected; absolute path pass-through; relative non-builtin rejected; $VAR expansion in command; env_file parses KEY=VALUE / export / quoted / comments; no-hooks-no-env empty; missing env_file rejected; source_env_file standalone
+- [x] **Step 2:** Stub impl returned `"not implemented"` everywhere → 9/9 failed → red phase confirmed
+- [x] **Step 3:** Implemented `resolve_preset(const Preset&)` (no Defaults needed — stop-hooks dir comes from the env var / compile-time define; same pattern as TASH_THEMES_DIR) + source_env_file(path) + packaged `claude-stop-hook.sh` that writes spec-section-7.3 payloads to `$TASH_CLUSTER_EVENT_DIR/<workspace>/<instance>.event`
+- [x] **Step 4:** 9/9 green; full suite 923 (was 914)
+- [x] **Step 5:** Commit: `feat(cluster): preset resolution and packaged claude stop hook`
 
 ### Task M1.5: Seam interfaces (headers only) + fake implementations
 
