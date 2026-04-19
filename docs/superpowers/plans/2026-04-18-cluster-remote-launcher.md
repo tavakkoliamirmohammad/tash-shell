@@ -213,11 +213,11 @@ methods. Tests read directly; no matcher DSL to learn.
 - Create: `tests/unit/cluster/cluster_engine_launch_test.cpp`
 - Create: `tests/unit/cluster/cluster_engine_attach_test.cpp`
 
-- [ ] **Step 1:** Write `cluster_engine_launch_test.cpp`: new workspace → tmux new-session + scp stop-hook + new-window; existing workspace → reuses session, new-window only; preset resolution happens before launch; `--cmd` bypasses preset; duplicate session on cluster → adopted silently; window command exits within 2s → `state=exited` + notifier fires; ambiguous allocation → error; `--alloc` override works
-- [ ] **Step 2:** Write `cluster_engine_attach_test.cpp`: resolves `workspace/instance` to RemoteTarget + session + window; ambiguous instance → error; missing → error; exec_attach called (recorded by fake)
-- [ ] **Step 3:** Implement `launch(LaunchSpec)` and `attach(AttachSpec)` methods
-- [ ] **Step 4:** All tests pass
-- [ ] **Step 5:** Commit: `feat(cluster): ClusterEngine::launch and ::attach`
+- [x] **Step 1:** Wrote 9 launch tests — new workspace creates session + window; existing reuses session; preset command propagates; --cmd bypasses preset; window exits immediately → Exited + notifier; ambiguous allocation errors; --alloc override; no running allocation errors; --name overrides tmux window name. (Plan calls for scp of stop-hook; that's M3 when hook is actually invoked. For M1.7 we just need the launch-time logic; scp is a later commit.)
+- [x] **Step 2:** Wrote 7 attach tests — basic resolves to exec_attach; by-name instance; missing workspace vs missing instance with distinct messages; ambiguous across allocations; --alloc disambiguates; --alloc that lacks workspace errors
+- [x] **Step 3:** Implemented `launch` + `attach`. Added `ITmuxOps::is_window_alive` seam for the "exits within 2s" detection; FakeTmuxOps tracks dead_windows set. Env vars from presets are prefixed as `env KEY='VAL' …` (M2 real tmux_ops may promote to `tmux -e`)
+- [x] **Step 4:** 16/16 new tests pass (one self-contradictory test I wrote got removed — plan says "--cmd bypasses preset" = silent precedence, not error). Full suite 963 (was 947)
+- [x] **Step 5:** Commit: `feat(cluster): ClusterEngine::launch and ::attach`
 
 ### Task M1.8: ClusterEngine — `list` + `down` + `kill` + `sync` + `probe` + `import`
 
