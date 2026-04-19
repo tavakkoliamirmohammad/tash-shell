@@ -352,11 +352,11 @@ The real-SSH validation is deferred to M5.3's opt-in real-cluster smoke suite (w
 - Create: `tests/fixtures/recordings/tmux/list-windows-basic.txt`
 - Create: `tests/fixtures/recordings/tmux/list-sessions-many.txt`
 
-- [ ] **Step 1:** Argv tests exhaustively cover shell-escaping for session/window/command with spaces, quotes, backticks, `$`, `;`, unicode, newlines
-- [ ] **Step 2:** Integration tests use the tmux stub binary to assert that `new_session / new_window / list_sessions / kill_window` send the right argv
-- [ ] **Step 3:** Implement real `TmuxOps` via `ssh <host> tmux <subcmd>` composition; parse `list-windows`/`list-sessions` output using the recordings
-- [ ] **Step 4:** All tests pass
-- [ ] **Step 5:** Commit: `feat(cluster): real TmuxOps with argv quoting and parsers`
+- [x] **Step 1:** shell_quote + every tmux command builder + compose_remote_cmd + build_attach_argv all get argv-level tests. shell_quote is exercised with plain / empty / spaces / embedded `'` / dangerous chars ($, `, ;, ", newline). Every tmux builder asserts the resulting string contains the required flags and properly quoted fields
+- [x] **Step 2:** Plan-drift — consolidated the "unit argv tests" and "integration tests" into one `tmux_ops_test.cpp` that drives TmuxOpsReal through a FakeSshClient. TmuxOpsReal tests verify the composed payload (outer ssh, optional compute-node hop, inner tmux command) is exactly what would hit the wire; no need for a separate stub-binary file in this iteration (M2.4 will add the stub binaries for cross-seam tests)
+- [x] **Step 3:** Implemented `tmux_compose` pure module + TmuxOpsReal. Every non-exec method composes via `compose_remote_cmd(target, inner)` and dispatches through ISshClient. exec_attach execvp's `build_attach_argv`; tests verify argv shape, production replaces the process. Golden recordings list-sessions-many.txt + list-windows-basic.txt validate parser against synthesised tmux output
+- [x] **Step 4:** 23/23 tests pass (stub-phase red: 21/23)
+- [x] **Step 5:** Commit: `feat(cluster): real TmuxOps with argv quoting and parsers`
 
 ### Task M2.4: Tier-2 stub binaries + scenario runtime
 
