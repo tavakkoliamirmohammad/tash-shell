@@ -62,6 +62,9 @@ set(SHELL_SOURCES
 # plugin means appending one tash_register_plugin(...) call at the bottom
 # of that file, which avoids per-PR merge conflicts.
 include(${CMAKE_SOURCE_DIR}/cmake/plugins.cmake)
+# Cluster subsystem (TASH_CLUSTER option, toml++). Must come before
+# plugin_list.cmake so its REQUIRES TASH_CLUSTER_ENABLED gate works.
+include(${CMAKE_SOURCE_DIR}/cmake/cluster.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/plugin_list.cmake)
 
 # ── Generate man page with version ────────────────────────────
