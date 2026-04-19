@@ -527,3 +527,11 @@ tash_register_plugin(
     TEST_PREFIX "integration/cluster/"
     TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
 )
+
+tash_register_plugin(
+    NAME cluster_watcher_hook_provider
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/plugins/cluster_watcher_hook_provider.cpp
+    TEST_SOURCES tests/unit/cluster/watcher_hook_provider_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
