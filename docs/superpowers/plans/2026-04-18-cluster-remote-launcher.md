@@ -285,12 +285,19 @@ is unchanged; the builtin pulls from `active_engine()` at call time.
 ### Task M1.12: Coverage gate
 
 **Files:**
-- Modify: `cmake/coverage.cmake` (or equivalent) to include a gate rule for `src/cluster/`
+- Create: `scripts/cluster-coverage-gate.sh` (new; pure-gcov gate, no lcov dependency)
+- Modify: `cmake/cluster.cmake` (adds `cluster-coverage-gate` custom target)
+- Modify: `tests/unit/cluster/cluster_builtin_test.cpp` (12 new dispatcher tests)
 
-- [ ] **Step 1:** Read tash's existing coverage gate mechanism
-- [ ] **Step 2:** Add a check that `src/cluster/` line coverage ≥85% after `ctest`; fail CI if below
-- [ ] **Step 3:** Run `ctest` + coverage to verify threshold is met (add tests as needed to bring it up)
-- [ ] **Step 4:** Commit: `build(cluster): enforce 85% line coverage on src/cluster/`
+Plan drift: tash doesn't have a `cmake/coverage.cmake` — coverage
+instrumentation lives in `cmake/sanitizers.cmake` (TASH_COVERAGE option).
+There was no pre-existing gate infrastructure. Built from scratch with
+pure gcov because the target environment has no lcov/gcovr.
+
+- [x] **Step 1:** Read `cmake/sanitizers.cmake` (TASH_COVERAGE option existed; no gate)
+- [x] **Step 2:** Added `scripts/cluster-coverage-gate.sh` (aggregates gcov line-coverage) + `cluster-coverage-gate` cmake target (enabled when TASH_CLUSTER_ENABLED AND TASH_COVERAGE)
+- [x] **Step 3:** Initial run: 81.20% (below). Added 12 dispatch tests to cover launch/down/kill/sync/probe/import branches + their error paths. Final: 86.25% (PASS)
+- [x] **Step 4:** Commit: `build(cluster): enforce 85% line coverage on src/cluster/`
 
 ---
 
