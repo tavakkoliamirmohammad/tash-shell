@@ -154,4 +154,77 @@ void Backoff::reset() {
     total_   = std::chrono::milliseconds{0};
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// TmuxFallbackDetector — window-death + silence synthesis
+// ══════════════════════════════════════════════════════════════════════════════
+
+std::vector<Event> TmuxFallbackDetector::observe(
+    const std::string& workspace,
+    const std::vector<WindowSnapshot>& snapshot,
+    std::chrono::steady_clock::time_point now,
+    const std::string& now_ts) {
+
+    std::vector<Event> out;
+
+    // Mark-sweep flag reset; we'll mark each window present in `snapshot`.
+    for (auto& [_, t] : tracks_) t.seen_this_round = false;
+
+    // Sweep one: process current snapshot for silence + track updates.
+    for (const auto& w : snapshot) {
+        const std::string key = workspace + "/" + w.window;
+        auto it = tracks_.find(key);
+
+        if (it == tracks_.end()) {
+            // First observation of this window — seed the track.
+            Track t;
+            t.pid             = w.pane_pid;
+            t.first_seen_at   = now;
+            t.silence_emitted = false;
+            t.seen_this_round = true;
+            tracks_[key]      = t;
+            continue;
+        }
+
+        Track& t = it->second;
+        t.seen_this_round = true;
+
+        // Pid changed -> new streak.
+        if (t.pid != w.pane_pid) {
+            t.pid             = w.pane_pid;
+            t.first_seen_at   = now;
+            t.silence_emitted = false;
+            continue;
+        }
+
+        // Same pid: maybe emit silence if over threshold and not yet sent.
+        if (!t.silence_emitted && (now - t.first_seen_at) >= silence_threshold) {
+            Event e;
+            e.workspace = workspace;
+            e.instance  = w.window;
+            e.kind      = "silence_threshold";
+            e.ts        = now_ts;
+            out.push_back(std::move(e));
+            t.silence_emitted = true;
+        }
+    }
+
+    // Sweep two: any track not marked this round is a vanished window.
+    for (auto it = tracks_.begin(); it != tracks_.end();) {
+        if (it->second.seen_this_round) { ++it; continue; }
+
+        // Extract workspace + window from key.
+        const auto slash = it->first.find('/');
+        Event e;
+        e.workspace = it->first.substr(0, slash);
+        e.instance  = slash == std::string::npos ? std::string{} : it->first.substr(slash + 1);
+        e.kind      = "window_exited";
+        e.ts        = now_ts;
+        out.push_back(std::move(e));
+
+        it = tracks_.erase(it);
+    }
+
+    return out;
+}
+
 }  // namespace tash::cluster

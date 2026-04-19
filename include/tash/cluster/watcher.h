@@ -32,7 +32,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace tash::cluster {
 
@@ -103,6 +105,55 @@ public:
     void reset()                { stopped_.store(false); }
 private:
     std::atomic<bool> stopped_{false};
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TmuxFallbackDetector — when a Claude Stop hook isn't installed (or
+// the instance isn't running Claude at all), we synthesise two kinds of
+// events from coarse tmux state polling:
+//
+//   window_exited     — a window we saw before is no longer in the list
+//   silence_threshold — a window's pane_pid has been stable for >=
+//                        silence_threshold since first observation, and
+//                        we haven't already emitted silence for this
+//                        streak. Streak resets when pid changes.
+//
+// Caller feeds `observe(workspace, snapshot, now, now_ts)` per allocation
+// per poll; emitted Events flow into the same apply_event pipeline used
+// by the JSON stream watcher.
+// ══════════════════════════════════════════════════════════════════════════════
+
+struct WindowSnapshot {
+    std::string session;    // e.g. "tash-utah-1234567-repoA"
+    std::string window;     // e.g. "feature-x" or "1"
+    long        pane_pid;   // from tmux list-windows -F '#{pane_pid}'
+};
+
+class TmuxFallbackDetector {
+public:
+    // How long a window's pid must stay stable before we declare silence.
+    std::chrono::seconds silence_threshold{120};
+
+    // Process a fresh snapshot of currently-alive windows. Returns
+    // events that should be dispatched through apply_event.
+    //   `workspace`  attached to each emitted Event.workspace
+    //   `snapshot`   current windows (caller parses list-windows output)
+    //   `now`        monotonic timestamp for staleness calculations
+    //   `now_ts`     ISO-8601 string stamped on emitted Event.ts
+    std::vector<Event> observe(const std::string& workspace,
+                                 const std::vector<WindowSnapshot>& snapshot,
+                                 std::chrono::steady_clock::time_point now,
+                                 const std::string& now_ts);
+
+private:
+    struct Track {
+        long                                       pid             = 0;
+        std::chrono::steady_clock::time_point       first_seen_at{};
+        bool                                        silence_emitted = false;
+        bool                                        seen_this_round = false;   // mark-sweep flag
+    };
+    // Key: "<workspace>/<window>"
+    std::unordered_map<std::string, Track> tracks_;
 };
 
 }  // namespace tash::cluster

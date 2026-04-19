@@ -544,3 +544,10 @@ tash_register_plugin(
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
     TEST_PREFIX "integration/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_watcher_fallback
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/watcher_fallback_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
