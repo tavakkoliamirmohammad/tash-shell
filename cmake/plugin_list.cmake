@@ -518,3 +518,12 @@ tash_register_plugin(
     TEST_SOURCES tests/integration/cluster/demo_mode_smoke_test.cpp
     TEST_PREFIX "integration/cluster/"
 )
+tash_register_plugin(
+    NAME cluster_notifier_factory
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/notifier_factory.cpp
+    TEST_SOURCES tests/integration/cluster/notifier_integration_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
