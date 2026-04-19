@@ -320,3 +320,12 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/cluster/fakes/fakes_test.cpp
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_engine
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/cluster_engine.cpp
+    TEST_SOURCES tests/unit/cluster/cluster_engine_up_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
