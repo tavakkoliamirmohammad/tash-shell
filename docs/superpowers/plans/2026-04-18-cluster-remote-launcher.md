@@ -34,11 +34,11 @@ Goal: tash builds with the new `cluster` builtin stubbed, new directories exist,
 - Create: `cmake/cluster.cmake`
 - Modify: `CMakeLists.txt` (add `include(cmake/cluster.cmake)` after existing `include(cmake/plugins.cmake)`)
 
-- [ ] **Step 1:** Read `cmake/plugins.cmake` and `cmake/plugin_list.cmake` to understand conventions
-- [ ] **Step 2:** Create `cmake/cluster.cmake` that declares `option(TASH_CLUSTER "Build cluster (SLURM) support" ON)`, fetches `toml++` via FetchContent when ON, declares an (empty-for-now) `cluster_lib` OBJECT library, and conditionally adds its object files to `shell_lib`
-- [ ] **Step 3:** Add `include(cmake/cluster.cmake)` to `CMakeLists.txt` in the correct position
-- [ ] **Step 4:** Run `cmake -B build -DBUILD_TESTS=ON && cmake --build build -j` — must succeed
-- [ ] **Step 5:** Commit: `build(cluster): add TASH_CLUSTER cmake option and toml++ dependency`
+- [x] **Step 1:** Read `cmake/plugins.cmake` and `cmake/plugin_list.cmake` to understand conventions
+- [x] **Step 2:** Create `cmake/cluster.cmake` that declares `option(TASH_CLUSTER "Build cluster (SLURM) support" ON)`, fetches `toml++` via FetchContent when ON, and exposes `TASH_CLUSTER_ENABLED` for plugin_list.cmake's REQUIRES gate (simpler than an OBJECT library — cluster sources will register via tash_register_plugin like every other plugin)
+- [x] **Step 3:** Add `include(cmake/cluster.cmake)` to `CMakeLists.txt` (between plugins.cmake and plugin_list.cmake so TASH_CLUSTER_ENABLED is available when plugin REQUIRES clauses are evaluated)
+- [x] **Step 4:** Run `cmake -B build -DBUILD_TESTS=ON && cmake --build build -j` — must succeed
+- [x] **Step 5:** Commit: `build(cluster): add TASH_CLUSTER cmake option and toml++ dependency`
 
 ### Task M0.2: Create directory skeleton
 
