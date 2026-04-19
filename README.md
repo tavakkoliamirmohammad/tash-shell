@@ -50,6 +50,7 @@ A feature-rich Unix shell written in C++ with syntax highlighting, autosuggestio
 | **AI** | `@ai <anything>` — multi-provider (Gemini/OpenAI/Ollama), streaming output, conversation memory, `@ai config`; **`?` suffix** routes natural-language queries (`find all python files?`); **automatic error recovery** — AI explains failed commands and suggests a one-keypress fix |
 | **Clipboard** | `copy`/`paste` builtins via OSC 52, works over SSH and inside tmux; pbcopy/xclip/wl-copy fallbacks; multi-line paste confirmation |
 | **Sessions** | `tash --persist <name>` / `--attach` / `--sessions` / `--kill` — save/restore cwd, aliases, and env vars |
+| **Cluster** _(experimental)_ | `cluster up / launch / attach / list / down` — SLURM-backed remote launcher. One OpenSSH `ControlMaster` per cluster (one password+MFA prompt per day), tmux-persistent instances on compute nodes, desktop notifications when a long-running job needs attention |
 | **Config** | `~/.tashrc` loaded on startup, XDG-aware paths (`~/.tash/`, `$XDG_CONFIG_HOME`), **git-based config sync** across machines (`tash sync init/remote/push/pull/diff`) |
 | **Plugin system** | `ICompletionProvider`, `IPromptProvider`, `IHistoryProvider`, `IHookProvider` — priority-based registry dispatches to all registered providers |
 | **Safety** | **Destructive-command detection** (`rm -rf /`, `git push --force`, `dd`, `mkfs`, `chmod -R 777`…), Ctrl+D protection (double-press), bracketed paste, SIGINT handling |
