@@ -302,3 +302,12 @@ tash_register_plugin(
     TEST_INCLUDES ${nlohmann_json_SOURCE_DIR}/include
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_presets
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/presets.cpp
+    TEST_SOURCES tests/unit/cluster/presets_test.cpp
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_STOP_HOOKS_DIR="${CMAKE_SOURCE_DIR}/data/cluster/stop-hooks"
+)

@@ -103,7 +103,9 @@ if(TASH_SQLITE_ENABLED)
 endif()
 
 if(TASH_CLUSTER_ENABLED)
-    target_compile_definitions(tash.out PRIVATE TASH_CLUSTER_ENABLED)
+    target_compile_definitions(tash.out PRIVATE
+        TASH_CLUSTER_ENABLED
+        TASH_CLUSTER_STOP_HOOKS_DIR="${CMAKE_SOURCE_DIR}/data/cluster/stop-hooks")
     target_include_directories(tash.out PRIVATE ${tomlplusplus_SOURCE_DIR}/include)
 endif()
 

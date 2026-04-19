@@ -47,7 +47,9 @@ if(BUILD_TESTS)
     endif()
 
     if(TASH_CLUSTER_ENABLED)
-        target_compile_definitions(shell_lib PRIVATE TASH_CLUSTER_ENABLED)
+        target_compile_definitions(shell_lib PRIVATE
+            TASH_CLUSTER_ENABLED
+            TASH_CLUSTER_STOP_HOOKS_DIR="${CMAKE_SOURCE_DIR}/data/cluster/stop-hooks")
         target_include_directories(shell_lib PRIVATE ${tomlplusplus_SOURCE_DIR}/include)
     endif()
 
