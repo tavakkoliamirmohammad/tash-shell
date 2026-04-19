@@ -31,3 +31,24 @@ else()
     set(TASH_CLUSTER_ENABLED FALSE)
     message(STATUS "Cluster (SLURM) support disabled (-DTASH_CLUSTER=OFF)")
 endif()
+
+# ── Coverage gate ────────────────────────────────────────────
+# With -DTASH_COVERAGE=ON, `ctest` emits gcov counts for every TU.
+# The `cluster-coverage-gate` custom target runs after ctest and
+# fails if src/cluster/ line coverage falls below TASH_CLUSTER_COVERAGE
+# (default 85). Skipped silently when TASH_COVERAGE is OFF.
+set(TASH_CLUSTER_COVERAGE "85" CACHE STRING
+    "Minimum required line coverage % for src/cluster/ (checked when TASH_COVERAGE=ON)")
+
+if(TASH_CLUSTER_ENABLED AND TASH_COVERAGE)
+    add_custom_target(cluster-coverage-gate
+        COMMAND ${CMAKE_COMMAND} -E env
+                BUILD_DIR=${CMAKE_BINARY_DIR}
+                SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                THRESHOLD_PCT=${TASH_CLUSTER_COVERAGE}
+                bash ${CMAKE_SOURCE_DIR}/scripts/cluster-coverage-gate.sh
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Checking src/cluster/ line coverage >= ${TASH_CLUSTER_COVERAGE}%"
+        VERBATIM
+    )
+endif()

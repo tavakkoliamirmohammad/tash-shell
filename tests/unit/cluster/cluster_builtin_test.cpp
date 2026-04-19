@@ -231,3 +231,149 @@ TEST(ClusterBuiltin, ActiveEngineRoundTrips) {
     set_active_engine(nullptr);
     EXPECT_EQ(active_engine(), nullptr);
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Remaining subcommand dispatchers (coverage of every cmd_* branch)
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST(ClusterBuiltin, LaunchDispatches) {
+    Harness h;
+    Allocation a; a.id = "c1:100"; a.cluster = "c1"; a.jobid = "100"; a.node = "n1";
+    a.state = AllocationState::Running;
+    h.reg.add_allocation(a);
+
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "launch", "--workspace", "w",
+                                          "--cmd", "bash"}),
+                                eng, out, err);
+    EXPECT_EQ(rc, 0) << err.str();
+    EXPECT_NE(out.str().find("launched"), std::string::npos) << out.str();
+    ASSERT_EQ(h.tmux.new_session_calls.size(), 1u);
+    ASSERT_EQ(h.tmux.new_window_calls.size(), 1u);
+    EXPECT_EQ(h.tmux.new_window_calls[0].cmd, "bash");
+}
+
+TEST(ClusterBuiltin, LaunchMissingWorkspaceErrors) {
+    Harness h;
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "launch", "--cmd", "bash"}),
+                                eng, out, err);
+    EXPECT_NE(rc, 0);
+    EXPECT_NE(err.str().find("workspace"), std::string::npos) << err.str();
+}
+
+TEST(ClusterBuiltin, DownDispatches) {
+    Harness h;
+    Allocation a; a.id = "c1:100"; a.cluster = "c1"; a.jobid = "100";
+    a.state = AllocationState::Running;
+    h.reg.add_allocation(a);
+
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "down", "c1:100"}), eng, out, err);
+    EXPECT_EQ(rc, 0) << err.str();
+    EXPECT_NE(out.str().find("cancelled"), std::string::npos);
+    EXPECT_EQ(h.slurm.scancel_calls.size(), 1u);
+}
+
+TEST(ClusterBuiltin, DownMissingIdErrors) {
+    Harness h;
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "down"}), eng, out, err);
+    EXPECT_NE(rc, 0);
+    EXPECT_NE(err.str().find("allocation-id"), std::string::npos);
+}
+
+TEST(ClusterBuiltin, KillDispatches) {
+    Harness h;
+    Allocation a; a.id = "c1:100"; a.cluster = "c1"; a.jobid = "100"; a.node = "n1";
+    a.state = AllocationState::Running;
+    Workspace ws; ws.name = "w"; ws.tmux_session = "tash-c1-100-w";
+    Instance inst; inst.id = "1"; inst.tmux_window = "1";
+    ws.instances.push_back(inst);
+    a.workspaces.push_back(ws);
+    h.reg.add_allocation(a);
+
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "kill", "w/1"}), eng, out, err);
+    EXPECT_EQ(rc, 0) << err.str();
+    EXPECT_NE(out.str().find("killed"), std::string::npos);
+    EXPECT_EQ(h.tmux.kill_window_calls.size(), 1u);
+}
+
+TEST(ClusterBuiltin, KillMissingPositionalErrors) {
+    Harness h;
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "kill"}), eng, out, err);
+    EXPECT_NE(rc, 0);
+}
+
+TEST(ClusterBuiltin, SyncDispatches) {
+    Harness h;
+    Allocation a; a.id = "c1:100"; a.cluster = "c1"; a.jobid = "100";
+    a.state = AllocationState::Running;
+    h.reg.add_allocation(a);
+    h.slurm.queue_squeue({JobState{"100", "R", "n1", "02:00:00"}});
+
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "sync"}), eng, out, err);
+    EXPECT_EQ(rc, 0) << err.str();
+    EXPECT_NE(out.str().find("probed"), std::string::npos);
+}
+
+TEST(ClusterBuiltin, ProbeDispatches) {
+    Harness h;
+    h.slurm.queue_sinfo({PartitionState{"p", "up", 1, {"gpu:a100:1"}}});
+
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "probe", "-r", "a100"}), eng, out, err);
+    EXPECT_EQ(rc, 0) << err.str();
+    EXPECT_NE(out.str().find("a100"), std::string::npos);
+}
+
+TEST(ClusterBuiltin, ProbeMissingResourceErrors) {
+    Harness h;
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "probe"}), eng, out, err);
+    EXPECT_NE(rc, 0);
+    EXPECT_NE(err.str().find("resource"), std::string::npos);
+}
+
+TEST(ClusterBuiltin, ImportDispatches) {
+    Harness h;
+    h.slurm.queue_squeue({JobState{"777", "R", "n7", "01:00:00"}});
+
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "import", "777", "--via", "c1"}),
+                                eng, out, err);
+    EXPECT_EQ(rc, 0) << err.str();
+    EXPECT_NE(out.str().find("imported"), std::string::npos);
+    EXPECT_NE(out.str().find("c1:777"),   std::string::npos);
+}
+
+TEST(ClusterBuiltin, ImportMissingViaErrors) {
+    Harness h;
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "import", "777"}), eng, out, err);
+    EXPECT_NE(rc, 0);
+    EXPECT_NE(err.str().find("--via"), std::string::npos);
+}
+
+TEST(ClusterBuiltin, HelpSubcommandFormRenders) {
+    Harness h;
+    auto eng = h.engine();
+    std::ostringstream out, err;
+    int rc = dispatch_cluster(argv_of({"cluster", "help", "launch"}), eng, out, err);
+    EXPECT_EQ(rc, 0);
+    EXPECT_NE(out.str().find("cluster launch"), std::string::npos);
+}
