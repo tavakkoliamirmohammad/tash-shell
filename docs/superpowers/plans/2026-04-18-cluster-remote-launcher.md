@@ -472,9 +472,15 @@ Plan drift:
 - Create: `tests/integration/cluster/notification_end_to_end_test.cpp`
 - Create: `tests/fakes/scenarios/claude_stopped.json`
 
-- [ ] **Step 1:** Scenario timeline: sbatch → job starts → claude_stopped event after N seconds → notifier stub records call
-- [ ] **Step 2:** Test asserts the desktop notification and bell were both invoked with the expected payload
-- [ ] **Step 3:** Commit: `test(cluster): end-to-end notification delivery`
+Plan drift: no separate `tests/fakes/scenarios/claude_stopped.json` —
+the event JSON is an inline string literal next to the assertion. This
+iteration also ships the production `StreamWatcher` (pure logic; injectable
+`LineSource`) that the test drives; an SSH-tail `LineSource` lands later
+along with the real `default_watcher_factory` wiring.
+
+- [x] **Step 1:** Timeline is encoded as a `LineQueue` that the test pushes events into. The test seeds the registry with a Running allocation + workspace + instance, starts the watcher via ClusterWatcherHookProvider.on_startup, then pushes a Claude-Stop JSON event into the queue
+- [x] **Step 2:** Asserts notifier.desktop (title "…attention", body contains cluster / workspace / instance / detail) + bell both fired once; instance.state transitions to Stopped; last_event_at recorded. Two additional tests verify dedup (same event twice → one notification) and malformed-line tolerance (garbage lines don't break the stream)
+- [x] **Step 3:** Commit: `test(cluster): end-to-end notification delivery`
 
 ### Task M3.4: Tmux silence + window-death fallback detection
 
