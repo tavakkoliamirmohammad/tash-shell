@@ -1,0 +1,36 @@
+#!/usr/bin/env expect -f
+# attach_detach.exp — briefly attaches to a tmux session via tash,
+# then sends Ctrl-b d to detach cleanly. Accepts the tash.out binary,
+# the smoke-profile TASH_CLUSTER_HOME, and the workspace/instance
+# argument as arguments.
+#
+# Usage:
+#   attach_detach.exp <tash.out> <tash-cluster-home> <workspace/instance>
+
+set timeout 10
+
+if {[llength $argv] != 3} {
+    puts "usage: attach_detach.exp <tash.out> <TASH_CLUSTER_HOME> <ws/inst>"
+    exit 2
+}
+set tash   [lindex $argv 0]
+set home   [lindex $argv 1]
+set target [lindex $argv 2]
+
+# Spawn `tash -c "cluster attach ..."` — adapt if tash adds a -c flag
+# later; today we use a script-file workaround via stdin.
+set env(TASH_CLUSTER_HOME) $home
+spawn -noecho bash -lc "echo 'cluster attach $target' | $tash"
+
+# Wait for *some* output suggesting we attached. `sleep 600` from
+# the smoke preset produces no prompt; we just wait briefly for the
+# spawn to settle.
+after 2000
+
+# Ctrl-b d — tmux default prefix + detach-client.
+send "\x02d"
+
+expect {
+    timeout  { exit 1 }
+    eof      { exit 0 }
+}

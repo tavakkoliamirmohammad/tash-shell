@@ -1,0 +1,45 @@
+# Tash Cluster real-cluster smoke profile — TEMPLATE.
+#
+# Copy to `smoke-profile.toml` in this dir, fill in the FIXME values
+# with details that match a real cluster you have credentials for,
+# then run `./tests/smoke/cluster/run_smoke.sh`.
+#
+# The smoke-profile.toml file (not this template) is gitignored; it's
+# personal to you. Don't commit a filled-in profile.
+
+[defaults]
+workspace_base = "/scratch/FIXME/$USER/tash-smoke"  # any writable dir on the cluster
+default_preset = "smoke"
+
+# One cluster is enough for the smoke. Add more if you want, but
+# run_smoke.sh targets a single profile at a time.
+[[clusters]]
+name        = "smoke"
+ssh_host    = "FIXME-your-ssh-config-host"    # `ssh <this>` must already work
+description = "Real-cluster smoke test profile"
+
+# One resource — whatever your site offers that you can get a
+# short-duration allocation for with minimal fair-share impact.
+# If you only have CPU access, set kind = "cpu" and leave gres = "".
+[[resources]]
+name         = "smoke-res"
+kind         = "gpu"              # or "cpu"
+default_time = "00:15:00"         # 15 minutes — the smoke script asks for this
+default_cpus = 1
+default_mem  = "4G"
+routes = [
+  { cluster   = "smoke",
+    account   = "FIXME-your-slurm-account",
+    partition = "FIXME-your-partition",
+    qos       = "FIXME-your-qos",
+    gres      = "gpu:FIXME-gpu-type:1" },   # or "" for CPU-only
+]
+
+# A preset the smoke script can launch. `sleep 600` keeps the tmux
+# window alive long enough to attach + detach without racing.
+[[presets]]
+name    = "smoke"
+command = "sleep 600"
+# stop_hook intentionally omitted — the smoke doesn't exercise
+# Claude Code's Stop hook. Tmux silence + window death cover the
+# fallback detection if you're curious.
