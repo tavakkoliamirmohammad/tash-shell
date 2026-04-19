@@ -538,10 +538,18 @@ watcher hook provider registration — both happen together.
 - Modify: `src/plugins/safety_hook_provider.cpp` (or equivalent) — register `cluster down` and `cluster kill` as confirmable
 - Create: `tests/unit/cluster/cluster_safety_test.cpp`
 
-- [ ] **Step 1:** Tests cover: `cluster down` without `-y` prompts; prompt shows a preview of what will be canceled; `-y` bypasses; `cluster kill` likewise
-- [ ] **Step 2:** Implement
-- [ ] **Step 3:** Tests pass
-- [ ] **Step 4:** Commit: `feat(cluster): destructive commands go through safety hook`
+Plan drift: confirmation lives in the dispatch layer (cmd_down /
+cmd_kill in src/cluster/builtin_dispatch.cpp), not as a new rule in
+`src/plugins/safety_hook_provider.cpp`. The safety-hook provider uses
+full-command-string regex classification, which is too coarse for
+cluster's structured argv. Dispatch-layer confirmation reuses the
+engine's already-plumbed `IPrompt` and keeps every test focused on
+the scoped behaviour.
+
+- [x] **Step 1:** 8 tests for `cluster down` / `cluster kill` × {prompt-by-default, aborts-on-'n', -y bypass, --yes bypass}, plus a test for preview-includes-resource-and-node
+- [x] **Step 2:** Added `IPrompt& ClusterEngine::prompt()` accessor; cmd_down / cmd_kill parse `-y / --yes`, build a preview pulling allocation details from the registry, call `engine.prompt().choice(preview, "yn")` when the flag is absent. Completion provider's flag tables now include `--yes` / `-y` for both
+- [x] **Step 3:** 8/8 new tests pass; updated 4 pre-existing tests that were now blocking on the prompt (added `-y`); full suite 1147 (was 1139), 0 regressions
+- [x] **Step 4:** Commit: `feat(cluster): destructive commands go through safety hook`
 
 ### Task M4.3: `cluster doctor` + `cluster probe` diagnostics
 
