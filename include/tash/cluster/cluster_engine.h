@@ -96,7 +96,43 @@ public:
     // what we handed off.
     ClusterResult<Instance> attach(const AttachSpec& spec);
 
-    // Future tasks (M1.8): list, down, kill, probe, sync, import.
+    // list: snapshot of allocations (optionally filtered by cluster).
+    ClusterResult<std::vector<Allocation>> list(const ListSpec& spec);
+
+    // down: scancel the SLURM job and remove the allocation from the
+    // registry. Returns a snapshot of the allocation that was torn down
+    // (state set to Ended on the returned copy).
+    ClusterResult<Allocation> down(const DownSpec& spec);
+
+    // kill: tmux kill-window + remove that Instance from the registry.
+    // Allocation-level state is untouched. Returns the removed instance.
+    ClusterResult<Instance> kill(const KillSpec& spec);
+
+    // Diagnostic report for `cluster probe -r <resource>`.
+    struct RouteStatus {
+        std::string cluster;
+        std::string partition;
+        int         idle_nodes        = 0;
+        int         idle_matching_gres = 0;
+        std::string partition_state;          // "up" / "down" / "drain" / …
+    };
+    struct ProbeReport {
+        std::string resource;
+        std::vector<RouteStatus> routes;
+    };
+    ClusterResult<ProbeReport> probe(const ProbeSpec& spec);
+
+    // sync: run squeue for each relevant cluster and reconcile the
+    // registry. Returns how many allocations transitioned to Ended.
+    struct SyncReport {
+        int clusters_probed = 0;
+        int transitions     = 0;
+    };
+    ClusterResult<SyncReport> sync(const SyncSpec& spec);
+
+    // import: adopt an externally-submitted SLURM job. Queries squeue
+    // on the cluster, finds the jobid, creates an Allocation entry.
+    ClusterResult<Allocation> import(const ImportSpec& spec);
 
 private:
     const Config& cfg_;

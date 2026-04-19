@@ -345,3 +345,46 @@ tash_register_plugin(
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_engine_list
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_list_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_down
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_down_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_kill
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_kill_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_sync
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_sync_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_probe
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_probe_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_import
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_import_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)

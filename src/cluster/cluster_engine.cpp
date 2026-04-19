@@ -101,6 +101,166 @@ ClusterEngine::ClusterEngine(const Config& cfg,
     : cfg_(cfg), reg_(reg), ssh_(ssh), slurm_(slurm), tmux_(tmux),
       notify_(notify), prompt_(prompt), clock_(clock) {}
 
+// ══════════════════════════════════════════════════════════════════════════════
+// list / down / kill / sync / probe / import
+// ══════════════════════════════════════════════════════════════════════════════
+
+ClusterResult<std::vector<Allocation>> ClusterEngine::list(const ListSpec& spec) {
+    std::vector<Allocation> out;
+    for (const auto& a : reg_.allocations) {
+        if (spec.cluster && a.cluster != *spec.cluster) continue;
+        out.push_back(a);
+    }
+    return out;
+}
+
+ClusterResult<Allocation> ClusterEngine::down(const DownSpec& spec) {
+    if (spec.alloc_id.empty()) {
+        return EngineError{"--alloc-id is required for `cluster down`"};
+    }
+    auto* a = reg_.find_allocation(spec.alloc_id);
+    if (!a) {
+        return EngineError{"no allocation with id: " + spec.alloc_id};
+    }
+
+    Allocation snapshot = *a;      // copy before removal
+    if (a->state != AllocationState::Ended) {
+        slurm_.scancel(a->cluster, a->jobid, ssh_);
+    }
+    snapshot.state = AllocationState::Ended;
+    reg_.remove_allocation(spec.alloc_id);
+    return snapshot;
+}
+
+ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
+    if (spec.workspace.empty() || spec.instance.empty()) {
+        return EngineError{"--workspace and --instance are required for `cluster kill`"};
+    }
+
+    struct Match { Allocation* a; Workspace* w; std::size_t idx; };
+    std::vector<Match> matches;
+    for (auto& a : reg_.allocations) {
+        if (spec.alloc_id && a.id != *spec.alloc_id) continue;
+        for (auto& w : a.workspaces) {
+            if (w.name != spec.workspace) continue;
+            for (std::size_t i = 0; i < w.instances.size(); ++i) {
+                const auto& inst = w.instances[i];
+                const bool id_match   = (inst.id == spec.instance);
+                const bool name_match = inst.name.has_value() && *inst.name == spec.instance;
+                if (id_match || name_match) matches.push_back({&a, &w, i});
+            }
+        }
+    }
+
+    if (matches.empty()) {
+        return EngineError{"no instance '" + spec.instance +
+                            "' in workspace '" + spec.workspace + "'"};
+    }
+    if (matches.size() > 1u) {
+        std::string msg = "ambiguous: '" + spec.workspace + "/" + spec.instance +
+                           "' present in multiple allocations (";
+        for (std::size_t i = 0; i < matches.size(); ++i) {
+            if (i) msg += ", ";
+            msg += matches[i].a->id;
+        }
+        msg += "); pass --alloc to pick one";
+        return EngineError{std::move(msg)};
+    }
+
+    auto& m = matches.front();
+    Instance killed = m.w->instances[m.idx];
+
+    const RemoteTarget target{m.a->cluster, m.a->node};
+    tmux_.kill_window(target, m.w->tmux_session, killed.tmux_window, ssh_);
+
+    m.w->instances.erase(m.w->instances.begin() + static_cast<std::ptrdiff_t>(m.idx));
+    return killed;
+}
+
+ClusterResult<ClusterEngine::ProbeReport> ClusterEngine::probe(const ProbeSpec& spec) {
+    const Resource* res = find_resource(cfg_, spec.resource);
+    if (!res) {
+        return EngineError{"unknown resource: " + spec.resource};
+    }
+
+    ProbeReport rep;
+    rep.resource = res->name;
+    for (const auto& r : res->routes) {
+        RouteStatus st;
+        st.cluster   = r.cluster;
+        st.partition = r.partition;
+        const auto states = slurm_.sinfo(r.cluster, r.partition, ssh_);
+        for (const auto& ps : states) {
+            st.idle_nodes    += ps.idle_nodes;
+            if (!st.partition_state.empty() && st.partition_state != ps.state) {
+                st.partition_state = "mixed";
+            } else {
+                st.partition_state = ps.state;
+            }
+            if (r.gres.empty()) {
+                st.idle_matching_gres += ps.idle_nodes;
+            } else {
+                for (const auto& g : ps.idle_gres) {
+                    if (g == r.gres) ++st.idle_matching_gres;
+                }
+            }
+        }
+        rep.routes.push_back(std::move(st));
+    }
+    return rep;
+}
+
+ClusterResult<ClusterEngine::SyncReport> ClusterEngine::sync(const SyncSpec& spec) {
+    // Build the set of clusters to probe: each distinct cluster in the
+    // registry, optionally filtered to just spec.cluster.
+    std::vector<std::string> clusters;
+    for (const auto& a : reg_.allocations) {
+        if (spec.cluster && a.cluster != *spec.cluster) continue;
+        if (std::find(clusters.begin(), clusters.end(), a.cluster) == clusters.end()) {
+            clusters.push_back(a.cluster);
+        }
+    }
+
+    SyncReport rep;
+    for (const auto& c : clusters) {
+        const auto snap = slurm_.squeue(c, ssh_);
+        rep.transitions += reg_.reconcile(c, snap);
+        ++rep.clusters_probed;
+    }
+    return rep;
+}
+
+ClusterResult<Allocation> ClusterEngine::import(const ImportSpec& spec) {
+    if (spec.jobid.empty() || spec.cluster.empty()) {
+        return EngineError{"import: jobid and --via <cluster> are required"};
+    }
+    const std::string id = spec.cluster + ":" + spec.jobid;
+    if (reg_.find_allocation(id)) {
+        return EngineError{"allocation " + id + " is already tracked"};
+    }
+
+    const auto snap = slurm_.squeue(spec.cluster, ssh_);
+    const JobState* js = nullptr;
+    for (const auto& j : snap) {
+        if (j.jobid == spec.jobid) { js = &j; break; }
+    }
+    if (!js) {
+        return EngineError{"jobid " + spec.jobid +
+                            " not found in squeue for cluster " + spec.cluster};
+    }
+
+    Allocation a;
+    a.id       = id;
+    a.cluster  = spec.cluster;
+    a.jobid    = spec.jobid;
+    a.resource = spec.resource.value_or("");
+    a.node     = js->node;
+    a.state    = (js->state == "R") ? AllocationState::Running
+                                      : AllocationState::Pending;
+    reg_.add_allocation(a);
+    return a;
+}
+
 // ── launch helpers ─────────────────────────────────────────────
 
 namespace {

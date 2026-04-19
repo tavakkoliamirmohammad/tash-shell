@@ -223,6 +223,34 @@ struct AttachSpec {
     std::optional<std::string> alloc_id;
 };
 
+struct ListSpec {
+    std::optional<std::string> cluster;           // filter to one cluster
+};
+
+struct DownSpec {
+    std::string alloc_id;                         // required
+};
+
+struct KillSpec {
+    std::string workspace;
+    std::string instance;
+    std::optional<std::string> alloc_id;
+};
+
+struct SyncSpec {
+    std::optional<std::string> cluster;           // default: all known clusters
+};
+
+struct ProbeSpec {
+    std::string resource;
+};
+
+struct ImportSpec {
+    std::string jobid;                            // required
+    std::string cluster;                          // required (the "via")
+    std::optional<std::string> resource;          // label; best-effort
+};
+
 }  // namespace tash::cluster
 
 #endif  // TASH_CLUSTER_TYPES_H
