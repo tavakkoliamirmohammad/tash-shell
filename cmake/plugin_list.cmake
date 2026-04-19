@@ -430,3 +430,11 @@ tash_register_plugin(
     REQUIRES TASH_CLUSTER_ENABLED
     SOURCES src/cluster/slurm_ops.cpp
 )
+
+tash_register_plugin(
+    NAME cluster_ssh_client
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/ssh_client.cpp
+    TEST_SOURCES tests/unit/cluster/ssh_client_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
