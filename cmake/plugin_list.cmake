@@ -293,3 +293,12 @@ tash_register_plugin(
     TEST_PREFIX "unit/cluster/"
     TEST_DEFS TASH_CLUSTER_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/configs"
 )
+
+tash_register_plugin(
+    NAME cluster_registry
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/registry.cpp
+    TEST_SOURCES tests/unit/cluster/registry_test.cpp
+    TEST_INCLUDES ${nlohmann_json_SOURCE_DIR}/include
+    TEST_PREFIX "unit/cluster/"
+)
