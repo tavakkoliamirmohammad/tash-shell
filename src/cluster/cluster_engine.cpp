@@ -230,6 +230,106 @@ ClusterResult<ClusterEngine::SyncReport> ClusterEngine::sync(const SyncSpec& spe
     return rep;
 }
 
+// ── doctor ─────────────────────────────────────────────────────────
+
+namespace {
+
+// Non-whitespace output from `which <bin>` is our proxy for "binary exists".
+bool looks_like_path(const std::string& s) {
+    for (char c : s) if (c != ' ' && c != '\n' && c != '\r' && c != '\t') return true;
+    return false;
+}
+
+ClusterEngine::DoctorCheck run_check(ClusterEngine::DoctorCheck::Level lvl,
+                                         std::string name,
+                                         std::string msg) {
+    ClusterEngine::DoctorCheck c;
+    c.level = lvl; c.name = std::move(name); c.message = std::move(msg);
+    return c;
+}
+
+}  // namespace
+
+ClusterResult<ClusterEngine::DoctorReport>
+ClusterEngine::doctor(const DoctorSpec& spec) {
+    // Pick the clusters to probe.
+    std::vector<const Cluster*> targets;
+    if (spec.cluster) {
+        const Cluster* c = find_cluster(cfg_, *spec.cluster);
+        if (!c) {
+            return EngineError{"unknown cluster: " + *spec.cluster};
+        }
+        targets.push_back(c);
+    } else {
+        for (const auto& c : cfg_.clusters) targets.push_back(&c);
+    }
+
+    DoctorReport rep;
+
+    for (const auto* c : targets) {
+        DoctorReport::ClusterBlock blk;
+        blk.cluster = c->name;
+
+        // 1. SSH reach — "true" is a no-op; exit 0 means we got through.
+        const auto reach = ssh_.run(c->name, {"true"}, std::chrono::seconds{5});
+        if (reach.exit_code != 0) {
+            blk.checks.push_back(run_check(
+                DoctorCheck::FAIL,
+                "SSH reach: " + c->ssh_host,
+                "`ssh " + c->ssh_host + " true` failed (exit "
+                    + std::to_string(reach.exit_code) +
+                    "). Try `cluster connect " + c->name +
+                    "` or check ~/.ssh/config."));
+            // Skip follow-up checks (both need a working ssh).
+            blk.checks.push_back(run_check(
+                DoctorCheck::WARN,
+                "sbatch on " + c->ssh_host, "skipped (ssh unreachable)"));
+            blk.checks.push_back(run_check(
+                DoctorCheck::WARN,
+                "tmux on "   + c->ssh_host, "skipped (ssh unreachable)"));
+            rep.clusters.push_back(std::move(blk));
+            continue;
+        }
+        blk.checks.push_back(run_check(
+            DoctorCheck::OK,
+            "SSH reach: " + c->ssh_host,
+            "ssh works (password+Duo may still prompt once per session)"));
+
+        // 2. sbatch presence via `which sbatch`.
+        const auto sb = ssh_.run(c->name, {"which", "sbatch"}, std::chrono::seconds{5});
+        if (sb.exit_code == 0 && looks_like_path(sb.out)) {
+            blk.checks.push_back(run_check(
+                DoctorCheck::OK,
+                "sbatch on " + c->ssh_host,
+                sb.out.substr(0, sb.out.find('\n'))));
+        } else {
+            blk.checks.push_back(run_check(
+                DoctorCheck::WARN,
+                "sbatch on " + c->ssh_host,
+                "`which sbatch` came up empty; is SLURM in PATH on the login node?"));
+        }
+
+        // 3. tmux presence via `which tmux`.
+        const auto tm = ssh_.run(c->name, {"which", "tmux"}, std::chrono::seconds{5});
+        if (tm.exit_code == 0 && looks_like_path(tm.out)) {
+            blk.checks.push_back(run_check(
+                DoctorCheck::OK,
+                "tmux on " + c->ssh_host,
+                tm.out.substr(0, tm.out.find('\n'))));
+        } else {
+            blk.checks.push_back(run_check(
+                DoctorCheck::WARN,
+                "tmux on " + c->ssh_host,
+                "`which tmux` came up empty; install tmux on the cluster to use "
+                "cluster launch / attach."));
+        }
+
+        rep.clusters.push_back(std::move(blk));
+    }
+
+    return rep;
+}
+
 ClusterResult<Allocation> ClusterEngine::import(const ImportSpec& spec) {
     if (spec.jobid.empty() || spec.cluster.empty()) {
         return EngineError{"import: jobid and --via <cluster> are required"};

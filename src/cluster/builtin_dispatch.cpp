@@ -82,6 +82,7 @@ void print_toplevel_help(std::ostream& out) {
            "  sync     reconcile against squeue\n"
            "  probe    show current capacity for a resource\n"
            "  import   adopt an externally-submitted jobid\n"
+           "  doctor   diagnose ssh / sbatch / tmux on each cluster\n"
            "  help     show per-subcommand help\n"
            "\n"
            "run `cluster <subcommand> --help` for per-subcommand usage.\n";
@@ -140,6 +141,12 @@ void print_subcommand_help(std::string_view sub, std::ostream& out) {
         out << "cluster import — adopt an externally-submitted SLURM jobid\n"
                "\n"
                "usage: cluster import <jobid> --via <cluster> [--resource <name>]\n";
+    } else if (sub == "doctor") {
+        out << "cluster doctor — diagnose ssh / sbatch / tmux presence per cluster\n"
+               "\n"
+               "usage: cluster doctor [<cluster>]\n"
+               "\n"
+               "Each check reports OK / WARN / FAIL with a one-line hint.\n";
     } else {
         print_toplevel_help(out);
     }
@@ -499,6 +506,37 @@ int cmd_import(std::vector<std::string> rest, ClusterEngine& eng,
     return 1;
 }
 
+int cmd_doctor(std::vector<std::string> rest, ClusterEngine& eng,
+                std::ostream& out, std::ostream& err) {
+    if (handled_help(rest, "doctor", out)) return 0;
+
+    ClusterEngine::DoctorSpec spec;
+    auto pos = positionals(rest);
+    if (pos.size() == 1)      spec.cluster = pos[0];
+    else if (pos.size() > 1)  { print_err(err, "cluster doctor: expected at most one cluster argument"); return 1; }
+
+    auto r = eng.doctor(spec);
+    if (auto* err_ = std::get_if<EngineError>(&r)) {
+        print_err(err, err_->message);
+        return 1;
+    }
+    const auto& rep = std::get<ClusterEngine::DoctorReport>(r);
+    bool any_fail = false;
+    for (const auto& blk : rep.clusters) {
+        out << blk.cluster << ":\n";
+        for (const auto& c : blk.checks) {
+            const char* tag = "ok  ";
+            switch (c.level) {
+                case ClusterEngine::DoctorCheck::OK:   tag = "ok  "; break;
+                case ClusterEngine::DoctorCheck::WARN: tag = "warn"; break;
+                case ClusterEngine::DoctorCheck::FAIL: tag = "fail"; any_fail = true; break;
+            }
+            out << "  [" << tag << "] " << c.name << " — " << c.message << "\n";
+        }
+    }
+    return any_fail ? 1 : 0;
+}
+
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -533,6 +571,7 @@ int dispatch_cluster(const std::vector<std::string>& argv,
     if (sub == "sync")   return cmd_sync  (std::move(rest), eng, out, err);
     if (sub == "probe")  return cmd_probe (std::move(rest), eng, out, err);
     if (sub == "import") return cmd_import(std::move(rest), eng, out, err);
+    if (sub == "doctor") return cmd_doctor(std::move(rest), eng, out, err);
 
     print_err(err, "unknown subcommand: " + sub);
     return 1;

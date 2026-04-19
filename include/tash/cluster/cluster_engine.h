@@ -134,6 +134,27 @@ public:
     // on the cluster, finds the jobid, creates an Allocation entry.
     ClusterResult<Allocation> import(const ImportSpec& spec);
 
+    // Diagnostic report: per-cluster ssh reach + tool presence. Each
+    // check carries OK / WARN / FAIL + a one-line message (fix hint
+    // on WARN/FAIL).
+    struct DoctorCheck {
+        enum Level { OK, WARN, FAIL };
+        std::string name;
+        Level       level = OK;
+        std::string message;
+    };
+    struct DoctorReport {
+        struct ClusterBlock {
+            std::string              cluster;
+            std::vector<DoctorCheck> checks;
+        };
+        std::vector<ClusterBlock> clusters;
+    };
+    struct DoctorSpec {
+        std::optional<std::string> cluster;   // filter to one cluster
+    };
+    ClusterResult<DoctorReport> doctor(const DoctorSpec& spec);
+
     // Accessors so cosmetic subsystems (completion, doctor, help,
     // safety-confirmation prompts in dispatch_cluster) can read the
     // engine's state without going through a command.
