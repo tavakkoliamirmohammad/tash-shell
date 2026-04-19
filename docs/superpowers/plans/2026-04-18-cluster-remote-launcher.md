@@ -630,9 +630,9 @@ per-run tmpdir. Simpler to explain, one less moving part.
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1:** Promote cluster from "experimental" to full feature-matrix row with a short code sample
-- [ ] **Step 2:** Remove the "experimental" note from the M0 preview
-- [ ] **Step 3:** Commit: `docs: document cluster subsystem in README`
+- [x] **Step 1:** Feature-matrix row expanded with every subcommand, the real selling points, and a link to docs/cluster.md. Added a new "Cluster (SLURM-backed remote launcher)" section with a worked example + demo-mode teaser. Added a row to the Built-in Commands table pointing at the full docs
+- [x] **Step 2:** "_(experimental)_" qualifier removed — feature is test-covered end-to-end (1168 tests incl. notification + doctor + safety paths), has user docs + demo mode + opt-in real-cluster smoke suite
+- [x] **Step 3:** Commit: `docs: document cluster subsystem in README`
 
 ---
 
