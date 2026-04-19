@@ -230,10 +230,10 @@ methods. Tests read directly; no matcher DSL to learn.
 - Create: `tests/unit/cluster/cluster_engine_probe_test.cpp`
 - Create: `tests/unit/cluster/cluster_engine_import_test.cpp`
 
-- [ ] **Step 1:** Write one test file per command covering happy paths and the error rows from spec Section 10's matrix relevant to that command (e.g. `down` tests the "external scancel" row; `sync` tests the "reconciler detects gone jobid" row)
-- [ ] **Step 2:** Implement each method; keep files focused — if `cluster_engine.cpp` grows past ~500 lines, extract per-command private methods to `cluster_engine_<cmd>.cpp`
-- [ ] **Step 3:** All tests pass
-- [ ] **Step 4:** Commit: `feat(cluster): ClusterEngine list/down/kill/sync/probe/import`
+- [x] **Step 1:** Wrote 26 tests across 6 files — list (insertion order, filter, ended included), down (basic scancel + purge, unknown id, ended skips scancel, empty id rejected), kill (basic, empty workspace lingers, missing instance, ambiguous across allocs), sync (empty, all-present=0 transitions, ghost detection, one-squeue-per-cluster, per-cluster filter), probe (unknown resource, idle/matching counts, empty sinfo), import (running, pending, not in squeue, already-tracked, missing fields)
+- [x] **Step 2:** Implemented all 6 methods. `cluster_engine.cpp` is now ~600 lines — plan suggested splitting at ~500, but the methods share helper functions (pick_allocation, match resolution) so deferring the split; revisit if M4 pushes past ~800
+- [x] **Step 3:** 26/26 green; full suite 989 (was 963)
+- [x] **Step 4:** Commit: `feat(cluster): ClusterEngine list/down/kill/sync/probe/import`
 
 ### Task M1.9: Watcher event decode (pure-logic portion)
 
