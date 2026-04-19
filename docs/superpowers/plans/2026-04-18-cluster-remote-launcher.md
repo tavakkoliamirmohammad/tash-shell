@@ -64,14 +64,16 @@ Goal: tash builds with the new `cluster` builtin stubbed, new directories exist,
 **Files:**
 - Create: `src/builtins/cluster.cpp`
 - Modify: `include/tash/builtins.h` (declare `int builtin_cluster(const std::vector<std::string>& args, ShellState& state);`)
-- Modify: `src/builtins/meta.cpp` (register `"cluster"` in the builtin dispatch table, matching how `session` is registered)
+- Modify: `src/core/builtins.cpp` (register `"cluster"` in the builtin dispatch table — the real source-of-truth table lives here, not in meta.cpp as the plan originally said)
+- Modify: `CMakeLists.txt` (append `src/builtins/cluster.cpp` to `SHELL_SOURCES`; add conditional `target_compile_definitions(tash.out PRIVATE TASH_CLUSTER_ENABLED)` + toml++ include dir)
+- Modify: `cmake/tests.cmake` (mirror the same conditional flag + include dir onto `shell_lib`)
 
-- [ ] **Step 1:** Read `src/builtins/meta.cpp` and `src/builtins/nav.cpp` to understand the builtin signature and registration pattern
-- [ ] **Step 2:** Create `src/builtins/cluster.cpp` with `builtin_cluster` that writes `tash: cluster: not yet implemented\n` to stderr and returns 1 when TASH_CLUSTER is defined; when not defined, writes `tash: cluster: built without cluster support\n` and returns 1
-- [ ] **Step 3:** Declare in `include/tash/builtins.h`
-- [ ] **Step 4:** Register in `src/builtins/meta.cpp` dispatch table
-- [ ] **Step 5:** Rebuild tash; run `./build/tash.out -c 'cluster'` — must print the stub message and exit 1
-- [ ] **Step 6:** Commit: `feat(cluster): register stub cluster builtin`
+- [x] **Step 1:** Read `src/builtins/meta.cpp` and `src/core/builtins.cpp` to understand the builtin signature and registration pattern
+- [x] **Step 2:** Create `src/builtins/cluster.cpp` with `builtin_cluster` that writes `tash: cluster: not yet implemented\n` to stderr and returns 1 when TASH_CLUSTER_ENABLED is defined; when not defined, writes `tash: cluster: built without cluster support\n` and returns 1
+- [x] **Step 3:** Declare in `include/tash/builtins.h`
+- [x] **Step 4:** Register in `src/core/builtins.cpp` dispatch table (this is where `session`/`theme`/etc. are actually registered)
+- [x] **Step 5:** Rebuild tash; verify `echo cluster \| ./build/tash.out` prints `tash: cluster: not yet implemented` and `cluster; echo $?` yields `rc=1` (tash doesn't implement `-c`, so the plan's `-c` form was a misremembering — script-file / stdin piping works)
+- [x] **Step 6:** Commit: `feat(cluster): register stub cluster builtin`
 
 ### Task M0.4: Wire cluster unit-test CMake target
 
