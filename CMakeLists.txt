@@ -40,6 +40,7 @@ set(SHELL_SOURCES
     src/builtins/meta.cpp
     src/builtins/config.cpp
     src/builtins/trap.cpp
+    src/builtins/cluster.cpp
     src/ui/prompt.cpp
     src/ui/highlight.cpp
     src/ui/completion.cpp
@@ -99,6 +100,11 @@ if(TASH_SQLITE_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_SQLITE_ENABLED)
     target_include_directories(tash.out PRIVATE ${SQLite3_INCLUDE_DIRS})
     target_link_libraries(tash.out PRIVATE ${SQLite3_LIBRARIES})
+endif()
+
+if(TASH_CLUSTER_ENABLED)
+    target_compile_definitions(tash.out PRIVATE TASH_CLUSTER_ENABLED)
+    target_include_directories(tash.out PRIVATE ${tomlplusplus_SOURCE_DIR}/include)
 endif()
 
 include(cmake/tests.cmake)

@@ -46,6 +46,11 @@ if(BUILD_TESTS)
         target_link_libraries(shell_lib PRIVATE ${SQLite3_LIBRARIES})
     endif()
 
+    if(TASH_CLUSTER_ENABLED)
+        target_compile_definitions(shell_lib PRIVATE TASH_CLUSTER_ENABLED)
+        target_include_directories(shell_lib PRIVATE ${tomlplusplus_SOURCE_DIR}/include)
+    endif()
+
     add_executable(test_tokenizer tests/unit/test_tokenizer.cpp)
     target_include_directories(test_tokenizer PRIVATE ${TASH_INCLUDE_DIRS})
     target_link_libraries(test_tokenizer GTest::gtest_main shell_lib)
