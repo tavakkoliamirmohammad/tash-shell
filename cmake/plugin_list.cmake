@@ -272,3 +272,15 @@ tash_register_plugin(
     TEST_PREFIX "unit/sqlite/"
     TEST_STANDALONE
 )
+
+# ── Cluster subsystem (M0-scaffolded; built out in M1+) ────────
+# A smoke test to prove the cluster unit-test target is wired up
+# before any real engine/config/registry code lands. Later tasks
+# add sibling tash_register_plugin() entries for config, registry,
+# cluster_engine_*, watcher, etc.
+tash_register_plugin(
+    NAME cluster_smoke
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/smoke_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
