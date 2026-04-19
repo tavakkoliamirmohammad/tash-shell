@@ -275,12 +275,12 @@ is unchanged; the builtin pulls from `active_engine()` at call time.
 - Create: `tests/unit/cluster/demo_mode_test.cpp`
 - Modify: `src/startup.cpp` (detect `TASH_CLUSTER_DEMO=1`, construct demo ClusterEngine with in-memory scenario-driven fakes, install into ShellState)
 
-- [ ] **Step 1:** Write the demo scenario file per spec Section 7
-- [ ] **Step 2:** Write tests that exercise `demo up → demo list → demo launch → demo list → demo attach (exec recorded) → demo down` via the demo engine
-- [ ] **Step 3:** Implement `build_demo_engine(Registry&)` returning an owned ClusterEngine wired to in-memory fakes that read the scenario
-- [ ] **Step 4:** Modify startup to detect `TASH_CLUSTER_DEMO=1` and inject the demo engine
-- [ ] **Step 5:** Run `TASH_CLUSTER_DEMO=1 ./build/tash.out -c 'cluster up -r a100 -t 1h && cluster list && cluster down utah-notchpeak:1'` — must succeed end-to-end against the fake
-- [ ] **Step 6:** Commit: `feat(cluster): TASH_CLUSTER_DEMO=1 runs end-to-end offline`
+- [x] **Step 1:** Skipped the `demo.json` file — the demo impls are stateful C++ (monotonic jobid counter, live jobs table), which doesn't fit a static scenario file. The scenario-JSON model lands in M2 with the stub binaries. Plan drift noted
+- [x] **Step 2:** Wrote 6 tests (install/uninstall round-trip, idempotent replacement via registry behavior, demo_config shape, full up→list→launch→attach→down via dispatch_cluster, probe shows 4 idle a100, repeated uninstall is safe)
+- [x] **Step 3:** Implemented DemoMode (bundles Config + Registry + 6 seam impls + ClusterEngine) plus install_demo_engine / uninstall_demo_engine / demo_engine_installed / demo_config
+- [x] **Step 4:** `src/startup.cpp` checks `$TASH_CLUSTER_DEMO == "1"` inside `register_default_plugins()` (guarded by TASH_CLUSTER_ENABLED) and calls install_demo_engine()
+- [x] **Step 5:** `TASH_CLUSTER_DEMO=1 ./build/tash.out <script>` with `cluster up -r a100 -t 1:00:00 && cluster list && cluster down demo-cluster:10000 && cluster list` produces the expected end-to-end output — allocated on demo-n10000, list shows the new running allocation, cancellation message, then "(no allocations)". Plan's original literal command used `-c` and `utah-notchpeak:1`, neither of which apply to tash — adapted
+- [x] **Step 6:** Commit: `feat(cluster): TASH_CLUSTER_DEMO=1 runs end-to-end offline`
 
 ### Task M1.12: Coverage gate
 
