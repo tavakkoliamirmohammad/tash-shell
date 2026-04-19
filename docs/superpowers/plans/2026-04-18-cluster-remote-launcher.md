@@ -78,16 +78,22 @@ Goal: tash builds with the new `cluster` builtin stubbed, new directories exist,
 ### Task M0.4: Wire cluster unit-test CMake target
 
 **Files:**
-- Create: `tests/unit/cluster/CMakeLists.txt`
-- Modify: `tests/CMakeLists.txt` (add `add_subdirectory(unit/cluster)` under a `TASH_CLUSTER` guard)
 - Create: `tests/unit/cluster/smoke_test.cpp`
+- Modify: `cmake/plugin_list.cmake` (append a `tash_register_plugin(NAME cluster_smoke REQUIRES TASH_CLUSTER_ENABLED TEST_SOURCES … TEST_PREFIX "unit/cluster/")` entry — tash's established convention, not per-dir CMakeLists)
 
-- [ ] **Step 1:** Read `tests/unit/history/CMakeLists.txt` (or similar existing unit test module) for convention
-- [ ] **Step 2:** Create `tests/unit/cluster/CMakeLists.txt` that declares an executable `cluster_unit_tests` linking against GoogleTest and `cluster_lib`
-- [ ] **Step 3:** Create `tests/unit/cluster/smoke_test.cpp` with one `TEST(ClusterSmoke, BuildsAndRuns) { SUCCEED(); }`
-- [ ] **Step 4:** Add the subdirectory include under a `TASH_CLUSTER` guard in `tests/CMakeLists.txt`
-- [ ] **Step 5:** Build, run `ctest --test-dir build -R ClusterSmoke -V` — must pass
-- [ ] **Step 6:** Commit: `test(cluster): scaffold cluster unit test target`
+Plan drift note: the original plan described a per-subdir
+`tests/unit/cluster/CMakeLists.txt` + a `cluster_lib` target. Tash does
+not use per-dir CMakeLists under tests/; every plugin/unit-test
+registers via `tash_register_plugin` in `cmake/plugin_list.cmake`, and
+there is no separate `cluster_lib` (cluster sources go into
+`SHELL_SOURCES` like every other plugin). Adapted accordingly.
+
+- [x] **Step 1:** Read `cmake/plugins.cmake` + `cmake/plugin_list.cmake` to confirm the convention
+- [x] **Step 2:** Create `tests/unit/cluster/smoke_test.cpp` with one `TEST(ClusterSmoke, BuildsAndRuns) { SUCCEED(); }`
+- [x] **Step 3:** Append a `tash_register_plugin(NAME cluster_smoke …)` entry to `cmake/plugin_list.cmake` under `REQUIRES TASH_CLUSTER_ENABLED`
+- [x] **Step 4:** Build `test_cluster_smoke`; run `ctest --test-dir build -R ClusterSmoke -V` — must pass
+- [x] **Step 5:** Full `ctest` still green (891 tests, up from 890)
+- [x] **Step 6:** Commit: `test(cluster): scaffold cluster unit test target`
 
 ### Task M0.5: README feature matrix preview
 
