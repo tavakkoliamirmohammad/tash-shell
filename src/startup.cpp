@@ -35,6 +35,10 @@
 #include "tash/ai.h"
 #include "tash/plugins/ai_error_hook_provider.h"
 
+#ifdef TASH_CLUSTER_ENABLED
+#include "tash/cluster/demo_mode.h"
+#endif
+
 using std::string;
 
 namespace tash {
@@ -159,6 +163,14 @@ void register_default_plugins() {
                       << "\" (ignored)\n";
         }
     }
+
+    // Cluster subsystem -------------------------------------------
+#ifdef TASH_CLUSTER_ENABLED
+    if (const char* demo = std::getenv("TASH_CLUSTER_DEMO"); demo && std::string(demo) == "1") {
+        tash::cluster::install_demo_engine();
+        tash::io::debug("plugin: registered cluster demo engine");
+    }
+#endif
 
     // Hand the config to the global slot so a future log-level
     // consumer (and tests) can retrieve it.

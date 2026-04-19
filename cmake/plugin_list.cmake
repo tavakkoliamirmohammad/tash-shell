@@ -406,3 +406,12 @@ tash_register_plugin(
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_demo_mode
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/demo_mode.cpp
+    TEST_SOURCES tests/unit/cluster/demo_mode_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
