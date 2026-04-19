@@ -397,3 +397,12 @@ tash_register_plugin(
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster ${nlohmann_json_SOURCE_DIR}/include
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_builtin_dispatch
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/builtin_dispatch.cpp
+    TEST_SOURCES tests/unit/cluster/cluster_builtin_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)

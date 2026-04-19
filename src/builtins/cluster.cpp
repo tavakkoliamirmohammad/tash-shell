@@ -1,23 +1,41 @@
-// `cluster` builtin — SLURM-backed remote launcher.
+// `cluster` builtin — thin wrapper around tash::cluster::dispatch_cluster().
 //
-// This file currently ships only the entry-point stub so the command is
-// registered and discoverable (via `help cluster`, completion, etc.) even
-// before ClusterEngine lands in M1. The stub returns non-zero and tells
-// the user why — either the feature is not yet implemented in this build
-// (TASH_CLUSTER_ENABLED path), or tash was compiled with -DTASH_CLUSTER=OFF
-// (the #else path).
+// The argv parser + engine dispatch live in src/cluster/builtin_dispatch.cpp
+// so they can be unit-tested directly without plumbing ShellState or
+// intercepting real stdout/stderr. This shim just:
 //
-// Implementation proper arrives in M1.10 when this dispatches to
-// ClusterEngine via a ShellState slot.
+//   1. Pulls the active ClusterEngine (set by startup / demo mode).
+//   2. Feeds dispatch_cluster its argv + std::ostringstream capture.
+//   3. Forwards captured output to tash's write_stdout / write_stderr.
+//
+// If no engine is installed, the user gets a one-line explanation.
 
 #include "tash/builtins.h"
 #include "tash/core/signals.h"
 
-int builtin_cluster(const std::vector<std::string> &, ShellState &) {
 #ifdef TASH_CLUSTER_ENABLED
-    write_stderr("tash: cluster: not yet implemented\n");
-#else
-    write_stderr("tash: cluster: built without cluster support\n");
+  #include "tash/cluster/builtin_dispatch.h"
+  #include <sstream>
 #endif
+
+int builtin_cluster(const std::vector<std::string> &argv, ShellState &) {
+#ifdef TASH_CLUSTER_ENABLED
+    auto* eng = tash::cluster::active_engine();
+    if (!eng) {
+        write_stderr("tash: cluster: no cluster engine installed "
+                     "(start with TASH_CLUSTER_DEMO=1, or wait for M2 real-seam wiring)\n");
+        return 1;
+    }
+    std::ostringstream out, err;
+    int rc = tash::cluster::dispatch_cluster(argv, *eng, out, err);
+    const std::string so = out.str();
+    const std::string se = err.str();
+    if (!so.empty()) write_stdout(so);
+    if (!se.empty()) write_stderr(se);
+    return rc;
+#else
+    (void)argv;
+    write_stderr("tash: cluster: built without cluster support\n");
     return 1;
+#endif
 }
