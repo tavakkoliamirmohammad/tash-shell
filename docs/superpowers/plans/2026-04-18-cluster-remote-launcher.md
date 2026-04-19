@@ -558,9 +558,21 @@ the scoped behaviour.
 - Modify: `src/builtins/cluster.cpp`
 - Create: `tests/unit/cluster/cluster_engine_doctor_test.cpp`
 
-- [ ] **Step 1:** `doctor` checks: SSH reachability, `sbatch` presence on cluster, `tmux` presence, ControlMaster socket writable, known-clusters in `~/.ssh/config`. Each check reports OK/WARN/FAIL with a fix hint
-- [ ] **Step 2:** `probe` runs `sinfo` on each route for a resource, reports idle nodes + partition state
-- [ ] **Step 3:** Tests cover each check passing and each failing path
+Plan drift: `doctor` ships 3 checks — SSH reach, `sbatch` presence,
+`tmux` presence. The ControlMaster-socket-writable + ~/.ssh/config
+checks are dropped from M4.3; they'd require filesystem + ssh_config
+parsing abstractions that we'd have to mock carefully, and the signal
+they provide is largely captured by the SSH-reach probe itself (if ssh
+can't connect, the user finds out from the one check that matters).
+Polish candidates for later.
+
+`probe` was already implemented in M1.8 (sinfo-per-route report);
+M4.3 only wires the doctor CLI surface.
+
+- [x] **Step 1:** 3 checks with OK / WARN / FAIL + one-line fix hints. SSH reach failing skips follow-up checks (they can't succeed without ssh). Unknown filter cluster → EngineError
+- [x] **Step 2:** probe already in M1.8 — no change this iteration
+- [x] **Step 3:** 8 tests: all-OK / unreachable-skips-rest / sbatch-missing / tmux-missing / empty-which-output / multi-cluster-all / --cluster-filter / unknown-filter-errors
+- [x] **Step 4:** Commit: `feat(cluster): doctor and probe diagnostics`
 - [ ] **Step 4:** Commit: `feat(cluster): doctor and probe diagnostics`
 
 ### Task M4.4: Per-subcommand help text + error audit
