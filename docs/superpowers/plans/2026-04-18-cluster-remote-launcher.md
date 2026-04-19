@@ -116,11 +116,11 @@ Goal: full `Config`, `Registry`, `Presets`, `ClusterEngine` logic implemented ag
 **Files:**
 - Create: `include/tash/cluster/types.h`
 
-- [ ] **Step 1:** Write `include/tash/cluster/types.h` defining `Cluster`, `Route`, `Resource`, `Preset`, `Defaults`, `Config`, `Allocation`, `Workspace`, `Instance`, `RemoteTarget`, `SubmitSpec`, `SubmitResult`, `JobState`, `PartitionState`, `SshResult`, `SessionInfo`, `UpSpec`, `LaunchSpec`, `AttachSpec` — all POD aggregates with plain fields as per spec Section 8.2
-- [ ] **Step 2:** Add include guards, namespace `tash::cluster`
-- [ ] **Step 3:** Add `types.cpp` only if operator<< is needed for gtest pretty-printing; otherwise skip
-- [ ] **Step 4:** Build tash; no new tests yet (pure header)
-- [ ] **Step 5:** Commit: `feat(cluster): declare core value types`
+- [x] **Step 1:** Write `include/tash/cluster/types.h` defining `Cluster`, `Route`, `Resource`, `Preset`, `Defaults`, `Config`, `Allocation`, `Workspace`, `Instance`, `RemoteTarget`, `SubmitSpec`, `SubmitResult`, `JobState`, `PartitionState`, `SshResult`, `SessionInfo`, `UpSpec`, `LaunchSpec`, `AttachSpec` — all POD aggregates with plain fields as per spec Section 8.2
+- [x] **Step 2:** Add include guards, namespace `tash::cluster`
+- [x] **Step 3:** Skipped `types.cpp` — no tests yet need pretty-printing, can add when the first test fails on enum output
+- [x] **Step 4:** Build tash + syntax-check the header via `g++ -std=c++17 -fsyntax-only`
+- [x] **Step 5:** Commit: `feat(cluster): declare core value types`
 
 ### Task M1.2: Config TOML loader + validator
 
