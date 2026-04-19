@@ -1,0 +1,16 @@
+# Resource's route names a cluster that isn't declared in [[clusters]].
+
+[[clusters]]
+name     = "real"
+ssh_host = "real.example"
+
+[[resources]]
+name = "r1"
+kind = "gpu"
+routes = [
+  { cluster = "ghost", account = "a", partition = "p", qos = "q", gres = "gpu:g" },
+]
+
+[[presets]]
+name    = "p"
+command = "cmd"

@@ -1,0 +1,2 @@
+# Syntactically broken TOML — unclosed array, bad key.
+this is not valid [[

@@ -284,3 +284,12 @@ tash_register_plugin(
     TEST_SOURCES tests/unit/cluster/smoke_test.cpp
     TEST_PREFIX "unit/cluster/"
 )
+
+tash_register_plugin(
+    NAME cluster_config
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/config.cpp
+    TEST_SOURCES tests/unit/cluster/config_test.cpp
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/configs"
+)

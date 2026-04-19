@@ -1,0 +1,14 @@
+# Cluster entry missing the required ssh_host field.
+
+[[clusters]]
+name = "c1"
+
+[[resources]]
+name = "r1"
+routes = [
+  { cluster = "c1", account = "a", partition = "p", qos = "q", gres = "" },
+]
+
+[[presets]]
+name    = "p"
+command = "cmd"
