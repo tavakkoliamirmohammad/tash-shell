@@ -319,11 +319,11 @@ Goal: tash can now drive real `ssh`, `sbatch`, `squeue`, `sinfo`, `tmux` against
 - Create: `tests/fixtures/recordings/sbatch/success.txt`
 - Create: `tests/fixtures/recordings/sbatch/invalid-account.txt`
 
-- [ ] **Step 1:** Capture or craft recordings (anonymized) — can be synthesized from public SLURM doc examples if no CHPC capture is available at plan-time. Each fixture is a verbatim stdout capture + a sidecar `.expected.json` describing the parsed result
-- [ ] **Step 2:** Write `slurm_ops_parser_test.cpp` that loops over each fixture, parses it, asserts the JSON shape
-- [ ] **Step 3:** Implement real `SlurmOps` with `sbatch/squeue/sinfo/scancel` command builders + stdout parsers; takes an `ISshClient&` and constructs the argv, the actual fork+exec happens inside `ISshClient::run`
-- [ ] **Step 4:** All parser tests pass
-- [ ] **Step 5:** Commit: `feat(cluster): real SlurmOps with parsers + golden recordings`
+- [x] **Step 1:** Created 8 fixture files (anonymized synthetic captures of stable `-o`-formatted output). Plan drift: no `.expected.json` sidecars — inline expectations in the test code are clearer and survive refactors better
+- [x] **Step 2:** Wrote `slurm_ops_parser_test.cpp` with 18 tests covering parse_squeue (normal, pending-null, mixed states, empty, malformed), parse_sinfo (idle/alloc/mix, down*/drain, empty, null-gres), parse_sbatch_jobid (banner, --parsable, error, empty), and every build_*_argv builder
+- [x] **Step 3:** Factored parsers into `tash::cluster::slurm_parse` (pure, no ssh) in `src/cluster/slurm_parse.cpp` + `include/tash/cluster/slurm_parse.h`. `SlurmOps` impl in `src/cluster/slurm_ops.cpp` is thin glue — build_*_argv + ssh.run + parse_*. Exposes `make_slurm_ops()` factory
+- [x] **Step 4:** 18/18 parser tests pass
+- [x] **Step 5:** Commit: `feat(cluster): real SlurmOps with parsers + golden recordings`
 
 ### Task M2.2: Real SshClient with ControlMaster lifecycle
 
