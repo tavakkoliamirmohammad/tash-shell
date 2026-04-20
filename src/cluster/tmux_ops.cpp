@@ -54,7 +54,13 @@ public:
         const auto inner   = tmux_compose::tmux_new_window(session, window, cwd, cmd);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
         const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{10});
-        return r.exit_code == 0;
+        if (r.exit_code == 0) return true;
+        std::fprintf(stderr,
+            "tash: cluster: tmux new-window stderr: %s\n", r.err.c_str());
+        if (!r.out.empty())
+            std::fprintf(stderr,
+                "tash: cluster: tmux new-window stdout: %s\n", r.out.c_str());
+        return false;
     }
 
     std::vector<SessionInfo> list_sessions(const RemoteTarget& t, ISshClient& ssh) override {
