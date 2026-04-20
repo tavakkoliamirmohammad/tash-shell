@@ -28,7 +28,9 @@ public:
                       const std::string& cwd, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_new_session(session, cwd);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
-        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{10});
+        // 60s because srun --jobid --overlap can take 5-15s on busy
+        // clusters to allocate a job step before bash even starts.
+        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{60});
         if (r.exit_code == 0) return true;
         // tmux exit code 1 with "duplicate session" is benign — the
         // session already exists from a prior launch, and the upcoming
@@ -53,7 +55,7 @@ public:
                      const std::string& cmd, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_new_window(session, window, cwd, cmd);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
-        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{10});
+        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{60});
         if (r.exit_code == 0) return true;
         std::fprintf(stderr,
             "tash: cluster: tmux new-window stderr: %s\n", r.err.c_str());
@@ -66,7 +68,7 @@ public:
     std::vector<SessionInfo> list_sessions(const RemoteTarget& t, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_list_sessions();
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
-        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{5});
+        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{30});
         if (r.exit_code != 0) return {};
         return tmux_compose::parse_list_sessions(r.out);
     }
@@ -75,14 +77,14 @@ public:
                       const std::string& window, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_kill_window(session, window);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
-        (void)ssh.run(t.cluster, {payload}, std::chrono::seconds{5});
+        (void)ssh.run(t.cluster, {payload}, std::chrono::seconds{30});
     }
 
     bool is_window_alive(const RemoteTarget& t, const std::string& session,
                            const std::string& window, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_is_alive(session, window);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
-        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{5});
+        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{30});
         if (r.exit_code != 0) return false;
         // Non-empty pid output => alive.
         for (char c : r.out) {
