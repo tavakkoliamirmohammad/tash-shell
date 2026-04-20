@@ -117,11 +117,6 @@ private:
     std::vector<std::string> fallback_models_;
     int connect_timeout_;
     int read_timeout_;
-    LLMResponse call_model(const std::string &model, const std::string &body,
-                           int attempt = 1, int max_attempts = 1);
-    LLMResponse call_model_stream(const std::string &model, const std::string &body,
-                                   std::function<void(const std::string &chunk)> on_chunk,
-                                   int attempt = 1, int max_attempts = 1);
 };
 
 class OpenAIClient : public LLMClient {

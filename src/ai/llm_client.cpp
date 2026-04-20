@@ -861,34 +861,229 @@ static string map_gemini_error(int status, const string &body) {
 
 // Turn a transport-layer failure into a user-facing message. Keeps the
 // provider name consistent ("Gemini", "OpenAI", "Ollama") so the user can
-// tell which endpoint is actually broken.
+// tell which endpoint is actually broken. Takes the public TransportStatus
+// so callers that already carry one on an LLMResponse don't have to
+// map it back to the internal enum.
 static string format_transport_error(const string &provider,
-                                     TransportError kind,
+                                     TransportStatus kind,
                                      const string &curl_message,
                                      const string &raw_message) {
     switch (kind) {
-        case TransportError::Aborted:
+        case TransportStatus::Aborted:
             return provider + " request cancelled.";
-        case TransportError::Timeout:
+        case TransportStatus::Timeout:
             return provider + " timed out. Check your connection or retry.";
-        case TransportError::DnsFailure:
+        case TransportStatus::DnsFailure:
             return "couldn't resolve " + provider + " hostname. Check your DNS/network.";
-        case TransportError::ConnectFailed:
+        case TransportStatus::ConnectFailed:
             return "couldn't connect to " + provider
                  + ". The service may be down or blocked.";
-        case TransportError::TlsFailure:
+        case TransportStatus::TlsFailure:
             return provider + " TLS handshake failed: "
                  + (curl_message.empty() ? raw_message : curl_message);
-        case TransportError::Overflow:
+        case TransportStatus::Overflow:
             return provider + " response too large. "
                    "Adjust TASH_AI_MAX_RESPONSE_BYTES if you trust the server.";
-        case TransportError::CurlInit:
-            return provider + ": internal libcurl init failed.";
-        case TransportError::Other:
+        case TransportStatus::Ok:
         default:
             return "couldn't reach " + provider + ": "
                  + (curl_message.empty() ? raw_message : curl_message);
     }
+}
+
+// ═════════════════════════════════════════════════════════════════
+// ProviderAdapter + shared invoke helpers
+//
+// Each concrete provider (Gemini/OpenAI/Ollama) lives in its own class
+// for virtual dispatch, but 95% of every `generate*` method was the
+// same retry/error/logging skeleton with per-provider knobs. That
+// skeleton is now the two `invoke_*` helpers below; provider classes
+// reduce to "build body, pick URL, hand off to invoke_*".
+//
+// Keeping the adapter file-local (no header export) because the
+// LLMClient public interface is unchanged — this is purely an
+// implementation-side dedup.
+// ═════════════════════════════════════════════════════════════════
+
+using ExtractTextFn = std::function<std::string(const std::string &body)>;
+using MapHttpErrorFn = std::function<std::string(int status, const std::string &body)>;
+using ParseStreamLineFn = std::function<std::string(const std::string &line)>;
+// Optional custom transport-error formatter for providers with hints
+// the generic formatter can't give (Ollama says "is `ollama serve`
+// running?" on ConnectFailed). Return empty string to fall through to
+// the generic format_transport_error.
+using TransportMsgFn = std::function<std::string(TransportStatus,
+                                                   const std::string &curl_message,
+                                                   const std::string &raw_message)>;
+
+struct ProviderAdapter {
+    const char *display_name = "";   // "Gemini", "OpenAI", "Ollama"
+    vector<string> auth_headers;     // per-instance, built at ctor
+    ExtractTextFn extract_text;
+    MapHttpErrorFn map_http_error;
+    ParseStreamLineFn parse_stream_line;   // only used by streaming paths
+    TransportMsgFn custom_transport_msg;   // optional; empty by default
+    bool allow_plain_http = false;
+    int connect_timeout = 10;
+    int read_timeout = 30;
+};
+
+static std::string transport_message(const ProviderAdapter &a,
+                                      TransportStatus status,
+                                      const std::string &curl_message,
+                                      const std::string &raw_message) {
+    if (a.custom_transport_msg) {
+        std::string m = a.custom_transport_msg(status, curl_message, raw_message);
+        if (!m.empty()) return m;
+    }
+    return format_transport_error(a.display_name, status,
+                                   curl_message, raw_message);
+}
+
+// Fill an LLMResponse's transport-error fields from a buffered CurlPostResult.
+static void fill_transport_error(LLMResponse &resp,
+                                  const ProviderAdapter &a,
+                                  const CurlPostResult &result) {
+    resp.transport = public_transport_status(result.error_kind);
+    resp.error_message = transport_message(a, resp.transport,
+                                             result.curl_message,
+                                             result.error_message);
+    resp.http_status = 0;
+}
+
+// One buffered round-trip, pre-classified. No retry, no fallback.
+// Callers that need retry wrap this in a loop; callers that need model
+// fallback do the same.
+static LLMResponse invoke_once_buffered(const ProviderAdapter &a,
+                                          const std::string &url,
+                                          const std::string &body,
+                                          const std::string &model_for_debug,
+                                          int attempt, int max_attempts) {
+    LLMResponse resp;
+    resp.success = false;
+    resp.http_status = 0;
+
+    log_request_debug(a.display_name, model_for_debug, body.size());
+    auto t0 = std::chrono::steady_clock::now();
+    auto result = curl_post(url, body, a.auth_headers,
+                             a.connect_timeout, a.read_timeout,
+                             a.allow_plain_http);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+
+    if (!result.reached_server) {
+        log_curl_failure(a.display_name, result.curl_message.empty()
+                            ? result.error_message : result.curl_message,
+                         attempt, max_attempts,
+                         /*final=*/attempt >= max_attempts);
+        fill_transport_error(resp, a, result);
+        return resp;
+    }
+
+    resp.http_status = result.http_status;
+
+    if (result.http_status == 200) {
+        log_response_debug(a.display_name, result.http_status,
+                           result.body.size(), elapsed_ms);
+        resp.text = a.extract_text(result.body);
+        if (!resp.text.empty()) {
+            resp.success = true;
+        } else {
+            resp.error_message = "unexpected response. Try again.";
+            tash::io::error(std::string(a.display_name)
+                            + ": HTTP 200 but response body was not parsable");
+            tash::io::debug(std::string(a.display_name) + ": response body: "
+                            + truncate_for_debug(result.body));
+        }
+        return resp;
+    }
+
+    bool will_retry = attempt < max_attempts
+                      && (result.http_status == 429 || result.http_status >= 500);
+    log_http_failure(a.display_name, result.http_status,
+                     attempt, max_attempts, /*final=*/!will_retry,
+                     result.body);
+    resp.error_message = a.map_http_error(result.http_status, result.body);
+    return resp;
+}
+
+// Buffered call with retry on transient (429/5xx/transport). Stops early
+// on Aborted (user Ctrl+C) — we never re-issue an explicitly-cancelled
+// request.
+static LLMResponse invoke_buffered(const ProviderAdapter &a,
+                                     const std::string &url,
+                                     const std::string &body,
+                                     const std::string &model_for_debug,
+                                     int max_attempts = 2) {
+    LLMResponse resp;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        if (attempt > 1) retry_sleep();
+        resp = invoke_once_buffered(a, url, body, model_for_debug,
+                                      attempt, max_attempts);
+        if (resp.success) return resp;
+        if (resp.transport == TransportStatus::Aborted) return resp;
+        if (!LLMClient::is_retryable(resp)) return resp;
+    }
+    return resp;
+}
+
+// One streaming round-trip, pre-classified. No retry.
+static LLMResponse invoke_once_streaming(const ProviderAdapter &a,
+                                           const std::string &url,
+                                           const std::string &body,
+                                           const std::string &model_for_debug,
+                                           std::function<void(const std::string &)> on_chunk,
+                                           int attempt, int max_attempts) {
+    log_request_debug(a.display_name, model_for_debug, body.size());
+    LLMResponse resp = curl_streaming_post(url, body, a.auth_headers,
+                                             on_chunk, a.parse_stream_line,
+                                             a.connect_timeout, a.read_timeout,
+                                             a.allow_plain_http);
+    if (resp.success) return resp;
+
+    if (resp.http_status == 0) {
+        log_curl_failure(a.display_name, resp.error_message,
+                         attempt, max_attempts,
+                         /*final=*/attempt >= max_attempts);
+        resp.error_message = transport_message(
+            a, resp.transport, /*curl_message=*/"", resp.error_message);
+    } else if (resp.http_status != 200) {
+        bool will_retry = attempt < max_attempts
+                          && (resp.http_status == 429 || resp.http_status >= 500);
+        log_http_failure(a.display_name, resp.http_status,
+                         attempt, max_attempts, /*final=*/!will_retry,
+                         /*response_body=*/"");
+        resp.error_message = a.map_http_error(resp.http_status, "");
+    }
+    return resp;
+}
+
+// Streaming with retry. Retries only when no user-visible bytes have
+// been emitted yet — retrying after partial output would duplicate
+// what's already on the terminal.
+static LLMResponse invoke_streaming(
+    const ProviderAdapter &a,
+    const std::string &url,
+    const std::string &body,
+    const std::string &model_for_debug,
+    std::function<void(const std::string &)> on_chunk,
+    int max_attempts = 2) {
+    LLMResponse resp;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        if (attempt > 1) retry_sleep();
+        bool emitted_any = false;
+        auto wrap = [&](const std::string &c) {
+            if (!c.empty()) emitted_any = true;
+            if (on_chunk) on_chunk(c);
+        };
+        resp = invoke_once_streaming(a, url, body, model_for_debug,
+                                       wrap, attempt, max_attempts);
+        if (resp.success) return resp;
+        if (resp.transport == TransportStatus::Aborted) return resp;
+        if (emitted_any) return resp;
+        if (!LLMClient::is_retryable(resp)) return resp;
+    }
+    return resp;
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -922,247 +1117,111 @@ static string gemini_endpoint_url(const string &model, bool stream) {
          + model + ":" + method;
 }
 
-LLMResponse GeminiClient::call_model(const string &model, const string &body,
-                                      int attempt, int max_attempts) {
-    LLMResponse resp;
+static ProviderAdapter gemini_adapter(const string &api_key,
+                                        int connect_timeout, int read_timeout,
+                                        bool streaming) {
+    ProviderAdapter a;
+    a.display_name = "Gemini";
+    a.auth_headers = {"x-goog-api-key: " + api_key};
+    a.extract_text = extract_gemini_text;
+    a.map_http_error = map_gemini_error;
+    a.connect_timeout = connect_timeout;
+    a.read_timeout = read_timeout;
+    a.allow_plain_http = false;
+    if (streaming) {
+        a.parse_stream_line = [](const string &line) -> string {
+            if (line.size() > 6 && line.substr(0, 6) == "data: ") {
+                return extract_gemini_text(line.substr(6));
+            }
+            return "";
+        };
+    }
+    return a;
+}
+
+// Gemini's model-fallback pattern: try the primary; if HTTP says the
+// model doesn't exist (`model_not_found` from map_gemini_error), try
+// each fallback in order. Both buffered and streaming variants below
+// wrap invoke_* with this chain. The `max_attempts` applies per-model.
+static LLMResponse gemini_buffered_chain(const ProviderAdapter &a,
+                                           const string &body,
+                                           const string &primary_model,
+                                           const vector<string> &fallbacks,
+                                           int max_attempts) {
+    auto try_model = [&](const string &model) {
+        string url = gemini_endpoint_url(model, /*stream=*/false);
+        return invoke_buffered(a, url, body, model, max_attempts);
+    };
+    LLMResponse resp = try_model(primary_model);
+    if (resp.success || resp.error_message != "model_not_found") return resp;
+    for (const auto &fb : fallbacks) {
+        resp = try_model(fb);
+        if (resp.success || resp.error_message != "model_not_found") return resp;
+    }
     resp.success = false;
-    resp.http_status = 0;
-
-    string url = gemini_endpoint_url(model, /*stream=*/false);
-    vector<string> hdrs = {"x-goog-api-key: " + api_key_};
-
-    log_request_debug(get_provider_name(), model, body.size());
-    auto t0 = std::chrono::steady_clock::now();
-    auto result = curl_post(url, body, hdrs, connect_timeout_, read_timeout_);
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
-
-    if (!result.reached_server) {
-        // Retry exhaustion is decided by the caller; we treat the
-        // "last possible attempt" as the final error so the diagnostic
-        // severity matches user intuition ("tash: error" vs "warning").
-        log_curl_failure(get_provider_name(), result.curl_message.empty()
-                            ? result.error_message : result.curl_message,
-                         attempt, max_attempts,
-                         /*final=*/attempt >= max_attempts);
-        resp.transport = public_transport_status(result.error_kind);
-        resp.error_message = format_transport_error(
-            "Gemini", result.error_kind, result.curl_message, result.error_message);
-        return resp;
-    }
-
-    resp.http_status = result.http_status;
-
-    if (result.http_status == 200) {
-        log_response_debug(get_provider_name(), result.http_status,
-                           result.body.size(), elapsed_ms);
-        resp.text = extract_gemini_text(result.body);
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
-            resp.error_message = "unexpected response. Try again.";
-            tash::io::error(get_provider_name()
-                            + ": HTTP 200 but response body was not parsable");
-            tash::io::debug(get_provider_name() + ": response body: "
-                            + truncate_for_debug(result.body));
-        }
-    } else {
-        // Retryable statuses (429/5xx) are warnings on all but the last
-        // attempt; non-retryable statuses are always "final" because the
-        // caller will not retry them.
-        bool will_retry = attempt < max_attempts
-                          && (result.http_status == 429 || result.http_status >= 500);
-        log_http_failure(get_provider_name(), result.http_status,
-                         attempt, max_attempts, /*final=*/!will_retry,
-                         result.body);
-        resp.error_message = map_gemini_error(result.http_status, result.body);
-    }
-
+    resp.http_status = 404;
+    resp.error_message = "AI model unavailable.";
     return resp;
 }
 
-// NOTE: streaming is real-time via libcurl's CURLOPT_WRITEFUNCTION
-// which fires as data arrives from the server.
-
-LLMResponse GeminiClient::call_model_stream(const string &model, const string &body,
-                                             std::function<void(const string &chunk)> on_chunk,
-                                             int attempt, int max_attempts) {
-    string url = gemini_endpoint_url(model, /*stream=*/true);
-    vector<string> hdrs = {"x-goog-api-key: " + api_key_};
-
-    auto parse_line = [](const string &line) -> string {
-        if (line.size() > 6 && line.substr(0, 6) == "data: ") {
-            return extract_gemini_text(line.substr(6));
-        }
-        return "";
+static LLMResponse gemini_streaming_chain(const ProviderAdapter &a,
+                                            const string &body,
+                                            const string &primary_model,
+                                            const vector<string> &fallbacks,
+                                            std::function<void(const string &)> on_chunk,
+                                            int max_attempts) {
+    auto try_model = [&](const string &model) {
+        string url = gemini_endpoint_url(model, /*stream=*/true);
+        return invoke_streaming(a, url, body, model, on_chunk, max_attempts);
     };
-
-    log_request_debug(get_provider_name(), model, body.size());
-    LLMResponse resp = curl_streaming_post(url, body, hdrs, on_chunk, parse_line,
-                                            connect_timeout_, read_timeout_);
-
-    // Map errors using Gemini-specific error mapping
-    if (!resp.success) {
-        if (resp.http_status == 0) {
-            log_curl_failure(get_provider_name(), resp.error_message,
-                             attempt, max_attempts,
-                             /*final=*/attempt >= max_attempts);
-            // Rewrite generic "connection failed: ..." into a provider-
-            // scoped message the handler can surface verbatim.
-            TransportError kind = TransportError::Other;
-            switch (resp.transport) {
-                case TransportStatus::Aborted:       kind = TransportError::Aborted; break;
-                case TransportStatus::Timeout:       kind = TransportError::Timeout; break;
-                case TransportStatus::DnsFailure:    kind = TransportError::DnsFailure; break;
-                case TransportStatus::ConnectFailed: kind = TransportError::ConnectFailed; break;
-                case TransportStatus::TlsFailure:    kind = TransportError::TlsFailure; break;
-                case TransportStatus::Overflow:      kind = TransportError::Overflow; break;
-                default: break;
-            }
-            resp.error_message = format_transport_error(
-                "Gemini", kind, /*curl_message=*/"", resp.error_message);
-        } else if (resp.http_status != 200) {
-            bool will_retry = attempt < max_attempts
-                              && (resp.http_status == 429 || resp.http_status >= 500);
-            log_http_failure(get_provider_name(), resp.http_status,
-                             attempt, max_attempts, /*final=*/!will_retry,
-                             /*response_body=*/"");
-            resp.error_message = map_gemini_error(resp.http_status, "");
-        }
+    LLMResponse resp = try_model(primary_model);
+    if (resp.success || resp.error_message != "model_not_found") return resp;
+    for (const auto &fb : fallbacks) {
+        resp = try_model(fb);
+        if (resp.success || resp.error_message != "model_not_found") return resp;
     }
+    resp.success = false;
+    resp.http_status = 404;
+    resp.error_message = "AI model unavailable.";
     return resp;
 }
 
 LLMResponse GeminiClient::generate(const string &system_prompt, const string &user_prompt) {
+    auto a = gemini_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_gemini_request_json(system_prompt, user_prompt);
-    constexpr int kMaxAttempts = 2;
-
-    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
-        if (attempt > 0) retry_sleep();
-
-        // Try primary model
-        LLMResponse resp = call_model(model_, body, attempt + 1, kMaxAttempts);
-        if (resp.success || resp.error_message != "model_not_found") {
-            if (resp.success || !is_retryable(resp)) return resp;
-            continue;
-        }
-
-        // Try fallback models
-        for (size_t i = 0; i < fallback_models_.size(); i++) {
-            resp = call_model(fallback_models_[i], body, attempt + 1, kMaxAttempts);
-            if (resp.success || resp.error_message != "model_not_found") {
-                if (resp.success || !is_retryable(resp)) return resp;
-                break;
-            }
-        }
-        if (resp.success || !is_retryable(resp)) return resp;
-    }
-
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 404;
-    resp.error_message = "AI model unavailable.";
-    return resp;
+    return gemini_buffered_chain(a, body, model_, fallback_models_, /*max_attempts=*/2);
 }
 
 LLMResponse GeminiClient::generate_stream(const string &system_prompt, const string &user_prompt,
                                            std::function<void(const string &chunk)> on_chunk) {
+    auto a = gemini_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/true);
     string body = build_gemini_request_json(system_prompt, user_prompt);
-
-    LLMResponse resp = call_model_stream(model_, body, on_chunk);
-    if (resp.success || resp.error_message != "model_not_found") {
-        return resp;
-    }
-
-    for (size_t i = 0; i < fallback_models_.size(); i++) {
-        resp = call_model_stream(fallback_models_[i], body, on_chunk);
-        if (resp.success || resp.error_message != "model_not_found") {
-            return resp;
-        }
-    }
-
-    resp.success = false;
-    resp.http_status = 404;
-    resp.error_message = "AI model unavailable.";
-    return resp;
+    return gemini_streaming_chain(a, body, model_, fallback_models_, on_chunk,
+                                   /*max_attempts=*/1);
 }
 
 LLMResponse GeminiClient::generate_with_context(const string &system_prompt,
                                                   const vector<ConversationTurn> &history,
                                                   const string &user_prompt) {
+    auto a = gemini_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_gemini_context_json(system_prompt, history, user_prompt);
-
-    LLMResponse resp = call_model(model_, body);
-    if (resp.success || resp.error_message != "model_not_found") {
-        return resp;
-    }
-
-    for (size_t i = 0; i < fallback_models_.size(); i++) {
-        resp = call_model(fallback_models_[i], body);
-        if (resp.success || resp.error_message != "model_not_found") {
-            return resp;
-        }
-    }
-
-    resp.success = false;
-    resp.http_status = 404;
-    resp.error_message = "AI model unavailable.";
-    return resp;
+    return gemini_buffered_chain(a, body, model_, fallback_models_, /*max_attempts=*/1);
 }
 
 LLMResponse GeminiClient::generate_structured(const string &system_prompt,
                                                 const string &user_prompt) {
+    auto a = gemini_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_gemini_structured_json(system_prompt, user_prompt);
-    constexpr int kMaxAttempts = 2;
-
-    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
-        if (attempt > 0) retry_sleep();
-
-        LLMResponse resp = call_model(model_, body, attempt + 1, kMaxAttempts);
-        if (resp.success || resp.error_message != "model_not_found") {
-            if (resp.success || !is_retryable(resp)) return resp;
-            continue;
-        }
-
-        for (size_t i = 0; i < fallback_models_.size(); i++) {
-            resp = call_model(fallback_models_[i], body, attempt + 1, kMaxAttempts);
-            if (resp.success || resp.error_message != "model_not_found") {
-                if (resp.success || !is_retryable(resp)) return resp;
-                break;
-            }
-        }
-        if (resp.success || !is_retryable(resp)) return resp;
-    }
-
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 404;
-    resp.error_message = "AI model unavailable.";
-    return resp;
+    return gemini_buffered_chain(a, body, model_, fallback_models_, /*max_attempts=*/2);
 }
 
 LLMResponse GeminiClient::generate_structured_with_context(
     const string &system_prompt,
     const vector<ConversationTurn> &history,
     const string &user_prompt) {
+    auto a = gemini_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_gemini_structured_context_json(system_prompt, history, user_prompt);
-
-    LLMResponse resp = call_model(model_, body);
-    if (resp.success || resp.error_message != "model_not_found") {
-        return resp;
-    }
-
-    for (size_t i = 0; i < fallback_models_.size(); i++) {
-        resp = call_model(fallback_models_[i], body);
-        if (resp.success || resp.error_message != "model_not_found") {
-            return resp;
-        }
-    }
-
-    resp.success = false;
-    resp.http_status = 404;
-    resp.error_message = "AI model unavailable.";
-    return resp;
+    return gemini_buffered_chain(a, body, model_, fallback_models_, /*max_attempts=*/1);
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -1235,6 +1294,39 @@ static string map_ollama_error(int status, const string &body) {
 // OpenAIClient implementation
 // ═════════════════════════════════════════════════════════════════
 
+static const char *kOpenAIChatUrl = "https://api.openai.com/v1/chat/completions";
+
+static ProviderAdapter openai_adapter(const string &api_key,
+                                        int connect_timeout, int read_timeout,
+                                        bool streaming) {
+    ProviderAdapter a;
+    a.display_name = "OpenAI";
+    a.auth_headers = {"Authorization: Bearer " + api_key};
+    a.extract_text = extract_openai_text;
+    a.map_http_error = map_openai_error;
+    a.connect_timeout = connect_timeout;
+    a.read_timeout = read_timeout;
+    a.allow_plain_http = false;
+    if (streaming) {
+        a.parse_stream_line = [](const string &line) -> string {
+            if (line == "data: [DONE]") return "";
+            if (line.size() > 6 && line.substr(0, 6) == "data: ") {
+                try {
+                    json j = json::parse(line.substr(6));
+                    if (j.contains("choices") && j["choices"].is_array() &&
+                        !j["choices"].empty() &&
+                        j["choices"][0].contains("delta") &&
+                        j["choices"][0]["delta"].contains("content")) {
+                        return j["choices"][0]["delta"]["content"].get<string>();
+                    }
+                } catch (const json::exception &) {}
+            }
+            return "";
+        };
+    }
+    return a;
+}
+
 OpenAIClient::OpenAIClient(const string &api_key)
     : api_key_(api_key),
       model_(tash::ai::default_model_for("openai")),
@@ -1245,287 +1337,41 @@ void OpenAIClient::set_model(const string &model) { model_ = model; }
 string OpenAIClient::get_model() const { return model_; }
 
 LLMResponse OpenAIClient::generate(const string &system_prompt, const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
+    auto a = openai_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_openai_request_json(model_, system_prompt, user_prompt, false);
-    constexpr int kMaxAttempts = 2;
-
-    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
-        if (attempt > 0) retry_sleep();
-
-        vector<string> hdrs = {"Authorization: Bearer " + api_key_};
-        log_request_debug(get_provider_name(), model_, body.size());
-        auto t0 = std::chrono::steady_clock::now();
-        auto result = curl_post(
-            "https://api.openai.com/v1/chat/completions",
-            body, hdrs, connect_timeout_, read_timeout_);
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t0).count();
-
-        if (!result.reached_server) {
-            log_curl_failure(get_provider_name(), result.curl_message.empty()
-                                ? result.error_message : result.curl_message,
-                             attempt + 1, kMaxAttempts,
-                             /*final=*/attempt + 1 >= kMaxAttempts);
-            resp.transport = public_transport_status(result.error_kind);
-            resp.error_message = format_transport_error(
-                "OpenAI", result.error_kind, result.curl_message, result.error_message);
-            resp.http_status = 0;
-            // Aborted requests are not retryable: the user asked us to stop.
-            if (result.error_kind == TransportError::Aborted) return resp;
-            continue;
-        }
-
-        resp.http_status = result.http_status;
-
-        if (result.http_status == 200) {
-            log_response_debug(get_provider_name(), result.http_status,
-                               result.body.size(), elapsed_ms);
-            resp.text = extract_openai_text(result.body);
-            if (!resp.text.empty()) {
-                resp.success = true;
-            } else {
-                resp.error_message = "unexpected response. Try again.";
-                tash::io::error(get_provider_name()
-                                + ": HTTP 200 but response body was not parsable");
-                tash::io::debug(get_provider_name() + ": response body: "
-                                + truncate_for_debug(result.body));
-            }
-            return resp;
-        }
-
-        resp.error_message = map_openai_error(result.http_status, result.body);
-        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
-        log_http_failure(get_provider_name(), result.http_status,
-                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
-                         result.body);
-        if (!is_retryable(resp)) return resp;
-    }
-
-    return resp;
+    return invoke_buffered(a, kOpenAIChatUrl, body, model_);
 }
 
 LLMResponse OpenAIClient::generate_stream(const string &system_prompt, const string &user_prompt,
                                            std::function<void(const string &chunk)> on_chunk) {
-    string url = "https://api.openai.com/v1/chat/completions";
-    vector<string> hdrs = {"Authorization: Bearer " + api_key_};
-
-    string body = build_openai_request_json(model_, system_prompt, user_prompt, true);
-
-    auto parse_line = [](const string &line) -> string {
-        if (line == "data: [DONE]") return "";
-        if (line.size() > 6 && line.substr(0, 6) == "data: ") {
-            try {
-                json j = json::parse(line.substr(6));
-                if (j.contains("choices") && j["choices"].is_array() &&
-                    !j["choices"].empty() && j["choices"][0].contains("delta") &&
-                    j["choices"][0]["delta"].contains("content")) {
-                    return j["choices"][0]["delta"]["content"].get<string>();
-                }
-            } catch (const json::exception &) {}
-        }
-        return "";
-    };
-
-    log_request_debug(get_provider_name(), model_, body.size());
-    LLMResponse resp = curl_streaming_post(url, body, hdrs, on_chunk, parse_line,
-                                connect_timeout_, read_timeout_);
-    if (!resp.success) {
-        if (resp.http_status == 0) {
-            log_curl_failure(get_provider_name(), resp.error_message,
-                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
-            TransportError kind = TransportError::Other;
-            switch (resp.transport) {
-                case TransportStatus::Aborted:       kind = TransportError::Aborted; break;
-                case TransportStatus::Timeout:       kind = TransportError::Timeout; break;
-                case TransportStatus::DnsFailure:    kind = TransportError::DnsFailure; break;
-                case TransportStatus::ConnectFailed: kind = TransportError::ConnectFailed; break;
-                case TransportStatus::TlsFailure:    kind = TransportError::TlsFailure; break;
-                case TransportStatus::Overflow:      kind = TransportError::Overflow; break;
-                default: break;
-            }
-            resp.error_message = format_transport_error(
-                "OpenAI", kind, /*curl_message=*/"", resp.error_message);
-        } else if (resp.http_status != 200) {
-            log_http_failure(get_provider_name(), resp.http_status,
-                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
-                             /*response_body=*/"");
-            resp.error_message = map_openai_error(resp.http_status, "");
-        }
-    }
-    return resp;
+    auto a = openai_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/true);
+    string body = build_openai_request_json(model_, system_prompt, user_prompt, /*stream=*/true);
+    return invoke_streaming(a, kOpenAIChatUrl, body, model_, on_chunk,
+                              /*max_attempts=*/1);
 }
 
 LLMResponse OpenAIClient::generate_with_context(const string &system_prompt,
                                                   const vector<ConversationTurn> &history,
                                                   const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
+    auto a = openai_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_openai_context_json(model_, system_prompt, history, user_prompt, false);
-
-    vector<string> hdrs = {"Authorization: Bearer " + api_key_};
-    log_request_debug(get_provider_name(), model_, body.size());
-    auto t0 = std::chrono::steady_clock::now();
-    auto result = curl_post(
-        "https://api.openai.com/v1/chat/completions",
-        body, hdrs, connect_timeout_, read_timeout_);
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
-
-    if (!result.reached_server) {
-        log_curl_failure(get_provider_name(), result.curl_message.empty()
-                            ? result.error_message : result.curl_message,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
-        resp.transport = public_transport_status(result.error_kind);
-        resp.error_message = format_transport_error(
-            "OpenAI", result.error_kind, result.curl_message, result.error_message);
-        return resp;
-    }
-
-    resp.http_status = result.http_status;
-
-    if (result.http_status == 200) {
-        log_response_debug(get_provider_name(), result.http_status,
-                           result.body.size(), elapsed_ms);
-        resp.text = extract_openai_text(result.body);
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
-            resp.error_message = "unexpected response. Try again.";
-            tash::io::error(get_provider_name()
-                            + ": HTTP 200 but response body was not parsable");
-            tash::io::debug(get_provider_name() + ": response body: "
-                            + truncate_for_debug(result.body));
-        }
-    } else {
-        log_http_failure(get_provider_name(), result.http_status,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
-                         result.body);
-        resp.error_message = map_openai_error(result.http_status, result.body);
-    }
-
-    return resp;
+    return invoke_buffered(a, kOpenAIChatUrl, body, model_, /*max_attempts=*/1);
 }
 
 LLMResponse OpenAIClient::generate_structured(const string &system_prompt,
                                                 const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
+    auto a = openai_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_openai_structured_json(model_, system_prompt, user_prompt);
-    constexpr int kMaxAttempts = 2;
-
-    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
-        if (attempt > 0) retry_sleep();
-
-        vector<string> hdrs = {"Authorization: Bearer " + api_key_};
-        log_request_debug(get_provider_name(), model_, body.size());
-        auto t0 = std::chrono::steady_clock::now();
-        auto result = curl_post(
-            "https://api.openai.com/v1/chat/completions",
-            body, hdrs, connect_timeout_, read_timeout_);
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t0).count();
-
-        if (!result.reached_server) {
-            log_curl_failure(get_provider_name(), result.curl_message.empty()
-                                ? result.error_message : result.curl_message,
-                             attempt + 1, kMaxAttempts,
-                             /*final=*/attempt + 1 >= kMaxAttempts);
-            resp.transport = public_transport_status(result.error_kind);
-            resp.error_message = format_transport_error(
-                "OpenAI", result.error_kind, result.curl_message, result.error_message);
-            resp.http_status = 0;
-            if (result.error_kind == TransportError::Aborted) return resp;
-            continue;
-        }
-
-        resp.http_status = result.http_status;
-
-        if (result.http_status == 200) {
-            log_response_debug(get_provider_name(), result.http_status,
-                               result.body.size(), elapsed_ms);
-            resp.text = extract_openai_text(result.body);
-            if (!resp.text.empty()) {
-                resp.success = true;
-            } else {
-                resp.error_message = "unexpected response. Try again.";
-                tash::io::error(get_provider_name()
-                                + ": HTTP 200 but response body was not parsable");
-                tash::io::debug(get_provider_name() + ": response body: "
-                                + truncate_for_debug(result.body));
-            }
-            return resp;
-        }
-
-        resp.error_message = map_openai_error(result.http_status, result.body);
-        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
-        log_http_failure(get_provider_name(), result.http_status,
-                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
-                         result.body);
-        if (!is_retryable(resp)) return resp;
-    }
-
-    return resp;
+    return invoke_buffered(a, kOpenAIChatUrl, body, model_);
 }
 
 LLMResponse OpenAIClient::generate_structured_with_context(
     const string &system_prompt,
     const vector<ConversationTurn> &history,
     const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
+    auto a = openai_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/false);
     string body = build_openai_structured_context_json(model_, system_prompt, history, user_prompt);
-
-    vector<string> hdrs = {"Authorization: Bearer " + api_key_};
-    log_request_debug(get_provider_name(), model_, body.size());
-    auto t0 = std::chrono::steady_clock::now();
-    auto result = curl_post(
-        "https://api.openai.com/v1/chat/completions",
-        body, hdrs, connect_timeout_, read_timeout_);
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
-
-    if (!result.reached_server) {
-        log_curl_failure(get_provider_name(), result.curl_message.empty()
-                            ? result.error_message : result.curl_message,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
-        resp.transport = public_transport_status(result.error_kind);
-        resp.error_message = format_transport_error(
-            "OpenAI", result.error_kind, result.curl_message, result.error_message);
-        return resp;
-    }
-
-    resp.http_status = result.http_status;
-
-    if (result.http_status == 200) {
-        log_response_debug(get_provider_name(), result.http_status,
-                           result.body.size(), elapsed_ms);
-        resp.text = extract_openai_text(result.body);
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
-            resp.error_message = "unexpected response. Try again.";
-            tash::io::error(get_provider_name()
-                            + ": HTTP 200 but response body was not parsable");
-            tash::io::debug(get_provider_name() + ": response body: "
-                            + truncate_for_debug(result.body));
-        }
-    } else {
-        log_http_failure(get_provider_name(), result.http_status,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
-                         result.body);
-        resp.error_message = map_openai_error(result.http_status, result.body);
-    }
-
-    return resp;
+    return invoke_buffered(a, kOpenAIChatUrl, body, model_, /*max_attempts=*/1);
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -1580,306 +1426,87 @@ OllamaClient::OllamaClient(const string &endpoint_url)
 void OllamaClient::set_model(const string &model) { model_ = model; }
 string OllamaClient::get_model() const { return model_; }
 
-LLMResponse OllamaClient::generate(const string &system_prompt, const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
+static ProviderAdapter ollama_adapter(const string &client_url,
+                                        int connect_timeout, int read_timeout,
+                                        bool streaming) {
+    ProviderAdapter a;
+    a.display_name = "Ollama";
+    a.extract_text = extract_ollama_text;
+    a.map_http_error = [](int status, const string &body) {
+        return map_ollama_error(status, body);
+    };
+    a.connect_timeout = connect_timeout;
+    a.read_timeout = read_timeout;
+    a.allow_plain_http = true;
+    // Ollama deserves the extra hint that it's probably not running —
+    // users hit ConnectFailed/DnsFailure on `localhost:11434` far more
+    // often than they hit the generic fall-through message.
+    a.custom_transport_msg = [client_url](TransportStatus s,
+                                           const string &,
+                                           const string &) -> string {
+        if (s == TransportStatus::ConnectFailed ||
+            s == TransportStatus::DnsFailure) {
+            return "couldn't reach Ollama at " + client_url
+                 + " — is `ollama serve` running?";
+        }
+        return {};  // fall through to format_transport_error
+    };
+    if (streaming) {
+        a.parse_stream_line = [](const string &line) -> string {
+            if (line.empty()) return "";
+            try {
+                json j = json::parse(line);
+                if (j.contains("message") && j["message"].contains("content")) {
+                    return j["message"]["content"].get<string>();
+                }
+            } catch (...) {}
+            return "";
+        };
+    }
+    return a;
+}
 
+LLMResponse OllamaClient::generate(const string &system_prompt, const string &user_prompt) {
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_request_json(model_, system_prompt, user_prompt, false);
-    constexpr int kMaxAttempts = 2;
-
-    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
-        if (attempt > 0) retry_sleep();
-
-        log_request_debug(get_provider_name(), model_, body.size());
-        auto t0 = std::chrono::steady_clock::now();
-        auto result = curl_post(client_url + "/api/chat", body, {},
-                                 connect_timeout_, read_timeout_,
-                                 /*allow_plain_http=*/true);
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t0).count();
-
-        if (!result.reached_server) {
-            log_curl_failure(get_provider_name(), result.curl_message.empty()
-                                ? result.error_message : result.curl_message,
-                             attempt + 1, kMaxAttempts,
-                             /*final=*/attempt + 1 >= kMaxAttempts);
-            resp.transport = public_transport_status(result.error_kind);
-            // Extra hint for the common "Ollama isn't running" case.
-            if (result.error_kind == TransportError::ConnectFailed ||
-                result.error_kind == TransportError::DnsFailure) {
-                resp.error_message = "couldn't reach Ollama at " + client_url
-                                   + " — is `ollama serve` running?";
-            } else {
-                resp.error_message = format_transport_error(
-                    "Ollama", result.error_kind,
-                    result.curl_message, result.error_message);
-            }
-            resp.http_status = 0;
-            if (result.error_kind == TransportError::Aborted) return resp;
-            continue;
-        }
-
-        resp.http_status = result.http_status;
-
-        if (result.http_status == 200) {
-            log_response_debug(get_provider_name(), result.http_status,
-                               result.body.size(), elapsed_ms);
-            resp.text = extract_ollama_text(result.body);
-            if (!resp.text.empty()) {
-                resp.success = true;
-            } else {
-                resp.error_message = "unexpected response from Ollama. Try again.";
-                tash::io::error(get_provider_name()
-                                + ": HTTP 200 but response body was not parsable");
-                tash::io::debug(get_provider_name() + ": response body: "
-                                + truncate_for_debug(result.body));
-            }
-            return resp;
-        }
-
-        resp.error_message = map_ollama_error(result.http_status, result.body);
-        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
-        log_http_failure(get_provider_name(), result.http_status,
-                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
-                         result.body);
-        if (!is_retryable(resp)) return resp;
-    }
-
-    return resp;
+    auto a = ollama_adapter(client_url, connect_timeout_, read_timeout_, /*streaming=*/false);
+    return invoke_buffered(a, client_url + "/api/chat", body, model_);
 }
 
 LLMResponse OllamaClient::generate_stream(const string &system_prompt, const string &user_prompt,
                                             std::function<void(const string &chunk)> on_chunk) {
     string client_url = host_ + ":" + to_string(port_);
-    string url = client_url + "/api/chat";
-
     string body = build_ollama_request_json(model_, system_prompt, user_prompt, true);
-
-    auto parse_line = [](const string &line) -> string {
-        if (line.empty()) return "";
-        try {
-            json j = json::parse(line);
-            if (j.contains("message") && j["message"].contains("content")) {
-                return j["message"]["content"].get<string>();
-            }
-        } catch (...) {}
-        return "";
-    };
-
-    log_request_debug(get_provider_name(), model_, body.size());
-    LLMResponse resp = curl_streaming_post(url, body, {}, on_chunk, parse_line,
-                                            connect_timeout_, read_timeout_,
-                                            /*allow_plain_http=*/true);
-    if (!resp.success) {
-        if (resp.http_status == 0) {
-            log_curl_failure(get_provider_name(), resp.error_message,
-                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
-            if (resp.transport == TransportStatus::ConnectFailed ||
-                resp.transport == TransportStatus::DnsFailure) {
-                resp.error_message = "couldn't reach Ollama at " + client_url
-                                   + " — is `ollama serve` running?";
-            }
-        } else if (resp.http_status != 200) {
-            log_http_failure(get_provider_name(), resp.http_status,
-                             /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
-                             /*response_body=*/"");
-            resp.error_message = map_ollama_error(resp.http_status, "");
-        }
-    }
-    return resp;
+    auto a = ollama_adapter(client_url, connect_timeout_, read_timeout_, /*streaming=*/true);
+    return invoke_streaming(a, client_url + "/api/chat", body, model_, on_chunk,
+                              /*max_attempts=*/1);
 }
 
 LLMResponse OllamaClient::generate_with_context(const string &system_prompt,
                                                   const vector<ConversationTurn> &history,
                                                   const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_context_json(model_, system_prompt, history, user_prompt, false);
-
-    log_request_debug(get_provider_name(), model_, body.size());
-    auto t0 = std::chrono::steady_clock::now();
-    auto result = curl_post(client_url + "/api/chat", body, {},
-                             connect_timeout_, read_timeout_,
-                             /*allow_plain_http=*/true);
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
-
-    if (!result.reached_server) {
-        log_curl_failure(get_provider_name(), result.curl_message.empty()
-                            ? result.error_message : result.curl_message,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
-        resp.transport = public_transport_status(result.error_kind);
-        if (result.error_kind == TransportError::ConnectFailed ||
-            result.error_kind == TransportError::DnsFailure) {
-            resp.error_message = "couldn't reach Ollama at " + client_url
-                               + " — is `ollama serve` running?";
-        } else {
-            resp.error_message = format_transport_error(
-                "Ollama", result.error_kind,
-                result.curl_message, result.error_message);
-        }
-        return resp;
-    }
-
-    resp.http_status = result.http_status;
-
-    if (result.http_status == 200) {
-        log_response_debug(get_provider_name(), result.http_status,
-                           result.body.size(), elapsed_ms);
-        resp.text = extract_ollama_text(result.body);
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
-            resp.error_message = "unexpected response from Ollama. Try again.";
-            tash::io::error(get_provider_name()
-                            + ": HTTP 200 but response body was not parsable");
-            tash::io::debug(get_provider_name() + ": response body: "
-                            + truncate_for_debug(result.body));
-        }
-    } else {
-        log_http_failure(get_provider_name(), result.http_status,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
-                         result.body);
-        resp.error_message = map_ollama_error(result.http_status, result.body);
-    }
-
-    return resp;
+    auto a = ollama_adapter(client_url, connect_timeout_, read_timeout_, /*streaming=*/false);
+    return invoke_buffered(a, client_url + "/api/chat", body, model_, /*max_attempts=*/1);
 }
 
 LLMResponse OllamaClient::generate_structured(const string &system_prompt,
                                                 const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_structured_json(model_, system_prompt, user_prompt);
-    constexpr int kMaxAttempts = 2;
-
-    for (int attempt = 0; attempt < kMaxAttempts; attempt++) {
-        if (attempt > 0) retry_sleep();
-
-        log_request_debug(get_provider_name(), model_, body.size());
-        auto t0 = std::chrono::steady_clock::now();
-        auto result = curl_post(client_url + "/api/chat", body, {},
-                                 connect_timeout_, read_timeout_,
-                                 /*allow_plain_http=*/true);
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t0).count();
-
-        if (!result.reached_server) {
-            log_curl_failure(get_provider_name(), result.curl_message.empty()
-                                ? result.error_message : result.curl_message,
-                             attempt + 1, kMaxAttempts,
-                             /*final=*/attempt + 1 >= kMaxAttempts);
-            resp.transport = public_transport_status(result.error_kind);
-            if (result.error_kind == TransportError::ConnectFailed ||
-                result.error_kind == TransportError::DnsFailure) {
-                resp.error_message = "couldn't reach Ollama at " + client_url
-                                   + " — is `ollama serve` running?";
-            } else {
-                resp.error_message = format_transport_error(
-                    "Ollama", result.error_kind,
-                    result.curl_message, result.error_message);
-            }
-            resp.http_status = 0;
-            if (result.error_kind == TransportError::Aborted) return resp;
-            continue;
-        }
-
-        resp.http_status = result.http_status;
-
-        if (result.http_status == 200) {
-            log_response_debug(get_provider_name(), result.http_status,
-                               result.body.size(), elapsed_ms);
-            resp.text = extract_ollama_text(result.body);
-            if (!resp.text.empty()) {
-                resp.success = true;
-            } else {
-                resp.error_message = "unexpected response from Ollama. Try again.";
-                tash::io::error(get_provider_name()
-                                + ": HTTP 200 but response body was not parsable");
-                tash::io::debug(get_provider_name() + ": response body: "
-                                + truncate_for_debug(result.body));
-            }
-            return resp;
-        }
-
-        resp.error_message = map_ollama_error(result.http_status, result.body);
-        bool will_retry = attempt + 1 < kMaxAttempts && is_retryable(resp);
-        log_http_failure(get_provider_name(), result.http_status,
-                         attempt + 1, kMaxAttempts, /*final=*/!will_retry,
-                         result.body);
-        if (!is_retryable(resp)) return resp;
-    }
-
-    return resp;
+    auto a = ollama_adapter(client_url, connect_timeout_, read_timeout_, /*streaming=*/false);
+    return invoke_buffered(a, client_url + "/api/chat", body, model_);
 }
 
 LLMResponse OllamaClient::generate_structured_with_context(
     const string &system_prompt,
     const vector<ConversationTurn> &history,
     const string &user_prompt) {
-    LLMResponse resp;
-    resp.success = false;
-    resp.http_status = 0;
-
     string client_url = host_ + ":" + to_string(port_);
     string body = build_ollama_structured_context_json(model_, system_prompt, history, user_prompt);
-
-    log_request_debug(get_provider_name(), model_, body.size());
-    auto t0 = std::chrono::steady_clock::now();
-    auto result = curl_post(client_url + "/api/chat", body, {},
-                             connect_timeout_, read_timeout_,
-                             /*allow_plain_http=*/true);
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
-
-    if (!result.reached_server) {
-        log_curl_failure(get_provider_name(), result.curl_message.empty()
-                            ? result.error_message : result.curl_message,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true);
-        resp.transport = public_transport_status(result.error_kind);
-        if (result.error_kind == TransportError::ConnectFailed ||
-            result.error_kind == TransportError::DnsFailure) {
-            resp.error_message = "couldn't reach Ollama at " + client_url
-                               + " — is `ollama serve` running?";
-        } else {
-            resp.error_message = format_transport_error(
-                "Ollama", result.error_kind,
-                result.curl_message, result.error_message);
-        }
-        return resp;
-    }
-
-    resp.http_status = result.http_status;
-
-    if (result.http_status == 200) {
-        log_response_debug(get_provider_name(), result.http_status,
-                           result.body.size(), elapsed_ms);
-        resp.text = extract_ollama_text(result.body);
-        if (!resp.text.empty()) {
-            resp.success = true;
-        } else {
-            resp.error_message = "unexpected response from Ollama. Try again.";
-            tash::io::error(get_provider_name()
-                            + ": HTTP 200 but response body was not parsable");
-            tash::io::debug(get_provider_name() + ": response body: "
-                            + truncate_for_debug(result.body));
-        }
-    } else {
-        log_http_failure(get_provider_name(), result.http_status,
-                         /*attempt=*/1, /*max_attempts=*/1, /*final=*/true,
-                         result.body);
-        resp.error_message = map_ollama_error(result.http_status, result.body);
-    }
-
-    return resp;
+    auto a = ollama_adapter(client_url, connect_timeout_, read_timeout_, /*streaming=*/false);
+    return invoke_buffered(a, client_url + "/api/chat", body, model_, /*max_attempts=*/1);
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -2036,44 +1663,22 @@ void JsonContentStreamer::handle_char(char c) {
 // no bytes of user-visible content have streamed yet. Once we've emitted
 // anything to the terminal, retrying would duplicate output and confuse
 // the user — at that point we hand the partial result up and stop.
-static LLMResponse retrying_stream_call(
-    std::function<LLMResponse(std::function<void(const std::string &)>)> once,
-    std::function<void(const std::string &chunk)> on_chunk) {
-    constexpr int kMaxAttempts = 2;
-    LLMResponse resp;
-    for (int attempt = 1; attempt <= kMaxAttempts; ++attempt) {
-        bool emitted_any = false;
-        auto wrap_chunk = [&](const std::string &c) {
-            if (!c.empty()) emitted_any = true;
-            if (on_chunk) on_chunk(c);
-        };
-        resp = once(wrap_chunk);
-        if (resp.success) return resp;
-        if (emitted_any) return resp;   // partial stream — don't duplicate
-        if (!LLMClient::is_retryable(resp)) return resp;
-        if (attempt < kMaxAttempts) retry_sleep();
-    }
-    return resp;
-}
+// Structured-output streaming methods. All six collapse to "build a
+// structured JSON body (with stream=true where applicable), pick the
+// URL, call invoke_streaming / gemini_streaming_chain". The older
+// retrying_stream_call wrapper and per-provider *_structured_stream_once
+// helpers that lived here are gone — the generic invoke_streaming path
+// above handles the retry-without-duplicate-output invariant for every
+// provider.
 
 LLMResponse GeminiClient::generate_structured_stream(
     const string &system_prompt,
     const string &user_prompt,
     std::function<void(const string &chunk)> on_chunk) {
+    auto a = gemini_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/true);
     string body = build_gemini_structured_json(system_prompt, user_prompt);
-    auto do_once = [&](std::function<void(const string &)> cb) {
-        LLMResponse r = call_model_stream(model_, body, cb);
-        if (r.success || r.error_message != "model_not_found") return r;
-        for (const auto &fb : fallback_models_) {
-            r = call_model_stream(fb, body, cb);
-            if (r.success || r.error_message != "model_not_found") return r;
-        }
-        r.success = false;
-        r.http_status = 404;
-        r.error_message = "AI model unavailable.";
-        return r;
-    };
-    return retrying_stream_call(do_once, on_chunk);
+    return gemini_streaming_chain(a, body, model_, fallback_models_, on_chunk,
+                                   /*max_attempts=*/2);
 }
 
 LLMResponse GeminiClient::generate_structured_stream_with_context(
@@ -2081,70 +1686,21 @@ LLMResponse GeminiClient::generate_structured_stream_with_context(
     const vector<ConversationTurn> &history,
     const string &user_prompt,
     std::function<void(const string &chunk)> on_chunk) {
+    auto a = gemini_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/true);
     string body = build_gemini_structured_context_json(system_prompt, history, user_prompt);
-    auto do_once = [&](std::function<void(const string &)> cb) {
-        LLMResponse r = call_model_stream(model_, body, cb);
-        if (r.success || r.error_message != "model_not_found") return r;
-        for (const auto &fb : fallback_models_) {
-            r = call_model_stream(fb, body, cb);
-            if (r.success || r.error_message != "model_not_found") return r;
-        }
-        r.success = false;
-        r.http_status = 404;
-        r.error_message = "AI model unavailable.";
-        return r;
-    };
-    return retrying_stream_call(do_once, on_chunk);
-}
-
-// Shared helper: one OpenAI streaming attempt. Called by the retry wrapper.
-static LLMResponse openai_structured_stream_once(
-    const string &url, const string &body,
-    const vector<string> &hdrs,
-    std::function<void(const string &)> on_chunk,
-    const string &provider_name,
-    const string &model,
-    int connect_timeout, int read_timeout) {
-    auto parse_line = [](const string &line) -> string {
-        if (line == "data: [DONE]") return "";
-        if (line.size() > 6 && line.substr(0, 6) == "data: ") {
-            try {
-                json j = json::parse(line.substr(6));
-                if (j.contains("choices") && j["choices"].is_array() &&
-                    !j["choices"].empty() && j["choices"][0].contains("delta") &&
-                    j["choices"][0]["delta"].contains("content")) {
-                    return j["choices"][0]["delta"]["content"].get<string>();
-                }
-            } catch (const json::exception &) {}
-        }
-        return "";
-    };
-    log_request_debug(provider_name, model, body.size());
-    LLMResponse resp = curl_streaming_post(url, body, hdrs, on_chunk, parse_line,
-                                            connect_timeout, read_timeout);
-    if (!resp.success && resp.http_status == 0) {
-        log_curl_failure(provider_name, resp.error_message, 1, 1, true);
-    } else if (!resp.success && resp.http_status != 200) {
-        log_http_failure(provider_name, resp.http_status, 1, 1, true, "");
-        resp.error_message = map_openai_error(resp.http_status, "");
-    }
-    return resp;
+    return gemini_streaming_chain(a, body, model_, fallback_models_, on_chunk,
+                                   /*max_attempts=*/2);
 }
 
 LLMResponse OpenAIClient::generate_structured_stream(
     const string &system_prompt,
     const string &user_prompt,
     std::function<void(const string &chunk)> on_chunk) {
-    string url = "https://api.openai.com/v1/chat/completions";
-    vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+    auto a = openai_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/true);
     string body = build_openai_structured_json(model_, system_prompt, user_prompt,
                                                 /*stream=*/true);
-    auto do_once = [&](std::function<void(const string &)> cb) {
-        return openai_structured_stream_once(url, body, hdrs, cb,
-                                              get_provider_name(), model_,
-                                              connect_timeout_, read_timeout_);
-    };
-    return retrying_stream_call(do_once, on_chunk);
+    return invoke_streaming(a, kOpenAIChatUrl, body, model_, on_chunk,
+                              /*max_attempts=*/2);
 }
 
 LLMResponse OpenAIClient::generate_structured_stream_with_context(
@@ -2152,52 +1708,11 @@ LLMResponse OpenAIClient::generate_structured_stream_with_context(
     const vector<ConversationTurn> &history,
     const string &user_prompt,
     std::function<void(const string &chunk)> on_chunk) {
-    string url = "https://api.openai.com/v1/chat/completions";
-    vector<string> hdrs = {"Authorization: Bearer " + api_key_};
+    auto a = openai_adapter(api_key_, connect_timeout_, read_timeout_, /*streaming=*/true);
     string body = build_openai_structured_context_json(model_, system_prompt, history,
                                                          user_prompt, /*stream=*/true);
-    auto do_once = [&](std::function<void(const string &)> cb) {
-        return openai_structured_stream_once(url, body, hdrs, cb,
-                                              get_provider_name(), model_,
-                                              connect_timeout_, read_timeout_);
-    };
-    return retrying_stream_call(do_once, on_chunk);
-}
-
-static LLMResponse ollama_structured_stream_once(
-    const string &url,
-    const string &client_url,
-    const string &body,
-    std::function<void(const string &)> on_chunk,
-    const string &provider_name,
-    const string &model,
-    int connect_timeout, int read_timeout) {
-    auto parse_line = [](const string &line) -> string {
-        if (line.empty()) return "";
-        try {
-            json j = json::parse(line);
-            if (j.contains("message") && j["message"].contains("content")) {
-                return j["message"]["content"].get<string>();
-            }
-        } catch (...) {}
-        return "";
-    };
-    log_request_debug(provider_name, model, body.size());
-    LLMResponse resp = curl_streaming_post(url, body, {}, on_chunk, parse_line,
-                                            connect_timeout, read_timeout,
-                                            /*allow_plain_http=*/true);
-    if (!resp.success && resp.http_status == 0) {
-        log_curl_failure(provider_name, resp.error_message, 1, 1, true);
-        if (resp.transport == TransportStatus::ConnectFailed ||
-            resp.transport == TransportStatus::DnsFailure) {
-            resp.error_message = "couldn't reach Ollama at " + client_url
-                               + " — is `ollama serve` running?";
-        }
-    } else if (!resp.success && resp.http_status != 200) {
-        log_http_failure(provider_name, resp.http_status, 1, 1, true, "");
-        resp.error_message = map_ollama_error(resp.http_status, "");
-    }
-    return resp;
+    return invoke_streaming(a, kOpenAIChatUrl, body, model_, on_chunk,
+                              /*max_attempts=*/2);
 }
 
 LLMResponse OllamaClient::generate_structured_stream(
@@ -2205,15 +1720,11 @@ LLMResponse OllamaClient::generate_structured_stream(
     const string &user_prompt,
     std::function<void(const string &chunk)> on_chunk) {
     string client_url = host_ + ":" + to_string(port_);
-    string url = client_url + "/api/chat";
+    auto a = ollama_adapter(client_url, connect_timeout_, read_timeout_, /*streaming=*/true);
     string body = build_ollama_structured_json(model_, system_prompt, user_prompt,
                                                 /*stream=*/true);
-    auto do_once = [&](std::function<void(const string &)> cb) {
-        return ollama_structured_stream_once(url, client_url, body, cb,
-                                              get_provider_name(), model_,
-                                              connect_timeout_, read_timeout_);
-    };
-    return retrying_stream_call(do_once, on_chunk);
+    return invoke_streaming(a, client_url + "/api/chat", body, model_, on_chunk,
+                              /*max_attempts=*/2);
 }
 
 LLMResponse OllamaClient::generate_structured_stream_with_context(
@@ -2222,14 +1733,10 @@ LLMResponse OllamaClient::generate_structured_stream_with_context(
     const string &user_prompt,
     std::function<void(const string &chunk)> on_chunk) {
     string client_url = host_ + ":" + to_string(port_);
-    string url = client_url + "/api/chat";
+    auto a = ollama_adapter(client_url, connect_timeout_, read_timeout_, /*streaming=*/true);
     string body = build_ollama_structured_context_json(model_, system_prompt, history,
                                                          user_prompt, /*stream=*/true);
-    auto do_once = [&](std::function<void(const string &)> cb) {
-        return ollama_structured_stream_once(url, client_url, body, cb,
-                                              get_provider_name(), model_,
-                                              connect_timeout_, read_timeout_);
-    };
-    return retrying_stream_call(do_once, on_chunk);
+    return invoke_streaming(a, client_url + "/api/chat", body, model_, on_chunk,
+                              /*max_attempts=*/2);
 }
 
