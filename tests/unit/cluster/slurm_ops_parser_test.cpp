@@ -208,7 +208,7 @@ TEST(BuildSinfoArgv, PartitionAndFormat) {
     bool saw_partition = false, saw_format = false;
     for (std::size_t i = 0; i < argv.size(); ++i) {
         if ((argv[i] == "-p" || argv[i] == "--partition") && i + 1 < argv.size()
-            && argv[i+1] == "notchpeak-gpu") saw_partition = true;
+            && argv[i+1].find("notchpeak-gpu") != std::string::npos) saw_partition = true;
         if (argv[i].find("%P") != std::string::npos) saw_format = true;
     }
     EXPECT_TRUE(saw_partition);

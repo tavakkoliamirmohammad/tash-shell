@@ -169,12 +169,14 @@ std::vector<std::string> build_sbatch_argv(const SubmitSpec& s) {
 
 std::vector<std::string> build_squeue_argv() {
     // --me filters to current user (slurm >= 20.11). -h suppresses header.
-    // %i|%t|%N|%L is the stable format parse_squeue() expects.
-    return {"squeue", "-h", "--me", "-o", "%i|%t|%N|%L"};
+    // The format is shell-quoted because ssh joins argv with spaces and
+    // the remote shell re-parses; unquoted '|' would be interpreted as
+    // a pipe and squeue's output would get piped through %t / %N / %L.
+    return {"squeue", "-h", "--me", "-o", shq("%i|%t|%N|%L")};
 }
 
 std::vector<std::string> build_sinfo_argv(const std::string& partition) {
-    return {"sinfo", "-h", "-p", partition, "-o", "%P|%t|%D|%G"};
+    return {"sinfo", "-h", "-p", shq(partition), "-o", shq("%P|%t|%D|%G")};
 }
 
 std::vector<std::string> build_scancel_argv(const std::string& jobid) {
