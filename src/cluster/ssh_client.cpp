@@ -12,6 +12,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -271,11 +272,34 @@ SshResult spawn_capture(const std::vector<std::string>& argv,
 // Used by connect() so ssh's password + Duo prompts reach the user
 // directly instead of being captured into a pipe the caller never
 // displays. Waits up to `timeout_ms`; kills the child on timeout.
+//
+// Critical: save + restore the terminal's termios state around the
+// child. Tash's replxx leaves the tty in raw mode with -icanon / -echo.
+// Ssh's getpass() assumes cooked mode — in raw mode Enter generates
+// \r instead of \n, so the password it sends to the server is the
+// literal characters the user typed plus a trailing \r. The server
+// rejects that as wrong-password. We flip the tty to cooked before
+// execing ssh and restore tash's state after reap.
 int spawn_inherit(const std::vector<std::string>& argv,
                    std::chrono::milliseconds timeout_ms) {
     if (argv.empty()) return -1;
+
+    struct termios saved{};
+    const bool have_tty = ::isatty(STDIN_FILENO) &&
+                          ::tcgetattr(STDIN_FILENO, &saved) == 0;
+    if (have_tty) {
+        struct termios cooked = saved;
+        cooked.c_lflag |= (ICANON | ECHO | ECHOE | ECHOK | ISIG);
+        cooked.c_iflag |= (ICRNL | IXON);
+        cooked.c_oflag |= OPOST;
+        (void)::tcsetattr(STDIN_FILENO, TCSADRAIN, &cooked);
+    }
+
     pid_t pid = ::fork();
-    if (pid < 0) return -1;
+    if (pid < 0) {
+        if (have_tty) (void)::tcsetattr(STDIN_FILENO, TCSADRAIN, &saved);
+        return -1;
+    }
     if (pid == 0) {
         std::vector<char*> c_argv;
         c_argv.reserve(argv.size() + 1);
@@ -286,23 +310,26 @@ int spawn_inherit(const std::vector<std::string>& argv,
     }
     const long long deadline =
         timeout_ms.count() > 0 ? now_ms() + timeout_ms.count() : -1;
+    int rc = -1;
     while (true) {
         int status = 0;
         pid_t r = ::waitpid(pid, &status, WNOHANG);
         if (r == pid) {
-            if (WIFEXITED(status))        return WEXITSTATUS(status);
-            if (WIFSIGNALED(status))      return 128 + WTERMSIG(status);
-            return -1;
+            if (WIFEXITED(status))        rc = WEXITSTATUS(status);
+            else if (WIFSIGNALED(status)) rc = 128 + WTERMSIG(status);
+            break;
         }
-        if (r < 0) return -1;
+        if (r < 0) break;
         if (deadline > 0 && now_ms() >= deadline) {
             ::kill(pid, SIGKILL);
             ::waitpid(pid, &status, 0);
-            return -1;
+            break;
         }
         struct timespec ts{0, 100'000'000};  // 100ms
         ::nanosleep(&ts, nullptr);
     }
+    if (have_tty) (void)::tcsetattr(STDIN_FILENO, TCSADRAIN, &saved);
+    return rc;
 }
 
 }  // namespace
