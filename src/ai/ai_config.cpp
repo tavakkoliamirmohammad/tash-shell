@@ -24,11 +24,6 @@ using namespace std;
 // ── XDG config directory ─────────────────────────────────────
 
 string ai_get_config_dir() {
-    // User-facing env override that predates tash::config. Still honored so
-    // users with TASH_AI_CONFIG_DIR set don't silently lose their config.
-    // When unset, fall through to the standard XDG / TASH_CONFIG_HOME path.
-    const char *override_dir = getenv("TASH_AI_CONFIG_DIR");
-    if (override_dir && override_dir[0] != '\0') return string(override_dir);
     return tash::config::get_config_dir();
 }
 
@@ -166,31 +161,6 @@ static bool write_file_line(const string &path, const string &content) {
     if (path.empty()) return false;
     if (!ensure_config_dir()) return false;
     return write_secure_file(path, content + "\n");
-}
-
-// ── Key management ────────────────────────────────────────────
-
-string ai_get_key_path() {
-    // Allow override for testing (avoids clobbering real key)
-    const char *override_path = getenv("TASH_AI_KEY_PATH");
-    if (override_path && override_path[0] != '\0') return string(override_path);
-
-    string dir = ai_get_config_dir();
-    if (dir.empty()) return "";
-    return dir + "/ai_key";
-}
-
-std::optional<std::string> ai_load_key() {
-    std::string line = read_file_line(ai_get_key_path());
-    if (line.empty()) return std::nullopt;
-    return line;
-}
-
-bool ai_save_key(const string &key) {
-    string path = ai_get_key_path();
-    if (path.empty()) return false;
-    if (!ensure_config_dir()) return false;
-    return write_secure_file(path, key + "\n");
 }
 
 // ── Provider config functions ────────────────────────────────

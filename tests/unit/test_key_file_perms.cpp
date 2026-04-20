@@ -23,10 +23,10 @@ struct KeyPermFixture : public ::testing::Test {
               std::to_string(::testing::UnitTest::GetInstance()->random_seed());
         std::error_code ec;
         std::filesystem::create_directories(tmp, ec);
-        ::setenv("TASH_AI_CONFIG_DIR", tmp.c_str(), 1);
+        ::setenv("TASH_CONFIG_HOME", tmp.c_str(), 1);
     }
     void TearDown() override {
-        ::unsetenv("TASH_AI_CONFIG_DIR");
+        ::unsetenv("TASH_CONFIG_HOME");
         std::error_code ec;
         std::filesystem::remove_all(tmp, ec);
     }
@@ -50,14 +50,6 @@ TEST_F(KeyPermFixture, SavedKeyOverwritesWithTightPerms) {
     }
     ::chmod(path.c_str(), 0644);
     ASSERT_TRUE(ai_save_provider_key("openai", "new-key"));
-    struct stat st{};
-    ASSERT_EQ(::stat(path.c_str(), &st), 0);
-    EXPECT_EQ(st.st_mode & 0777, 0600);
-}
-
-TEST_F(KeyPermFixture, LegacyAiSaveKeyIs0600) {
-    ASSERT_TRUE(ai_save_key("legacy-key"));
-    std::string path = tmp + "/ai_key";
     struct stat st{};
     ASSERT_EQ(::stat(path.c_str(), &st), 0);
     EXPECT_EQ(st.st_mode & 0777, 0600);

@@ -420,25 +420,3 @@ int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
     return last_status;
 }
 
-// Back-compat overload. Wraps each argv in a PipelineSegment and
-// attaches a single stdout redirect to the last stage when requested.
-int execute_pipeline(vector<vector<string>> &pipeline_cmds,
-                     const string &filename, bool redirect_flag,
-                     ShellState *state) {
-    vector<PipelineSegment> segs;
-    segs.reserve(pipeline_cmds.size());
-    for (auto &argv : pipeline_cmds) {
-        PipelineSegment s;
-        s.argv = argv;
-        segs.push_back(std::move(s));
-    }
-    if (redirect_flag && !segs.empty()) {
-        Redirection r;
-        r.fd = 1;
-        r.filename = filename;
-        r.append = false;
-        r.dup_to_stdout = false;
-        segs.back().redirections.push_back(r);
-    }
-    return execute_pipeline(segs, state);
-}

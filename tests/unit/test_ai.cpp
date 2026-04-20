@@ -20,20 +20,25 @@ using namespace std;
 
 class AiTestFixture : public ::testing::Test {
 protected:
-    string test_key_path;
+    string config_dir;
     string test_usage_path;
 
     void SetUp() override {
-        test_key_path = "/tmp/tash_test_ai_key_" + to_string(getpid());
+        // Route tash::config::get_config_dir() to a per-process tmpdir so
+        // keys and model overrides don't touch the real ~/.tash.
+        config_dir = "/tmp/tash_test_ai_cfg_" + to_string(getpid());
+        mkdir(config_dir.c_str(), 0700);
+        setenv("TASH_CONFIG_HOME", config_dir.c_str(), 1);
         test_usage_path = "/tmp/tash_test_ai_usage_" + to_string(getpid());
-        setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
         setenv("TASH_AI_USAGE_PATH", test_usage_path.c_str(), 1);
     }
 
     void TearDown() override {
-        unlink(test_key_path.c_str());
+        // Recursively clean the tmpdir — writes may create several files.
+        std::string rm = "rm -rf " + config_dir;
+        (void)system(rm.c_str());
         unlink(test_usage_path.c_str());
-        unsetenv("TASH_AI_KEY_PATH");
+        unsetenv("TASH_CONFIG_HOME");
         unsetenv("TASH_AI_USAGE_PATH");
     }
 };
@@ -80,19 +85,14 @@ TEST(AiParser, RejectsPartialMatch) {
 // AI key management (uses temp paths via fixture)
 // ═══════════════════════════════════════════════════════════════
 
-TEST_F(AiTestFixture, KeyPathUsesOverride) {
-    EXPECT_EQ(ai_get_key_path(), test_key_path);
-}
-
 // ───────────────────────────────────────────────────────────────
 // Stale model-override self-heal
 // ───────────────────────────────────────────────────────────────
 //
-// Pre-#128, the integration test suite wrote "gpt-4o" into the real
-// ~/.tash/ai/ai_model while the provider was "gemini". The @ai config
-// menu then displayed the stale junk on every invocation. create_current_
-// client() now self-heals by ignoring incompatible overrides AND
-// clearing them from disk.
+// When a user switches providers but the ai_model override on disk
+// doesn't match (e.g. "gpt-4o" with provider "gemini"), create_current_
+// client() self-heals by ignoring the incompatible override AND
+// clearing it from disk.
 
 class AiModelOverrideHealTest : public ::testing::Test {
 protected:
@@ -100,12 +100,11 @@ protected:
     void SetUp() override {
         tmp_config_dir = "/tmp/tash_ai_heal_" + std::to_string(getpid());
         mkdir(tmp_config_dir.c_str(), 0700);
-        setenv("TASH_AI_CONFIG_DIR", tmp_config_dir.c_str(), 1);
+        setenv("TASH_CONFIG_HOME", tmp_config_dir.c_str(), 1);
     }
     void TearDown() override {
-        // Best-effort cleanup.
         std::filesystem::remove_all(tmp_config_dir);
-        unsetenv("TASH_AI_CONFIG_DIR");
+        unsetenv("TASH_CONFIG_HOME");
     }
 };
 
@@ -165,24 +164,24 @@ TEST_F(AiModelOverrideHealTest, OllamaAcceptsAnyModel) {
     EXPECT_EQ(*after, "llama3.2:3b");
 }
 
-TEST_F(AiTestFixture, SaveAndLoadKey) {
+TEST_F(AiTestFixture, SaveAndLoadProviderKey) {
     string test_key = "test_key_" + to_string(getpid());
 
-    EXPECT_TRUE(ai_save_key(test_key));
+    EXPECT_TRUE(ai_save_provider_key("gemini", test_key));
 
-    auto loaded = ai_load_key();
+    auto loaded = ai_load_provider_key("gemini");
     ASSERT_TRUE(loaded.has_value());
     EXPECT_EQ(*loaded, test_key);
 
     // Check permissions (600)
+    std::string path = config_dir + "/gemini_key";
     struct stat st;
-    ASSERT_EQ(stat(test_key_path.c_str(), &st), 0);
+    ASSERT_EQ(stat(path.c_str(), &st), 0);
     EXPECT_EQ(st.st_mode & 0777, 0600);
 }
 
 TEST_F(AiTestFixture, LoadMissingKeyReturnsEmpty) {
-    unlink(test_key_path.c_str());
-    EXPECT_FALSE(ai_load_key().has_value());
+    EXPECT_FALSE(ai_load_provider_key("gemini").has_value());
 }
 
 TEST_F(AiTestFixture, ValidateKey) {
@@ -500,21 +499,19 @@ TEST(RateLimiter, BlocksOverLimit) {
 // XDG config tests
 // ═══════════════════════════════════════════════════════════════
 
-TEST_F(AiTestFixture, ConfigPathRespectsXdgOverride) {
-    unsetenv("TASH_AI_KEY_PATH");
+TEST(ConfigPath, RespectsXdgOverride) {
+    unsetenv("TASH_CONFIG_HOME");
     setenv("XDG_CONFIG_HOME", "/tmp/tash_test_xdg", 1);
-    std::string path = ai_get_key_path();
-    EXPECT_NE(path.find("/tmp/tash_test_xdg/tash"), std::string::npos);
+    std::string dir = ai_get_config_dir();
+    EXPECT_NE(dir.find("/tmp/tash_test_xdg/tash"), std::string::npos);
     unsetenv("XDG_CONFIG_HOME");
-    setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
 }
 
-TEST_F(AiTestFixture, ConfigPathFallsBackToHome) {
-    unsetenv("TASH_AI_KEY_PATH");
+TEST(ConfigPath, FallsBackToHomeDotConfig) {
+    unsetenv("TASH_CONFIG_HOME");
     unsetenv("XDG_CONFIG_HOME");
-    std::string path = ai_get_key_path();
-    EXPECT_NE(path.find(".config/tash"), std::string::npos);
-    setenv("TASH_AI_KEY_PATH", test_key_path.c_str(), 1);
+    std::string dir = ai_get_config_dir();
+    EXPECT_NE(dir.find(".config/tash"), std::string::npos);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -815,7 +812,7 @@ TEST(JsonContentStreamer, EmptyContent) {
 TEST_F(AiTestFixture, SendStderrDefaultsOn) {
     // Fresh config dir — never toggled. Should default on.
     std::string tmpdir = "/tmp/tash_ai_cfg_" + std::to_string(getpid()) + "_pr";
-    setenv("TASH_AI_CONFIG_DIR", tmpdir.c_str(), 1);
+    setenv("TASH_CONFIG_HOME", tmpdir.c_str(), 1);
     ::mkdir(tmpdir.c_str(), 0700);
     EXPECT_TRUE(ai_get_send_stderr());
     ai_set_send_stderr(false);
@@ -825,12 +822,12 @@ TEST_F(AiTestFixture, SendStderrDefaultsOn) {
     // Cleanup
     std::string rm = "rm -rf " + tmpdir;
     (void)system(rm.c_str());
-    unsetenv("TASH_AI_CONFIG_DIR");
+    unsetenv("TASH_CONFIG_HOME");
 }
 
 TEST_F(AiTestFixture, KeyStatusDistinguishesAbsentFromUnreadable) {
     std::string tmpdir = "/tmp/tash_ai_cfg_" + std::to_string(getpid()) + "_ks";
-    setenv("TASH_AI_CONFIG_DIR", tmpdir.c_str(), 1);
+    setenv("TASH_CONFIG_HOME", tmpdir.c_str(), 1);
     ::mkdir(tmpdir.c_str(), 0700);
 
     // Absent
@@ -862,7 +859,7 @@ TEST_F(AiTestFixture, KeyStatusDistinguishesAbsentFromUnreadable) {
 
     std::string rm = "rm -rf " + tmpdir;
     (void)system(rm.c_str());
-    unsetenv("TASH_AI_CONFIG_DIR");
+    unsetenv("TASH_CONFIG_HOME");
 }
 
 TEST(ModelNameValidation, RejectsPathSeparatorsAndDotDot) {

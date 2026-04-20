@@ -27,7 +27,6 @@ public:
 
 private:
     void init_schema();
-    void migrate_plain_text_history();
     HistoryEntry row_to_entry(sqlite3_stmt *stmt) const;
 
     sqlite3 *db_;

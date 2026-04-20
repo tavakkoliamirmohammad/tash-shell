@@ -19,15 +19,6 @@ static std::string default_db_path() {
     return tash::config::get_history_db_path();
 }
 
-static std::string plain_text_history_path() {
-    return tash::config::get_history_file_path();
-}
-
-static bool file_exists(const std::string &path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0;
-}
-
 static void ensure_directory(const std::string &path) {
     if (path.empty()) return;
     std::error_code ec;
@@ -116,7 +107,6 @@ SqliteHistoryProvider::SqliteHistoryProvider(const std::string &db_path)
     sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
 
     init_schema();
-    migrate_plain_text_history();
 
     // Report opened DB + row count so an operator can confirm which store
     // the shell is actually using when a user's history looks wrong.
@@ -383,87 +373,6 @@ void SqliteHistoryProvider::init_schema() {
                      (err ? err : "unknown error") + "\n");
         sqlite3_free(err);
     }
-}
-
-void SqliteHistoryProvider::migrate_plain_text_history() {
-    if (!db_) return;
-
-    // Only migrate if using the default path
-    std::string default_path = default_db_path();
-    if (db_path_ != default_path) return;
-
-    std::string txt_path = plain_text_history_path();
-    if (txt_path.empty() || !file_exists(txt_path)) return;
-
-    // Two-part migration guard. Without these, we'd stomp replxx's
-    // ongoing `.tash_history` file every session — replxx uses the same
-    // path for its own ring persistence, so migrating + renaming would
-    // destroy every session's history on the next startup.
-    //
-    //   1. If `.bak` already exists, migration ran before — skip.
-    //   2. Otherwise, peek at the first line: replxx writes entries
-    //      with a `### YYYY-MM-DD HH:MM:SS.MMM` timestamp prefix;
-    //      the legacy pre-SQLite format was bare command lines.
-    //      If we see the timestamp marker, this is replxx's file,
-    //      not legacy — leave it alone.
-    std::string bak_path = txt_path + ".bak";
-    if (file_exists(bak_path)) return;
-
-    {
-        std::ifstream peek(txt_path);
-        std::string first;
-        if (peek && std::getline(peek, first)) {
-            // Replxx's timestamp line looks like "### 2024-..."; any
-            // line starting with "###" means this isn't legacy-format.
-            if (first.size() >= 3 && first.substr(0, 3) == "###") {
-                // File is replxx's ongoing history — don't migrate it,
-                // but also plant the `.bak` marker so the old guard
-                // short-circuits on future startups without us having
-                // to re-peek each time.
-                std::ofstream marker(bak_path);
-                marker << "# plain-text migration was skipped because "
-                          "the source file is in replxx's on-disk "
-                          "format, not legacy.\n";
-                return;
-            }
-        }
-    }
-
-    std::ifstream infile(txt_path);
-    if (!infile.is_open()) return;
-
-    int64_t now = static_cast<int64_t>(std::time(nullptr));
-
-    // Use a transaction for bulk insert
-    sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
-
-    const char *sql =
-        "INSERT INTO history (command, timestamp) VALUES (?, ?);";
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) {
-        sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
-        return;
-    }
-
-    std::string line;
-    while (std::getline(infile, line)) {
-        if (line.empty()) continue;
-
-        sqlite3_reset(stmt);
-        sqlite3_bind_text(stmt, 1, line.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 2, now);
-        sqlite3_step(stmt);
-    }
-
-    sqlite3_finalize(stmt);
-    infile.close();
-
-    sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
-
-    // Rename the old file to .bak — this doubles as our one-shot
-    // migration marker (see the guard at the top of this function).
-    std::rename(txt_path.c_str(), bak_path.c_str());
 }
 
 HistoryEntry SqliteHistoryProvider::row_to_entry(sqlite3_stmt *stmt) const {

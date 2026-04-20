@@ -29,14 +29,8 @@ void background_process(const std::vector<std::string> &argv,
                         const std::vector<Redirection> &redirections);
 void check_background_process_finished(std::unordered_map<pid_t, std::string> &background_processes);
 void reap_background_processes(std::unordered_map<pid_t, std::string> &background_processes);
-[[nodiscard]] int execute_pipeline(std::vector<std::vector<std::string>> &pipeline_cmds,
-                                   const std::string &filename, bool redirect_flag,
-                                   ShellState *state = nullptr);
-
-// Richer pipeline entry: each segment carries its own redirections
-// (including heredocs) and may declare itself a subshell via
-// subshell_body. Used when the caller has already parsed per-segment
-// structure; the legacy overload above is a thin wrapper.
+// Pipeline entry: each segment carries its own redirections (including
+// heredocs) and may declare itself a subshell via subshell_body.
 [[nodiscard]] int execute_pipeline(std::vector<PipelineSegment> &segments,
                                    ShellState *state);
 
