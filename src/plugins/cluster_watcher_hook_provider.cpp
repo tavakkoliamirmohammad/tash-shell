@@ -184,18 +184,32 @@ WatcherFactory make_ssh_tail_watcher_factory(
         const std::string event_dir  = dir  ? dir(a)  : std::string{};
         if (ssh_host.empty() || event_dir.empty()) return nullptr;
 
-        // `ssh <host> tail -qF -n +1 <event_dir>/*.event 2>/dev/null`
-        // - -q: suppress the "==> <file> <==" banner.
-        // - -F: re-open files on rotation / truncation / recreation.
-        // - -n +1: emit existing file contents from line 1 (so events
-        //          written before the watcher spawned are still seen).
-        // - stderr discarded so ssh auth prompts land on the user's
-        //   terminal via stderr unbuffered; file-not-found warnings
-        //   from tail don't spam desktop notifications.
+        // Run a small bash loop on the remote that:
+        //   1. Ensures the event dir exists (idempotent mkdir).
+        //   2. Polls every 2s for any <ws>/<inst>.event file.
+        //   3. Once at least one exists, execs `tail -qF` on the
+        //      matched set. -qF -n +1 has its usual meaning:
+        //        -q suppresses per-file banners,
+        //        -F re-opens on rotate/truncate/recreate,
+        //        -n +1 emits existing content from line 1.
+        //
+        // The two-level glob (<dir>/<workspace>/<instance>.event) is
+        // what tash actually writes — earlier versions watched
+        // <dir>/*.event (one level) and matched nothing.
+        //
+        // stderr is discarded so tail's pre-file-created noise doesn't
+        // bubble back to the user's terminal every 2s.
+        const std::string remote = std::string{} +
+            "mkdir -p -- \"" + event_dir + "\" 2>/dev/null; "
+            "while :; do "
+            "  if ls \"" + event_dir + "\"/*/*.event >/dev/null 2>&1; then "
+            "    exec tail -qF -n +1 \"" + event_dir + "\"/*/*.event 2>/dev/null; "
+            "  fi; "
+            "  sleep 2; "
+            "done";
         std::vector<std::string> argv = {
             "ssh", ssh_host,
-            "tail", "-qF", "-n", "+1",
-            event_dir + "/*.event",
+            "bash", "-c", remote,
         };
         auto proc = std::make_shared<PipedLineSource>(std::move(argv));
         auto src  = PipedLineSource::as_line_source(proc);
