@@ -558,7 +558,12 @@ std::string sq(const std::string& s) {
 // and commands like `claude` aren't found on most HPC setups.
 std::string wrap_for_compute(const std::string& jobid, const std::string& cmd) {
     if (jobid.empty()) return cmd;
-    return "srun --jobid=" + jobid + " --overlap bash -l -c " + sq(cmd);
+    // --pty allocates a pseudo-tty for the step's stdio. Required for
+    // interactive programs (Claude, bash, less, vim, etc.) — without
+    // it srun wires stdin/stdout/stderr to slurmctld's step output
+    // capture, which most TUIs detect as non-tty and bail on.
+    // Implies --unbuffered, which we want anyway for live output.
+    return "srun --jobid=" + jobid + " --overlap --pty bash -l -c " + sq(cmd);
 }
 
 }  // namespace

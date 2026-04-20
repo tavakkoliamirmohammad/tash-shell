@@ -254,7 +254,7 @@ TEST(ClusterBuiltin, LaunchDispatches) {
     // cmd is srun-wrapped so the login-node tmux window's child
     // actually runs on the compute node.
     EXPECT_EQ(h.tmux.new_window_calls[0].cmd,
-              "srun --jobid=100 --overlap bash -l -c 'bash'");
+              "srun --jobid=100 --overlap --pty bash -l -c 'bash'");
 }
 
 TEST(ClusterBuiltin, LaunchMissingWorkspaceErrors) {
