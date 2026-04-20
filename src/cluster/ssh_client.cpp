@@ -287,20 +287,51 @@ int spawn_inherit(const std::vector<std::string>& argv,
                    std::chrono::milliseconds timeout_ms) {
     if (argv.empty()) return -1;
 
+    // Pick the tty fd: stdin usually works, but tash's stdin can be
+    // redirected (pipe, here-doc) even when the process itself is
+    // interactive, so fall back to opening /dev/tty directly.
+    int tty_fd = -1;
+    int owned_tty_fd = -1;
+    if (::isatty(STDIN_FILENO)) {
+        tty_fd = STDIN_FILENO;
+    } else {
+        owned_tty_fd = ::open("/dev/tty", O_RDWR | O_CLOEXEC);
+        if (owned_tty_fd >= 0) tty_fd = owned_tty_fd;
+    }
+
     struct termios saved{};
-    const bool have_tty = ::isatty(STDIN_FILENO) &&
-                          ::tcgetattr(STDIN_FILENO, &saved) == 0;
+    const bool have_tty = tty_fd >= 0 &&
+                          ::tcgetattr(tty_fd, &saved) == 0;
     if (have_tty) {
+        // Replxx puts the tty in raw mode; ssh's getpass() expects a
+        // canonical cooked line discipline. Just OR-ing flags would
+        // leave replxx's cleared bits in place, so build a complete
+        // default cooked termios here.
         struct termios cooked = saved;
-        cooked.c_lflag |= (ICANON | ECHO | ECHOE | ECHOK | ISIG);
-        cooked.c_iflag |= (ICRNL | IXON);
-        cooked.c_oflag |= OPOST;
-        (void)::tcsetattr(STDIN_FILENO, TCSADRAIN, &cooked);
+        cooked.c_iflag &= ~(IGNBRK | PARMRK | ISTRIP | INLCR | IGNCR);
+        cooked.c_iflag |=  (BRKINT | ICRNL  | IXON   | IXANY);
+        cooked.c_oflag |=  (OPOST  | ONLCR);
+        cooked.c_lflag  =  (ICANON | ECHO | ECHOE | ECHOK | ECHONL |
+                            ISIG   | IEXTEN);
+        cooked.c_cflag &= ~(CSIZE  | PARENB);
+        cooked.c_cflag |=  (CS8    | CREAD);
+        cooked.c_cc[VMIN]   = 1;
+        cooked.c_cc[VTIME]  = 0;
+        cooked.c_cc[VINTR]  = 003;   // Ctrl-C
+        cooked.c_cc[VQUIT]  = 034;   // Ctrl-backslash
+        cooked.c_cc[VERASE] = 0177;  // DEL / Backspace
+        cooked.c_cc[VKILL]  = 025;   // Ctrl-U
+        cooked.c_cc[VEOF]   = 004;   // Ctrl-D
+        cooked.c_cc[VSTART] = 021;   // Ctrl-Q
+        cooked.c_cc[VSTOP]  = 023;   // Ctrl-S
+        cooked.c_cc[VSUSP]  = 032;   // Ctrl-Z
+        (void)::tcsetattr(tty_fd, TCSAFLUSH, &cooked);
     }
 
     pid_t pid = ::fork();
     if (pid < 0) {
-        if (have_tty) (void)::tcsetattr(STDIN_FILENO, TCSADRAIN, &saved);
+        if (have_tty) (void)::tcsetattr(tty_fd, TCSADRAIN, &saved);
+        if (owned_tty_fd >= 0) ::close(owned_tty_fd);
         return -1;
     }
     if (pid == 0) {
@@ -331,7 +362,8 @@ int spawn_inherit(const std::vector<std::string>& argv,
         struct timespec ts{0, 100'000'000};  // 100ms
         ::nanosleep(&ts, nullptr);
     }
-    if (have_tty) (void)::tcsetattr(STDIN_FILENO, TCSADRAIN, &saved);
+    if (have_tty) (void)::tcsetattr(tty_fd, TCSADRAIN, &saved);
+    if (owned_tty_fd >= 0) ::close(owned_tty_fd);
     return rc;
 }
 
