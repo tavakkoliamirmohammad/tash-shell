@@ -82,6 +82,7 @@ void print_toplevel_help(std::ostream& out) {
            "  down     scancel an allocation\n"
            "  kill     terminate one instance\n"
            "  sync     reconcile against squeue\n"
+           "  prune    drop ended allocations from the registry\n"
            "  probe    show current capacity for a resource\n"
            "  import   adopt an externally-submitted jobid\n"
            "  doctor   diagnose ssh / sbatch / tmux on each cluster\n"
@@ -682,6 +683,13 @@ int dispatch_cluster(const std::vector<std::string>& argv,
     if (sub == "down")   return cmd_down  (std::move(rest), eng, out, err);
     if (sub == "kill")   return cmd_kill  (std::move(rest), eng, out, err);
     if (sub == "sync")   return cmd_sync  (std::move(rest), eng, out, err);
+    if (sub == "prune") {
+        auto r = eng.prune();
+        if (auto* e = std::get_if<EngineError>(&r)) { print_err(err, e->message); return 1; }
+        out << "pruned " << std::get<ClusterEngine::PruneReport>(r).removed
+            << " ended allocation(s)\n";
+        return 0;
+    }
     if (sub == "probe")  return cmd_probe (std::move(rest), eng, out, err);
     if (sub == "import") return cmd_import(std::move(rest), eng, out, err);
     if (sub == "doctor") return cmd_doctor(std::move(rest), eng, out, err);

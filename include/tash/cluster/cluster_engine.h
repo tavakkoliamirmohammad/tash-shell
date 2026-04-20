@@ -132,6 +132,14 @@ public:
     };
     ClusterResult<SyncReport> sync(const SyncSpec& spec);
 
+    // prune: remove Ended allocations from the registry. Stop-hook
+    // events on disk are the long-term history; the registry is for
+    // live allocations. Returns the count removed.
+    struct PruneReport {
+        int removed = 0;
+    };
+    ClusterResult<PruneReport> prune();
+
     // import: adopt an externally-submitted SLURM job. Queries squeue
     // on the cluster, finds the jobid, creates an Allocation entry.
     ClusterResult<Allocation> import(const ImportSpec& spec);

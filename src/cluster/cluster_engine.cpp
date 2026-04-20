@@ -168,14 +168,25 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
                             "' in workspace '" + spec.workspace + "'"};
     }
     if (matches.size() > 1u) {
-        std::string msg = "ambiguous: '" + spec.workspace + "/" + spec.instance +
-                           "' present in multiple allocations (";
-        for (std::size_t i = 0; i < matches.size(); ++i) {
-            if (i) msg += ", ";
-            msg += matches[i].a->id;
+        // Auto-disambiguate by preferring Running allocations. An
+        // ended-or-stale copy in an old allocation shouldn't force
+        // the user to type --alloc when there's exactly one live
+        // allocation with this workspace/instance.
+        std::vector<Match> live;
+        for (auto& m : matches)
+            if (m.a->state == AllocationState::Running) live.push_back(m);
+        if (live.size() == 1u) {
+            matches = std::move(live);
+        } else {
+            std::string msg = "ambiguous: '" + spec.workspace + "/" + spec.instance +
+                               "' present in multiple allocations (";
+            for (std::size_t i = 0; i < matches.size(); ++i) {
+                if (i) msg += ", ";
+                msg += matches[i].a->id;
+            }
+            msg += "); pass --alloc to pick one";
+            return EngineError{std::move(msg)};
         }
-        msg += "); pass --alloc to pick one";
-        return EngineError{std::move(msg)};
     }
 
     auto& m = matches.front();
@@ -227,6 +238,19 @@ ClusterResult<ClusterEngine::ProbeReport> ClusterEngine::probe(const ProbeSpec& 
         }
         rep.routes.push_back(std::move(st));
     }
+    return rep;
+}
+
+ClusterResult<ClusterEngine::PruneReport> ClusterEngine::prune() {
+    auto lk = reg_.lock();
+    const auto before = reg_.allocations.size();
+    reg_.allocations.erase(
+        std::remove_if(reg_.allocations.begin(), reg_.allocations.end(),
+            [](const Allocation& a) { return a.state == AllocationState::Ended; }),
+        reg_.allocations.end());
+    PruneReport rep;
+    rep.removed = static_cast<int>(before - reg_.allocations.size());
+    if (save_ && rep.removed > 0) save_();
     return rep;
 }
 
@@ -779,6 +803,16 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
     }
 
     if (matches.size() > 1u) {
+        // Prefer Running allocations when only one is live. Matches
+        // the kill() behaviour — the user should rarely have to
+        // name --alloc just because a prior run's registry row is
+        // still hanging around as Ended.
+        std::vector<Match> live;
+        for (auto& m : matches)
+            if (m.a->state == AllocationState::Running) live.push_back(m);
+        if (live.size() == 1u) {
+            matches = std::move(live);
+        } else {
         std::string msg = "ambiguous: '" + spec.workspace + "/" + spec.instance +
                            "' present in multiple allocations (";
         for (std::size_t i = 0; i < matches.size(); ++i) {
@@ -787,6 +821,7 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
         }
         msg += "); pass --alloc to pick one";
         return EngineError{std::move(msg)};
+        }
     }
 
     // Exactly one — dispatch.
