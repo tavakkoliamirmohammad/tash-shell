@@ -169,20 +169,25 @@ std::string sh_single_quote(const std::string& s) {
 
 std::vector<std::string> build_install_file_argv(const std::string& content,
                                                    const std::string& remote_path) {
-    // `sh -c 'mkdir -p <dir> && printf %s <b64> | base64 -d > <path> && chmod 0755 <path>'`
+    // ssh concatenates argv after <host> with spaces and hands the
+    // single string to the remote shell. If we returned three argv
+    // elements (/bin/sh, -c, "<multi-word cmd>"), the remote shell
+    // would get `/bin/sh -c mkdir -p …` and split after `mkdir`
+    // — making -c's argument just "mkdir" and dropping the rest as
+    // $0/$1. So emit one already-composed shell invocation instead.
     const auto slash = remote_path.find_last_of('/');
     const std::string parent =
         (slash == std::string::npos) ? "." : remote_path.substr(0, slash);
 
     const std::string b64 = base64_encode(content);
 
-    std::string cmd;
-    cmd += "mkdir -p -- ";       cmd += sh_single_quote(parent);
-    cmd += " && printf %s ";     cmd += sh_single_quote(b64);
-    cmd += " | base64 -d > ";    cmd += sh_single_quote(remote_path);
-    cmd += " && chmod 0755 ";    cmd += sh_single_quote(remote_path);
+    std::string inner;
+    inner += "mkdir -p -- ";       inner += sh_single_quote(parent);
+    inner += " && printf %s ";     inner += sh_single_quote(b64);
+    inner += " | base64 -d > ";    inner += sh_single_quote(remote_path);
+    inner += " && chmod 0755 ";    inner += sh_single_quote(remote_path);
 
-    return {"/bin/sh", "-c", cmd};
+    return {"/bin/sh -c " + sh_single_quote(inner)};
 }
 
 bool install_remote_file(ISshClient& ssh,
