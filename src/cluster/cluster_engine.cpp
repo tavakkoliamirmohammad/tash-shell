@@ -381,6 +381,81 @@ ClusterResult<Allocation> ClusterEngine::import(const ImportSpec& spec) {
     return a;
 }
 
+// ── logs ───────────────────────────────────────────────────────
+//
+// Target resolution:
+//   - spec.alloc_id narrows by allocation id.
+//   - spec.workspace narrows by workspace name.
+//   - If multiple candidates and no alloc_id, return ambiguity error.
+//
+// Remote command:
+//   sh -c 'for f in $HOME/.tash-cluster/events/<ws>/<pattern>.event; do
+//            [ -f "$f" ] || continue
+//            echo "==> $f <=="
+//            tail -n <N> "$f"
+//          done'
+//
+// We use a for-loop rather than `tail -n <N>` on a glob because the
+// header-style output tail emits for multiple files is BSD/GNU-
+// dependent. Shell-for with explicit echo works everywhere.
+ClusterResult<ClusterEngine::LogsReport> ClusterEngine::logs(const LogsSpec& spec) {
+    if (spec.workspace.empty()) {
+        return EngineError{"logs: --workspace is required"};
+    }
+    auto lk = reg_.lock();
+
+    // Collect candidate (allocation, workspace) pairs.
+    struct Match { Allocation* a; Workspace* w; };
+    std::vector<Match> matches;
+    for (auto& a : reg_.allocations) {
+        if (spec.alloc_id && a.id != *spec.alloc_id) continue;
+        for (auto& w : a.workspaces) {
+            if (w.name == spec.workspace) matches.push_back({&a, &w});
+        }
+    }
+    if (matches.empty()) {
+        return EngineError{"no workspace '" + spec.workspace +
+                            "' in any allocation; run `cluster list`"};
+    }
+    if (matches.size() > 1u) {
+        std::string msg = "ambiguous: workspace '" + spec.workspace +
+                           "' present in multiple allocations (";
+        for (std::size_t i = 0; i < matches.size(); ++i) {
+            if (i) msg += ", ";
+            msg += matches[i].a->id;
+        }
+        msg += "); pass --alloc to pick one";
+        return EngineError{std::move(msg)};
+    }
+
+    const Allocation* a = matches.front().a;
+
+    const std::string pattern = spec.instance ? *spec.instance : std::string{"*"};
+    const int N = spec.tail_lines > 0 ? spec.tail_lines : 100;
+
+    std::string remote_cmd;
+    remote_cmd += "for f in \"$HOME/.tash-cluster/events/";
+    remote_cmd += spec.workspace;
+    remote_cmd += "/";
+    remote_cmd += pattern;
+    remote_cmd += ".event\"; do [ -f \"$f\" ] || continue; echo \"==> $f <==\"; tail -n ";
+    remote_cmd += std::to_string(N);
+    remote_cmd += " \"$f\"; done";
+
+    const std::vector<std::string> argv = {"/bin/sh", "-c", remote_cmd};
+    const auto r = ssh_.run(a->cluster, argv, std::chrono::seconds{15});
+    if (r.exit_code != 0) {
+        return EngineError{"ssh refused logs fetch on " + a->cluster +
+                            " (exit " + std::to_string(r.exit_code) + ")"};
+    }
+
+    LogsReport rep;
+    rep.cluster  = a->cluster;
+    rep.alloc_id = a->id;
+    rep.contents = r.out.empty() ? "(no events yet)\n" : r.out;
+    return rep;
+}
+
 // ── launch helpers ─────────────────────────────────────────────
 
 namespace {

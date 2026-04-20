@@ -251,6 +251,17 @@ struct ImportSpec {
     std::optional<std::string> resource;          // label; best-effort
 };
 
+// `cluster logs` — fetch recent stop-hook events for a workspace (and
+// optionally a single instance) from the compute node over ssh. v1
+// returns the bytes as a single string; a future follow-mode may
+// stream via PipedLineSource.
+struct LogsSpec {
+    std::string                workspace;          // required
+    std::optional<std::string> instance;           // optional: narrow to one
+    std::optional<std::string> alloc_id;           // optional: narrow to one
+    int                        tail_lines = 100;   // default last N per file
+};
+
 }  // namespace tash::cluster
 
 #endif  // TASH_CLUSTER_TYPES_H

@@ -134,6 +134,18 @@ public:
     // on the cluster, finds the jobid, creates an Allocation entry.
     ClusterResult<Allocation> import(const ImportSpec& spec);
 
+    // logs: fetch stop-hook events for a workspace (optionally for a
+    // specific instance) from the compute node. Returns the last
+    // spec.tail_lines of each matching <ws>/<inst>.event file,
+    // concatenated in deterministic order, along with a per-file
+    // header so callers can attribute lines to an instance.
+    struct LogsReport {
+        std::string cluster;                  // cluster the allocation lives on
+        std::string alloc_id;
+        std::string contents;                 // pre-formatted for display
+    };
+    ClusterResult<LogsReport> logs(const LogsSpec& spec);
+
     // Diagnostic report: per-cluster ssh reach + tool presence. Each
     // check carries OK / WARN / FAIL + a one-line message (fix hint
     // on WARN/FAIL).

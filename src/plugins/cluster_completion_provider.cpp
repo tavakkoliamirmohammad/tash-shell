@@ -23,7 +23,7 @@ namespace {
 
 constexpr const char* kSubcommands[] = {
     "up", "launch", "attach", "list", "down", "kill",
-    "sync", "probe", "import", "doctor", "help",
+    "sync", "probe", "import", "doctor", "logs", "help",
 };
 
 const std::vector<std::string>& flags_for(std::string_view sub) {

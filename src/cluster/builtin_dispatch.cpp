@@ -83,6 +83,7 @@ void print_toplevel_help(std::ostream& out) {
            "  probe    show current capacity for a resource\n"
            "  import   adopt an externally-submitted jobid\n"
            "  doctor   diagnose ssh / sbatch / tmux on each cluster\n"
+           "  logs     fetch stop-hook events for a workspace / instance\n"
            "  help     show per-subcommand help\n"
            "\n"
            "run `cluster <subcommand> --help` for per-subcommand usage.\n";
@@ -150,6 +151,19 @@ void print_subcommand_help(std::string_view sub, std::ostream& out) {
                "usage: cluster doctor [<cluster>]\n"
                "\n"
                "Each check reports OK / WARN / FAIL with a one-line hint.\n";
+    } else if (sub == "logs") {
+        out << "cluster logs — fetch stop-hook events for a workspace\n"
+               "\n"
+               "usage: cluster logs <workspace> [options]\n"
+               "\n"
+               "options:\n"
+               "      --workspace <name>   workspace (also accepted positionally)\n"
+               "      --instance <name>    narrow to a single instance\n"
+               "      --alloc <id>         disambiguate if workspace is shared\n"
+               "  -n, --lines <N>          per-file tail length (default 100)\n"
+               "\n"
+               "Reads $HOME/.tash-cluster/events/<workspace>/<instance>.event\n"
+               "on the compute node via ssh and prints the last N lines of each.\n";
     } else {
         print_toplevel_help(out);
     }
@@ -421,6 +435,45 @@ int cmd_kill(std::vector<std::string> rest, ClusterEngine& eng,
     return 1;
 }
 
+int cmd_logs(std::vector<std::string> rest, ClusterEngine& eng,
+              std::ostream& out, std::ostream& err) {
+    if (handled_help(rest, "logs", out)) return 0;
+
+    LogsSpec spec;
+    for (std::size_t i = 0; i < rest.size(); ++i) {
+        if (rest[i].empty()) continue;
+        bool f;
+        if (auto v = eat_value(rest, i, {"--workspace"}, f, err); f)
+            { if (!v) return 1; spec.workspace = *v; continue; }
+        if (auto v = eat_value(rest, i, {"--instance"}, f, err); f)
+            { if (!v) return 1; spec.instance  = *v; continue; }
+        if (auto v = eat_value(rest, i, {"--alloc"}, f, err); f)
+            { if (!v) return 1; spec.alloc_id = *v; continue; }
+        if (auto v = eat_value(rest, i, {"-n", "--lines"}, f, err); f) {
+            if (!v) return 1;
+            try { spec.tail_lines = std::stoi(*v); }
+            catch (const std::exception&) {
+                print_err(err, "-n expects an integer"); return 1;
+            }
+            continue;
+        }
+        // First non-flag positional = workspace (convenience).
+        if (!rest[i].empty() && rest[i][0] != '-') {
+            if (spec.workspace.empty()) { spec.workspace = rest[i]; rest[i].clear(); continue; }
+        }
+        print_err(err, "unknown option: " + rest[i]); return 1;
+    }
+
+    auto r = eng.logs(spec);
+    if (auto* rep = std::get_if<ClusterEngine::LogsReport>(&r)) {
+        out << rep->contents;
+        if (!rep->contents.empty() && rep->contents.back() != '\n') out << '\n';
+        return 0;
+    }
+    print_err(err, std::get<EngineError>(r).message);
+    return 1;
+}
+
 int cmd_sync(std::vector<std::string> rest, ClusterEngine& eng,
               std::ostream& out, std::ostream& err) {
     if (handled_help(rest, "sync", out)) return 0;
@@ -575,6 +628,7 @@ int dispatch_cluster(const std::vector<std::string>& argv,
     if (sub == "probe")  return cmd_probe (std::move(rest), eng, out, err);
     if (sub == "import") return cmd_import(std::move(rest), eng, out, err);
     if (sub == "doctor") return cmd_doctor(std::move(rest), eng, out, err);
+    if (sub == "logs")   return cmd_logs  (std::move(rest), eng, out, err);
 
     print_err(err, "unknown subcommand: " + sub);
     return 1;

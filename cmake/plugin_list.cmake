@@ -388,6 +388,13 @@ tash_register_plugin(
     TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
     TEST_PREFIX "unit/cluster/"
 )
+tash_register_plugin(
+    NAME cluster_engine_logs
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_logs_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
 
 tash_register_plugin(
     NAME cluster_watcher
