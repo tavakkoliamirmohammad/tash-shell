@@ -550,9 +550,15 @@ std::string sq(const std::string& s) {
 // workload itself runs on the compute node where sbatch allocated
 // resources. When the target isn't a SLURM allocation (no jobid),
 // returns cmd verbatim.
+//
+// `bash -l -c` (login shell) sources the user's ~/.bash_profile /
+// ~/.profile so PATH additions (typical for `claude` / `npm`-
+// installed binaries under ~/.local/bin or ~/.npm-global/bin) are
+// available. Without -l, srun's fresh bash has only a minimal PATH
+// and commands like `claude` aren't found on most HPC setups.
 std::string wrap_for_compute(const std::string& jobid, const std::string& cmd) {
     if (jobid.empty()) return cmd;
-    return "srun --jobid=" + jobid + " --overlap bash -c " + sq(cmd);
+    return "srun --jobid=" + jobid + " --overlap bash -l -c " + sq(cmd);
 }
 
 }  // namespace
