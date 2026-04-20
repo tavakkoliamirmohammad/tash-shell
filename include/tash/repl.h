@@ -2,6 +2,7 @@
 #define TASH_REPL_H
 
 #include "tash/shell.h"
+#include "replxx.hxx"
 
 namespace tash {
 
@@ -11,5 +12,11 @@ namespace tash {
 int run_interactive(ShellState &state);
 
 } // namespace tash
+
+// Expand the `!!` / `!n` history-bang notation against replxx's
+// in-memory ring. REPL-only (the parser doesn't know about the ring),
+// so this declaration lives here rather than in tash/core/parser.h —
+// that way every TU pulling parser.h doesn't transitively pull replxx.
+std::string expand_history_bang(const std::string &line, replxx::Replxx &rx);
 
 #endif // TASH_REPL_H

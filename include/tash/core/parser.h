@@ -14,8 +14,6 @@
 #include <string_view>
 #include <vector>
 
-#include "replxx.hxx"
-
 std::string &rtrim(std::string &s, const char *t = " \t\n\r\f\v");
 std::string &ltrim(std::string &s, const char *t = " \t\n\r\f\v");
 std::string &trim(std::string &s, const char *t = " \t\n\r\f\v");
@@ -27,7 +25,8 @@ std::vector<std::string> expand_globs(const std::vector<std::string> &args,
 std::string expand_tilde(const std::string &token);
 std::string strip_quotes(std::string_view s);
 std::vector<CommandSegment> parse_command_line(const std::string &line);
-std::string expand_history_bang(const std::string &line, replxx::Replxx &rx);
+// expand_history_bang was moved to tash/repl.h to keep this header free
+// of the replxx dependency; it's REPL-only.
 Command parse_redirections(const std::string &command_str);
 Command parse_redirections(const std::string &command_str,
                            std::vector<PendingHeredoc> *bodies);

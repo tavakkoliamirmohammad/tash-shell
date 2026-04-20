@@ -359,51 +359,6 @@ string strip_quotes(string_view s) {
     return string(s);
 }
 
-string expand_history_bang(const string &line, replxx::Replxx &rx) {
-    string trimmed = line;
-    trimmed = trim(trimmed);
-
-    // Collect history entries into a vector for indexed access
-    vector<string> hist_entries;
-    {
-        replxx::Replxx::HistoryScan hs(rx.history_scan());
-        while (hs.next()) {
-            replxx::Replxx::HistoryEntry he(hs.get());
-            hist_entries.push_back(he.text());
-        }
-    }
-
-    // hist_entries is oldest-first (history_scan iterates chronologically)
-    if (trimmed == "!!") {
-        if (hist_entries.empty()) {
-            tash::parse::emit_parse_error({"!!: event not found", 1, 1});
-            return "";
-        }
-        return hist_entries.back();  // most recent = last element
-    }
-
-    if (trimmed.size() >= 2 && trimmed[0] == '!') {
-        string num_str = trimmed.substr(1);
-        bool all_digits = true;
-        for (size_t i = 0; i < num_str.size(); i++) {
-            if (!isdigit(num_str[i])) { all_digits = false; break; }
-        }
-        if (all_digits && !num_str.empty()) {
-            int n = stoi(num_str);
-            // !1 = first command = hist_entries[0] (1-based)
-            int idx = n - 1;
-            if (idx < 0 || idx >= (int)hist_entries.size()) {
-                tash::parse::emit_parse_error(
-                    {"!" + num_str + ": event not found", 1, 1});
-                return "";
-            }
-            return hist_entries[idx];
-        }
-    }
-
-    return line;
-}
-
 // Build a plain file-backed redirection. Avoids aggregate-init braces
 // now that Redirection has default-initialized heredoc fields — without
 // this the compiler warns about each missing initializer.

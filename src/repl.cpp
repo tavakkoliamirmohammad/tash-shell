@@ -13,6 +13,7 @@
 #include "tash/util/parse_error.h"
 #include "theme.h"
 
+#include <cctype>
 #include <cstring>
 #include <sys/time.h>
 #include <termios.h>
@@ -376,3 +377,56 @@ int run_interactive(ShellState &state) {
 }
 
 } // namespace tash
+
+// ── History bang expansion (!! / !n) ──────────────────────────
+//
+// Moved here from src/core/parser.cpp so tash/core/parser.h doesn't
+// have to include replxx.hxx transitively — this is the only function
+// in the parse-surface that touched the replxx ring.
+
+std::string expand_history_bang(const std::string &line, replxx::Replxx &rx) {
+    std::string trimmed = line;
+    trimmed = trim(trimmed);
+
+    // Collect history entries into a vector for indexed access.
+    std::vector<std::string> hist_entries;
+    {
+        replxx::Replxx::HistoryScan hs(rx.history_scan());
+        while (hs.next()) {
+            replxx::Replxx::HistoryEntry he(hs.get());
+            hist_entries.push_back(he.text());
+        }
+    }
+
+    // hist_entries is oldest-first (history_scan iterates chronologically).
+    if (trimmed == "!!") {
+        if (hist_entries.empty()) {
+            tash::parse::emit_parse_error({"!!: event not found", 1, 1});
+            return "";
+        }
+        return hist_entries.back();  // most recent = last element
+    }
+
+    if (trimmed.size() >= 2 && trimmed[0] == '!') {
+        std::string num_str = trimmed.substr(1);
+        bool all_digits = true;
+        for (size_t i = 0; i < num_str.size(); i++) {
+            if (!isdigit(static_cast<unsigned char>(num_str[i]))) {
+                all_digits = false; break;
+            }
+        }
+        if (all_digits && !num_str.empty()) {
+            int n = std::stoi(num_str);
+            // !1 = first command = hist_entries[0] (1-based).
+            int idx = n - 1;
+            if (idx < 0 || idx >= (int)hist_entries.size()) {
+                tash::parse::emit_parse_error(
+                    {"!" + num_str + ": event not found", 1, 1});
+                return "";
+            }
+            return hist_entries[idx];
+        }
+    }
+
+    return line;
+}

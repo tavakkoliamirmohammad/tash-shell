@@ -47,26 +47,18 @@ std::vector<std::string> tokenize(const std::string &s) {
 
 // ── classify_command ─────────────────────────────────────────
 
-RiskLevel classify_command(const std::string &cmd) {
-    std::string trimmed = trim(cmd);
-
-    if (trimmed.empty()) {
-        return SAFE;
-    }
-
-    // Backslash bypass: if command starts with '\', skip all checks
-    if (trimmed[0] == '\\') {
-        return SAFE;
-    }
-
-    std::vector<std::string> tokens = tokenize(trimmed);
-    if (tokens.empty()) {
-        return SAFE;
-    }
+// Core classifier that takes a pre-tokenized command. Used both by the
+// public `classify_command` (which tokenizes from scratch) and by
+// `on_before_command` (which tokenizes once and reuses the vector when
+// building the warning message). Keeps the per-command cost at one
+// pass regardless of how many times we consult the tokens.
+static RiskLevel classify_tokens(const std::vector<std::string> &tokens,
+                                  const std::string &trimmed_for_redirect_prefix) {
+    if (tokens.empty()) return SAFE;
 
     // ── Truncation / redirect detection ──────────────────────
     // "> existing_file" -- output truncation
-    if (tokens[0] == ">" || starts_with(trimmed, ">")) {
+    if (tokens[0] == ">" || starts_with(trimmed_for_redirect_prefix, ">")) {
         return MEDIUM;
     }
 
@@ -168,6 +160,14 @@ RiskLevel classify_command(const std::string &cmd) {
     return SAFE;
 }
 
+RiskLevel classify_command(const std::string &cmd) {
+    std::string trimmed = trim(cmd);
+    if (trimmed.empty()) return SAFE;
+    // Backslash bypass: if command starts with '\', skip all checks.
+    if (trimmed[0] == '\\') return SAFE;
+    return classify_tokens(tokenize(trimmed), trimmed);
+}
+
 // ── SafetyHookProvider implementation ────────────────────────
 
 std::string SafetyHookProvider::name() const {
@@ -179,15 +179,20 @@ void SafetyHookProvider::on_before_command(const std::string &command,
     // Reset skip flag
     state.exec.skip_execution = false;
 
-    RiskLevel level = classify_command(command);
+    // Single tokenize + trim pass shared with the classifier. Previously
+    // classify_command tokenized, returned a level, then the warning-
+    // builder below re-tokenized the same string — wasteful for a hook
+    // that fires on every command. classify_tokens is the same logic
+    // classify_command would run but on the already-split tokens.
+    std::string trimmed = trim(command);
+    if (trimmed.empty() || trimmed[0] == '\\') return;
+    std::vector<std::string> tokens = tokenize(trimmed);
+    RiskLevel level = classify_tokens(tokens, trimmed);
 
     if (level == SAFE) {
         return;
     }
 
-    // Build the warning message based on what was detected
-    std::string trimmed = trim(command);
-    std::vector<std::string> tokens = tokenize(trimmed);
     std::string warning;
 
     if (level == BLOCKED) {

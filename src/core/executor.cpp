@@ -29,6 +29,34 @@
 
 using namespace std;
 
+// Expand an argv0 alias in place. Shared by both the top-level
+// executor path and the per-pipeline-segment loop so new rules
+// (recursive expansion, alias-with-env, whatever) only need one edit.
+// No-op if argv is empty or argv[0] is not aliased.
+static void expand_argv0_alias(vector<string> &argv, ShellState &state) {
+    if (argv.empty() || !state.core.aliases.count(argv[0])) return;
+    string expanded = state.core.aliases[argv[0]];
+    for (size_t i = 1; i < argv.size(); i++) expanded += " " + argv[i];
+    vector<string> new_tokens = tokenize_string(expanded, " ");
+    for (string &t : new_tokens) {
+        t = expand_tilde(t);
+        t = strip_quotes(t);
+    }
+    argv = std::move(new_tokens);
+}
+
+// Insert COLOR_FLAG after argv0 for commands that take a --color option
+// (ls, grep, etc. — the set lives in ShellState::core::colorful_commands).
+// Separated from alias expansion so the caller can put glob expansion
+// between them: `alias foo='echo *.txt'; foo` must still have the `*.txt`
+// glob-expanded, which means alias → glob → color, not alias+color → glob.
+static void insert_color_flag(vector<string> &argv, ShellState &state) {
+    if (argv.empty()) return;
+    if (state.core.colorful_commands.count(argv[0])) {
+        argv.insert(argv.begin() + 1, COLOR_FLAG);
+    }
+}
+
 // ── Auto-cd helper ─────────────────────────────────────────────
 
 static bool try_auto_cd(const string &token, ShellState &state) {
@@ -333,23 +361,9 @@ int execute_single_command(string command, ShellState &state,
         }
     }
 
-    if (state.core.aliases.count(cmd.argv[0])) {
-        string expanded = state.core.aliases[cmd.argv[0]];
-        for (size_t i = 1; i < cmd.argv.size(); i++)
-            expanded += " " + cmd.argv[i];
-        vector<string> new_tokens = tokenize_string(expanded, " ");
-        for (string &t : new_tokens) {
-            t = expand_tilde(t);
-            t = strip_quotes(t);
-        }
-        cmd.argv = new_tokens;
-    }
-
+    expand_argv0_alias(cmd.argv, state);
     cmd.argv = expand_globs(cmd.argv, cmd.argv_quoted);
-
-    if (!cmd.argv.empty() && state.core.colorful_commands.count(cmd.argv[0])) {
-        cmd.argv.insert(cmd.argv.begin() + 1, COLOR_FLAG);
-    }
+    insert_color_flag(cmd.argv, state);
 
     // Paren- and quote-aware pipe split. `(echo a) | grep a` must stay
     // one segment for the subshell; the generic tokenize_string would
@@ -438,20 +452,8 @@ int execute_single_command(string command, ShellState &state,
             Command seg_cmd = parse_redirections(
                 seg_cmd_str, seg_bodies.empty() ? nullptr : &seg_bodies);
 
-            if (!seg_cmd.argv.empty() && state.core.aliases.count(seg_cmd.argv[0])) {
-                string expanded = state.core.aliases[seg_cmd.argv[0]];
-                for (size_t j = 1; j < seg_cmd.argv.size(); j++)
-                    expanded += " " + seg_cmd.argv[j];
-                vector<string> new_tokens = tokenize_string(expanded, " ");
-                for (string &t : new_tokens) {
-                    t = expand_tilde(t);
-                    t = strip_quotes(t);
-                }
-                seg_cmd.argv = new_tokens;
-            }
-
-            if (!seg_cmd.argv.empty() && state.core.colorful_commands.count(seg_cmd.argv[0]))
-                seg_cmd.argv.insert(seg_cmd.argv.begin() + 1, COLOR_FLAG);
+            expand_argv0_alias(seg_cmd.argv, state);
+            insert_color_flag(seg_cmd.argv, state);
 
             // Unquoted-delim heredoc bodies expand $VAR / $(...) before
             // the child writes them to stdin.
