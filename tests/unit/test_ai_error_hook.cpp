@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#ifdef TASH_AI_ENABLED
 
 #include "tash/plugins/ai_error_hook_provider.h"
 #include "tash/llm_client.h"
@@ -59,6 +58,18 @@ public:
     LLMResponse generate_structured_with_context(
         const string &, const vector<ConversationTurn> &,
         const string &) override {
+        return LLMResponse{false, "", 0, "not implemented"};
+    }
+
+    LLMResponse generate_structured_stream(
+        const string &, const string &,
+        function<void(const string &)>) override {
+        return LLMResponse{false, "", 0, "not implemented"};
+    }
+    LLMResponse generate_structured_stream_with_context(
+        const string &, const vector<ConversationTurn> &,
+        const string &,
+        function<void(const string &)>) override {
         return LLMResponse{false, "", 0, "not implemented"};
     }
 
@@ -281,6 +292,18 @@ TEST_F(AiErrorHookTest, FactoryActivatesHookWhenClientAppears) {
                     const std::string &) override {
                     return LLMResponse{false, "", 0, ""};
                 }
+                LLMResponse generate_structured_stream(
+                    const std::string &, const std::string &,
+                    std::function<void(const std::string &)>) override {
+                    return LLMResponse{false, "", 0, ""};
+                }
+                LLMResponse generate_structured_stream_with_context(
+                    const std::string &,
+                    const std::vector<ConversationTurn> &,
+                    const std::string &,
+                    std::function<void(const std::string &)>) override {
+                    return LLMResponse{false, "", 0, ""};
+                }
                 void set_model(const std::string &) override {}
                 std::string get_model() const override { return "m"; }
                 std::string get_provider_name() const override { return "m"; }
@@ -306,10 +329,3 @@ TEST_F(AiErrorHookTest, FactoryActivatesHookWhenClientAppears) {
     EXPECT_EQ(mock->call_count(), 2);
 }
 
-#else
-
-TEST(AiErrorHookDisabled, AiErrorHookNotAvailable) {
-    SUCCEED() << "AI features disabled at build time";
-}
-
-#endif // TASH_AI_ENABLED

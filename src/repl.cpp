@@ -7,6 +7,7 @@
 #include "tash/core/parser.h"
 #include "tash/core/signals.h"
 #include "tash/history.h"
+#include "tash/plugin.h"
 #include "tash/ui.h"
 #include "tash/repl.h"
 #include "tash/util/parse_error.h"
@@ -19,10 +20,8 @@
 
 #include "tash/ai/bootstrap.h"
 
-#ifdef TASH_AI_ENABLED
 #include "tash/ai.h"
 #include "tash/ai/contextual_ai.h"
-#endif
 
 using namespace std;
 using namespace replxx;
@@ -56,7 +55,6 @@ static Replxx::hints_t history_hint_callback(
             best = entry;
         }
     }
-#ifdef TASH_AI_ENABLED
     if (best.empty() && !state.ai.last_executed_cmd.empty()) {
         string ctx = context_suggest(state.ai.last_executed_cmd,
                                      get_transition_map());
@@ -65,7 +63,6 @@ static Replxx::hints_t history_hint_callback(
             best = ctx;
         }
     }
-#endif
 
     if (!best.empty()) {
         hints.push_back(best);
@@ -104,9 +101,7 @@ static void print_banner() {
     // --features flag, the AI entrypoints) and let users pull what
     // they want.
     write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "man tash " CAT_DIM "·" CAT_RESET " " + BANNER_FEATURE + "tash --features" CAT_RESET "                 " + BANNER_FRAME + "║" CAT_RESET "\n");
-#ifdef TASH_AI_ENABLED
     write_stdout(BANNER_FRAME + "   ║" CAT_RESET "   " + BANNER_FEATURE + "@ai <question>" CAT_RESET " or " + BANNER_FEATURE + "question?" CAT_RESET " for AI help    " + BANNER_FRAME + "║" CAT_RESET "\n");
-#endif
     write_stdout(BANNER_FRAME + "   ║" CAT_RESET "                                              " + BANNER_FRAME + "║" CAT_RESET "\n");
     write_stdout(BANNER_FRAME + "   ╚══════════════════════════════════════════════╝" CAT_RESET "\n");
     write_stdout("\n");
@@ -123,8 +118,29 @@ static void configure_replxx(Replxx &rx, ShellState &state) {
     rx.set_max_history_size(1000);
 
     string hist_path = history_file_path();
-    if (!hist_path.empty() && isatty(STDIN_FILENO)) {
-        rx.history_load(hist_path);
+
+    // Hydrate the ring from SQLite (or whichever primary IHistoryProvider
+    // is installed) so up-arrow sees the full cross-session corpus, not
+    // just whatever happens to be in .tash_history. Replxx loads are
+    // O(ring_size) against flat text; SQLite is indexed on timestamp so
+    // pulling the latest N is cheap. We still call history_load on the
+    // plain-text file as a fallback: when there's no history provider
+    // (SQLite compiled out, or the plugin disabled), we want the classic
+    // behaviour.
+    if (isatty(STDIN_FILENO)) {
+        auto &reg = global_plugin_registry();
+        if (reg.history_provider_count() > 0) {
+            // recent() returns newest-first. replxx's ring presents
+            // entries in insertion order and arrow-up walks back from
+            // the end, so we add the SQLite rows in reverse (oldest
+            // first) to get the natural "last thing I ran is on top".
+            auto rows = reg.recent_history(1000);
+            for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
+                if (!it->command.empty()) rx.history_add(it->command);
+            }
+        } else if (!hist_path.empty()) {
+            rx.history_load(hist_path);
+        }
     }
 
     rx.set_completion_callback(
@@ -295,7 +311,15 @@ int run_interactive(ShellState &state) {
             }
         }
 
-#ifdef TASH_AI_ENABLED
+        // Publish the currently-dispatching command to ShellState BEFORE
+        // executing it, not after. The `history` builtin (and the @ai
+        // context builder) reads this to include the in-flight line —
+        // SQLite only learns about the command post-dispatch from
+        // executor.cpp, which would otherwise exclude `history` from
+        // its own output. Writing here matches the bash convention of
+        // recording commands before they run.
+        state.ai.last_command_text = expanded;
+
         if (is_ai_command(expanded)) {
             string prefill;
             state.core.last_exit_status =
@@ -316,19 +340,6 @@ int run_interactive(ShellState &state) {
             }
             continue;
         }
-#else
-        {
-            string ai_check = expanded;
-            while (!ai_check.empty() && ai_check.front() == ' ')
-                ai_check.erase(ai_check.begin());
-            if (ai_check.size() >= 3 && ai_check.substr(0, 3) == "@ai" &&
-                (ai_check.size() == 3 || ai_check[3] == ' ')) {
-                write_stderr("tash: AI features not available (built without OpenSSL)\n");
-                state.core.last_exit_status = 1;
-                continue;
-            }
-        }
-#endif
 
         reap_background_processes(state.core.background_processes);
 
@@ -348,10 +359,11 @@ int run_interactive(ShellState &state) {
         }
         execute_command_line(segments, state);
 
-        state.ai.last_command_text = expanded;
-#ifdef TASH_AI_ENABLED
+        // last_command_text was set pre-dispatch (see above). Record
+        // last_executed_cmd here — it's the "completed command" marker
+        // that post-dispatch consumers (AI error-recovery hook, crash
+        // dump, context suggest) read.
         state.ai.last_executed_cmd = expanded;
-#endif
         state.core.last_cmd_duration = get_time_s() - start_time;
 
         reap_background_processes(state.core.background_processes);

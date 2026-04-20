@@ -1,4 +1,3 @@
-#ifdef TASH_AI_ENABLED
 
 #include "tash/core/structured_pipe.h"
 #include "tash/core/executor.h"
@@ -707,4 +706,3 @@ std::string execute_pipeline(const std::string &command_line, ::ShellState &stat
 
 } // namespace tash::structured_pipe
 
-#endif // TASH_AI_ENABLED

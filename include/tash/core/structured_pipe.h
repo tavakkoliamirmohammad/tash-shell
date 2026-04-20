@@ -1,7 +1,6 @@
 #ifndef TASH_CORE_STRUCTURED_PIPE_H
 #define TASH_CORE_STRUCTURED_PIPE_H
 
-#ifdef TASH_AI_ENABLED
 
 #include <string>
 #include <vector>
@@ -81,5 +80,4 @@ std::string execute_pipeline(const std::string &command_line, ::ShellState &stat
 
 } // namespace tash::structured_pipe
 
-#endif // TASH_AI_ENABLED
 #endif // TASH_CORE_STRUCTURED_PIPE_H

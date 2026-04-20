@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#ifdef TASH_AI_ENABLED
 
 #include "tash/ai/contextual_ai.h"
 #include <filesystem>
@@ -134,10 +133,3 @@ TEST_F(GitBranchFixture, GitBranchNoRepo) {
     EXPECT_EQ(ai_get_git_branch(nonexistent), "");
 }
 
-#else
-
-TEST(ContextualAiDisabled, AiFeaturesNotAvailable) {
-    SUCCEED() << "AI features disabled at build time";
-}
-
-#endif // TASH_AI_ENABLED

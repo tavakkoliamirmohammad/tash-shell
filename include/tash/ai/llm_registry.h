@@ -1,7 +1,6 @@
 #ifndef TASH_AI_LLM_REGISTRY_H
 #define TASH_AI_LLM_REGISTRY_H
 
-#ifdef TASH_AI_ENABLED
 
 // LLM provider factory registry.
 //
@@ -47,5 +46,4 @@ void register_builtin_llm_providers();
 
 } // namespace tash::ai
 
-#endif // TASH_AI_ENABLED
 #endif // TASH_AI_LLM_REGISTRY_H

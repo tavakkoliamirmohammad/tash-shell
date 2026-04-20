@@ -1,7 +1,6 @@
 // LLM provider factory registry — see include/tash/ai/llm_registry.h
 // for the overall design rationale.
 
-#ifdef TASH_AI_ENABLED
 
 #include "tash/ai/llm_registry.h"
 
@@ -76,4 +75,3 @@ void register_builtin_llm_providers() {
 
 } // namespace tash::ai
 
-#endif // TASH_AI_ENABLED

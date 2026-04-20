@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#ifdef TASH_AI_ENABLED
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -64,10 +63,3 @@ TEST_F(KeyPermFixture, LegacyAiSaveKeyIs0600) {
     EXPECT_EQ(st.st_mode & 0777, 0600);
 }
 
-#else
-
-TEST(KeyFilePermsDisabled, AiDisabled) {
-    SUCCEED() << "AI features disabled at build time";
-}
-
-#endif // TASH_AI_ENABLED

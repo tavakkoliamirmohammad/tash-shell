@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#ifdef TASH_AI_ENABLED
 
 #include "tash/core/structured_pipe.h"
 
@@ -355,10 +354,3 @@ TEST(PipelineParsing, SplitPipelineSegments) {
     EXPECT_FALSE(segments[2].is_command);
 }
 
-#else
-
-TEST(PipelineDisabled, PipelineFeaturesNotAvailable) {
-    SUCCEED() << "Pipeline features disabled at build time (requires nlohmann/json)";
-}
-
-#endif // TASH_AI_ENABLED

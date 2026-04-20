@@ -1,9 +1,8 @@
 #ifndef TASH_AI_BOOTSTRAP_H
 #define TASH_AI_BOOTSTRAP_H
 
-// All AI-specific startup entry points. When built without
-// TASH_AI_ENABLED these become no-op stubs so main.cpp stays free of
-// #ifdefs around the call sites.
+// All AI-specific startup entry points collected in one namespace so
+// main.cpp doesn't have to manage setup-wizard + history-map wiring.
 
 namespace tash::ai {
 

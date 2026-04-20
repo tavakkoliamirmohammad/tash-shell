@@ -275,6 +275,59 @@ std::vector<HistoryEntry> SqliteHistoryProvider::search(
     return results;
 }
 
+HistoryStats SqliteHistoryProvider::stats() const {
+    HistoryStats s;
+    if (!db_) return s;
+
+    // One round-trip per aggregate. Could be collapsed into a single
+    // SELECT, but at this size (small millions of rows max) the indexes
+    // make each of these microsecond-cheap and the code is easier to
+    // read as four straightforward queries.
+    auto scalar = [&](const char *sql) -> int64_t {
+        sqlite3_stmt *st = nullptr;
+        if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) return 0;
+        int64_t v = 0;
+        if (sqlite3_step(st) == SQLITE_ROW) v = sqlite3_column_int64(st, 0);
+        sqlite3_finalize(st);
+        return v;
+    };
+
+    s.total_commands = scalar("SELECT COUNT(*) FROM history;");
+    s.unique_commands = scalar("SELECT COUNT(DISTINCT command) FROM history;");
+    s.failed_commands = scalar(
+        "SELECT COUNT(*) FROM history WHERE exit_code != 0;");
+    s.earliest_timestamp = scalar(
+        "SELECT IFNULL(MIN(timestamp), 0) FROM history;");
+    s.latest_timestamp = scalar(
+        "SELECT IFNULL(MAX(timestamp), 0) FROM history;");
+    if (s.total_commands > 0) {
+        s.success_rate_pct =
+            100.0 * static_cast<double>(s.total_commands - s.failed_commands)
+                  / static_cast<double>(s.total_commands);
+    }
+
+    auto top = [&](const char *sql,
+                    std::vector<std::pair<std::string, int64_t>> &out) {
+        sqlite3_stmt *st = nullptr;
+        if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) return;
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *txt = sqlite3_column_text(st, 0);
+            int64_t cnt = sqlite3_column_int64(st, 1);
+            out.emplace_back(txt ? reinterpret_cast<const char*>(txt) : "",
+                             cnt);
+        }
+        sqlite3_finalize(st);
+    };
+    top("SELECT command, COUNT(*) AS c FROM history "
+        "GROUP BY command ORDER BY c DESC LIMIT 10;",
+        s.top_commands);
+    top("SELECT IFNULL(directory, ''), COUNT(*) AS c FROM history "
+        "WHERE directory IS NOT NULL AND directory != '' "
+        "GROUP BY directory ORDER BY c DESC LIMIT 10;",
+        s.top_directories);
+    return s;
+}
+
 std::vector<HistoryEntry> SqliteHistoryProvider::recent(int count) const {
     std::vector<HistoryEntry> results;
     if (!db_) return results;
@@ -342,6 +395,40 @@ void SqliteHistoryProvider::migrate_plain_text_history() {
     std::string txt_path = plain_text_history_path();
     if (txt_path.empty() || !file_exists(txt_path)) return;
 
+    // Two-part migration guard. Without these, we'd stomp replxx's
+    // ongoing `.tash_history` file every session — replxx uses the same
+    // path for its own ring persistence, so migrating + renaming would
+    // destroy every session's history on the next startup.
+    //
+    //   1. If `.bak` already exists, migration ran before — skip.
+    //   2. Otherwise, peek at the first line: replxx writes entries
+    //      with a `### YYYY-MM-DD HH:MM:SS.MMM` timestamp prefix;
+    //      the legacy pre-SQLite format was bare command lines.
+    //      If we see the timestamp marker, this is replxx's file,
+    //      not legacy — leave it alone.
+    std::string bak_path = txt_path + ".bak";
+    if (file_exists(bak_path)) return;
+
+    {
+        std::ifstream peek(txt_path);
+        std::string first;
+        if (peek && std::getline(peek, first)) {
+            // Replxx's timestamp line looks like "### 2024-..."; any
+            // line starting with "###" means this isn't legacy-format.
+            if (first.size() >= 3 && first.substr(0, 3) == "###") {
+                // File is replxx's ongoing history — don't migrate it,
+                // but also plant the `.bak` marker so the old guard
+                // short-circuits on future startups without us having
+                // to re-peek each time.
+                std::ofstream marker(bak_path);
+                marker << "# plain-text migration was skipped because "
+                          "the source file is in replxx's on-disk "
+                          "format, not legacy.\n";
+                return;
+            }
+        }
+    }
+
     std::ifstream infile(txt_path);
     if (!infile.is_open()) return;
 
@@ -374,8 +461,8 @@ void SqliteHistoryProvider::migrate_plain_text_history() {
 
     sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
 
-    // Rename the old file to .bak
-    std::string bak_path = txt_path + ".bak";
+    // Rename the old file to .bak — this doubles as our one-shot
+    // migration marker (see the guard at the top of this function).
     std::rename(txt_path.c_str(), bak_path.c_str());
 }
 

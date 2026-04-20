@@ -1,4 +1,3 @@
-#ifdef TASH_AI_ENABLED
 
 #include "tash/ai/contextual_ai.h"
 #include "tash/core/builtins.h"
@@ -222,4 +221,3 @@ AiContext build_context(const ShellState &state) {
     return ctx;
 }
 
-#endif // TASH_AI_ENABLED

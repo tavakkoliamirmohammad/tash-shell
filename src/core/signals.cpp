@@ -7,6 +7,7 @@
 #include "tash/core/parser.h"
 #include "tash/core/signals.h"
 #include "tash/util/io.h"
+#include "tash/ai/ai_abort.h"
 #include <atomic>
 #include <csignal>
 #include <string>
@@ -41,6 +42,10 @@ static void sigint_handler(int) {
     } else {
         if (write(STDOUT_FILENO, "\n", 1)) {}
     }
+    // Arm the AI abort flag if a request is in flight — the curl progress
+    // callback polls this and bails out of the HTTPS read. Async-signal-safe
+    // because it's just atomic<bool> stores with lock-free guarantees.
+    tash::ai::abort_flag::sigint_raise();
     // Queue the trap; the main loop fires it between commands.
     if (SIGINT < TASH_MAX_SIGNAL) pending_traps[SIGINT] = 1;
 }

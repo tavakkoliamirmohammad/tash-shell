@@ -1,8 +1,10 @@
-#ifdef TASH_AI_ENABLED
 
 #include "tash/plugins/ai_error_hook_provider.h"
+#include "tash/ai.h"
+#include "tash/ai/ai_abort.h"
 #include "tash/core/executor.h"
 #include "tash/core/signals.h"
+#include "tash/util/io.h"
 #include "theme.h"
 #include <nlohmann/json.hpp>
 #include <termios.h>
@@ -76,7 +78,11 @@ void AiErrorHookProvider::on_after_command(
         return;
     }
 
-    if (!rate_limit_allows()) {
+    // Coordinate with the main @ai handler's global bucket so the two
+    // paths can't together blow past the provider quota. The per-hook
+    // cooldown (COOLDOWN_SECONDS) still applies on top as a per-second
+    // floor for repeated failures.
+    if (!rate_limit_allows() || !global_ai_rate_limiter().allow()) {
         return;
     }
 
@@ -87,11 +93,32 @@ void AiErrorHookProvider::on_after_command(
     last_call_time_ = time(nullptr);
     call_count_++;
 
-    // Build context and query LLM
-    string context = build_context_json(command, exit_code, stderr_output, state);
+    // Build context and query LLM. Honor the user's stderr privacy
+    // preference — the whole point of the auto-recovery hook is to use
+    // the error output, but users who opted out explicitly don't want
+    // that data sent.
+    tash::ai::abort_flag::begin_request();
+    const string effective_stderr =
+        ai_get_send_stderr() ? stderr_output : string();
+    string context = build_context_json(command, exit_code,
+                                         effective_stderr, state);
     LLMResponse resp = cl->generate(system_prompt(), context);
+    tash::ai::abort_flag::end_request();
 
     if (!resp.success) {
+        // Don't stay silent — the user just saw their command fail and
+        // may be waiting for AI-powered advice. One short line explains
+        // why the recovery attempt didn't land so they know to retry or
+        // fall back to `@ai explain`. Goes through tash::io so piped
+        // output stays clean.
+        if (resp.transport == TransportStatus::Aborted) {
+            // User hit Ctrl+C; they already know why. No noise.
+            return;
+        }
+        tash::io::warning("ai error-recovery unavailable: "
+                          + (resp.error_message.empty()
+                                ? "unknown error"
+                                : resp.error_message));
         return;
     }
 
@@ -221,4 +248,3 @@ const char *AiErrorHookProvider::system_prompt() {
     return ERROR_SYSTEM_PROMPT;
 }
 
-#endif // TASH_AI_ENABLED

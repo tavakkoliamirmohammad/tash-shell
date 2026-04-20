@@ -1,7 +1,6 @@
 #ifndef TASH_CONTEXTUAL_AI_H
 #define TASH_CONTEXTUAL_AI_H
 
-#ifdef TASH_AI_ENABLED
 
 #include "tash/shell.h"
 #include <string>
@@ -58,5 +57,4 @@ std::string ai_get_git_branch();
 // Overload that reads from an explicit .git/HEAD path (for testing).
 std::string ai_get_git_branch(const std::string &git_head_path);
 
-#endif // TASH_AI_ENABLED
 #endif // TASH_CONTEXTUAL_AI_H
