@@ -33,9 +33,23 @@ namespace tash::cluster {
 namespace {
 
 std::vector<std::string> base_ssh_flags(const SshFlags& f) {
+    // ControlMaster=auto: multiplex if a master socket exists, else
+    // become one. We deliberately do NOT set ControlPath here — that
+    // lets the user's ~/.ssh/config win. Reasons:
+    //   - Users with working multi-cluster setups (CHPC, etc.) already
+    //     have a ControlPath in their ssh config; overriding it would
+    //     force a fresh auth even when they've already primed a master
+    //     in their outer shell.
+    //   - Sites with restricted home perms + shared NFS (some HPC
+    //     clusters) rely on ControlPath pointing at /tmp-like locations
+    //     that tash can't invent on the fly.
+    // If the user has no ControlPath configured, ssh falls back to
+    // its default (~/.ssh/master-%r@%h:%p) and we still multiplex.
+    // socket_dir is kept for backwards compat on the struct but is
+    // unused here.
+    (void)f.socket_dir;
     std::vector<std::string> a;
     a.push_back("-o"); a.push_back("ControlMaster=auto");
-    a.push_back("-o"); a.push_back("ControlPath=" + (f.socket_dir / "tash-%C").string());
     a.push_back("-o"); a.push_back("ControlPersist=yes");
     if (f.batch_mode) {
         a.push_back("-o"); a.push_back("BatchMode=yes");

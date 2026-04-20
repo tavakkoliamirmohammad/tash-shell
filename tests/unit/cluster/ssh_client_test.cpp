@@ -40,7 +40,10 @@ TEST(SshClientArgv, RunIncludesControlMasterFlagsAndHost) {
     EXPECT_EQ(argv[0], "ssh");
     EXPECT_NE(j.find("ControlMaster=auto"),   std::string::npos) << j;
     EXPECT_NE(j.find("ControlPersist=yes"),   std::string::npos);
-    EXPECT_NE(j.find("ControlPath=/tmp/ss"),  std::string::npos);
+    // ControlPath is deliberately NOT forced on the command line —
+    // we defer to ~/.ssh/config so existing multiplex sockets from
+    // the user's outer shell get reused.
+    EXPECT_EQ(j.find("ControlPath="),         std::string::npos) << j;
     EXPECT_NE(j.find("BatchMode=yes"),        std::string::npos);   // when batch=true
     EXPECT_NE(j.find("utah-notch"),           std::string::npos);
     EXPECT_NE(j.find("squeue"),               std::string::npos);
@@ -68,7 +71,7 @@ TEST(SshClientArgv, MasterCheckUsesDashOCheck) {
     const std::string j = join(argv);
     EXPECT_EQ(argv[0], "ssh");
     EXPECT_NE(j.find(" -O check "),         std::string::npos) << j;
-    EXPECT_NE(j.find("ControlPath=/tmp/ss"), std::string::npos);
+    EXPECT_EQ(j.find("ControlPath="),       std::string::npos) << j;
     EXPECT_NE(j.find("utah-notch"),         std::string::npos);
 }
 
@@ -169,7 +172,7 @@ TEST(SshClientArgv, DisconnectUsesDashOExit) {
     const std::string j = join(argv);
     EXPECT_EQ(argv[0], "ssh");
     EXPECT_NE(j.find(" -O exit "),           std::string::npos) << j;
-    EXPECT_NE(j.find("ControlPath=/tmp/ss"), std::string::npos);
+    EXPECT_EQ(j.find("ControlPath="),        std::string::npos) << j;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -265,7 +268,7 @@ TEST_F(SshStubFixture, RunExecsSshAndCapturesStdoutAndExit) {
     EXPECT_NE(log.find("echo"),            std::string::npos);
 }
 
-TEST_F(SshStubFixture, TenRunsAllShareTheSameControlPath) {
+TEST_F(SshStubFixture, TenRunsShareTheSameControlMasterIntent) {
     auto client = make_ssh_client(
         [](const std::string& c) { return c + "-host"; }, sockets);
     for (int i = 0; i < 10; ++i) {
@@ -273,12 +276,18 @@ TEST_F(SshStubFixture, TenRunsAllShareTheSameControlPath) {
         ASSERT_EQ(r.exit_code, 0);
     }
     const auto log = read_log();
-    // Count occurrences of the socket dir path in the log — exactly one
-    // per invocation, all identical (not 10 different sockets).
-    std::size_t count = 0;
-    const auto marker = "ControlPath=" + sockets.string();
-    for (std::size_t pos = 0; (pos = log.find(marker, pos)) != std::string::npos; ++pos) ++count;
-    EXPECT_EQ(count, 10u) << log;
+    // We emit ControlMaster=auto + ControlPersist=yes on every run so
+    // OpenSSH multiplexes through whatever ControlPath ~/.ssh/config
+    // specifies (or its default). We intentionally don't force a
+    // ControlPath on the command line — verify the flags we *do* send
+    // show up on every invocation.
+    std::size_t cm_count = 0, cp_count = 0;
+    for (std::size_t pos = 0;
+         (pos = log.find("ControlMaster=auto", pos)) != std::string::npos; ++pos) ++cm_count;
+    for (std::size_t pos = 0;
+         (pos = log.find("ControlPersist=yes", pos)) != std::string::npos; ++pos) ++cp_count;
+    EXPECT_EQ(cm_count, 10u) << log;
+    EXPECT_EQ(cp_count, 10u) << log;
 }
 
 TEST_F(SshStubFixture, NonZeroExitIsSurfaced) {
