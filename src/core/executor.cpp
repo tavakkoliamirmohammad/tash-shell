@@ -157,16 +157,14 @@ HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
     if (pid == 0) {
         // Child: replace stdout with the pipe write end, exec /bin/sh.
         // _exit (not exit) avoids flushing the parent's inherited stdio
-        // buffers a second time.
+        // buffers a second time. reset_child_signal_state clears the
+        // inherited mask AND restores SIG_DFL for SIGINT/SIGCHLD/SIGQUIT
+        // so the child doesn't arm the parent's AI abort flag or
+        // otherwise behave like the parent shell.
         ::close(pfd[0]);
         ::dup2(pfd[1], STDOUT_FILENO);
         ::close(pfd[1]);
-        // Reset signal dispositions that the parent shell customizes.
-        // POSIX shells do this in command substitution children so SIGINT
-        // from the terminal reaches the child instead of being caught by
-        // the parent's handler inherited across fork.
-        ::signal(SIGINT, SIG_DFL);
-        ::signal(SIGQUIT, SIG_DFL);
+        reset_child_signal_state();
         ::execl("/bin/sh", "sh", "-c", raw_cmd.c_str(), (char *)nullptr);
         _exit(127);
     }
@@ -281,6 +279,7 @@ int execute_single_command(string command, ShellState &state,
                     return 1;
                 }
                 if (pid == 0) {
+                    reset_child_signal_state();
                     setup_child_io(redirs);
                     ShellState child_state = state;
                     // Mark as subshell so execute_command_line skips

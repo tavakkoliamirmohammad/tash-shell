@@ -46,6 +46,14 @@ inline void exit_with_message(const std::string &message, int exit_status) {
 // process lifetime (main/startup does this).
 void install_signal_handlers();
 
+// Reset the signal mask to empty and restore default dispositions for
+// shell-installed handlers (SIGINT, SIGCHLD, SIGQUIT). Call from every
+// fork-child path immediately after fork, before any further work.
+// POSIX specifies that the signal mask and all installed handlers are
+// inherited across fork; a child that inherits a blocked signal (or the
+// parent's AI-abort-flag-arming SIGINT handler) can hang or misbehave.
+void reset_child_signal_state();
+
 // ── trap plumbing (signals.cpp) ────────────────────────────────
 
 void install_trap_handler(int signum);

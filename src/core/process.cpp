@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unordered_set>
@@ -77,6 +79,23 @@ int open_heredoc_fd(const std::string &body) {
         return -1;
     }
     return fd;
+}
+
+// Create a pipe with FD_CLOEXEC set on both ends so exec'd children
+// that don't close their copy (daemons, misbehaving tools) can't hold
+// the other end open past our own close. Prefers the atomic pipe2 on
+// Linux; falls back to pipe()+fcntl on macOS, which lacks pipe2.
+static int pipe_cloexec(int fds[2]) {
+#if defined(__linux__) && defined(O_CLOEXEC)
+    return pipe2(fds, O_CLOEXEC);
+#else
+    if (pipe(fds) < 0) return -1;
+    for (int k = 0; k < 2; ++k) {
+        int flags = fcntl(fds[k], F_GETFD);
+        if (flags >= 0) (void)fcntl(fds[k], F_SETFD, flags | FD_CLOEXEC);
+    }
+    return 0;
+#endif
 }
 
 void setup_child_io(const vector<Redirection> &redirections) {
@@ -158,7 +177,7 @@ int foreground_process(const vector<string> &argv,
     int stderr_pipe[2] = {-1, -1};
     if (captured_stderr) {
         captured_stderr->clear();
-        if (pipe(stderr_pipe) < 0) {
+        if (pipe_cloexec(stderr_pipe) < 0) {
             tash::io::warning("could not capture stderr");
             captured_stderr = nullptr; // fall back to no capture
         }
@@ -171,7 +190,7 @@ int foreground_process(const vector<string> &argv,
                             !is_interactive_cmd(argv[0]) &&
                             redirections.empty();
     if (intercept_stdout) {
-        if (pipe(stdout_pipe) < 0) {
+        if (pipe_cloexec(stdout_pipe) < 0) {
             intercept_stdout = false;
         }
     }
@@ -182,6 +201,7 @@ int foreground_process(const vector<string> &argv,
         exit_with_message("Error: Fork failed!\n", 1);
     } else if (pid == 0) {
         // Child
+        reset_child_signal_state();
         if (captured_stderr && stderr_pipe[1] >= 0) {
             close(stderr_pipe[0]); // close read end in child
             dup2(stderr_pipe[1], STDERR_FILENO);
@@ -284,6 +304,7 @@ void background_process(const vector<string> &argv,
     if (pid < 0) {
         exit_with_message("Error: Fork failed!\n", 1);
     } else if (pid == 0) {
+        reset_child_signal_state();
         setup_child_io(redirections);
         execvp(c_args[0], const_cast<char *const *>(c_args.data()));
         string err_msg = string(c_args[0]) + ": " + strerror(errno) + "\n";
@@ -339,7 +360,7 @@ int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
     int num_cmds = (int)segments.size();
     vector<int> pipefds(2 * (num_cmds - 1));
     for (int i = 0; i < num_cmds - 1; i++) {
-        if (pipe(&pipefds[2 * i]) < 0) {
+        if (pipe_cloexec(&pipefds[2 * i]) < 0) {
             exit_with_message("Error: Pipe creation failed!\n", 1);
         }
     }
@@ -350,6 +371,7 @@ int execute_pipeline(vector<PipelineSegment> &segments, ShellState *state) {
         if (pids[i] < 0) {
             exit_with_message("Error: Fork failed!\n", 1);
         } else if (pids[i] == 0) {
+            reset_child_signal_state();
             // Wire pipe stdin/stdout first so per-segment redirections
             // (applied after) can still override (e.g. 2>/dev/null).
             if (i > 0) {
