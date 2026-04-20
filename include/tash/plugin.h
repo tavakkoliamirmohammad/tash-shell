@@ -77,6 +77,22 @@ struct SearchFilter {
         : exit_code(-1), since(0), limit(50) {}
 };
 
+// Aggregate view over the recorded command history — powers `history stats`.
+// Kept separate from individual entries so providers can return it via one
+// cheap SQL query set instead of paging through every row client-side.
+struct HistoryStats {
+    int64_t total_commands = 0;
+    int64_t unique_commands = 0;
+    int64_t failed_commands = 0;         // exit_code != 0
+    double success_rate_pct = 0.0;       // 0.0 to 100.0
+    int64_t earliest_timestamp = 0;      // epoch seconds; 0 if empty
+    int64_t latest_timestamp = 0;
+    // Pairs of (value, count), pre-sorted descending by count. Cap is
+    // provider-defined; SqliteHistoryProvider uses 10.
+    std::vector<std::pair<std::string, int64_t>> top_commands;
+    std::vector<std::pair<std::string, int64_t>> top_directories;
+};
+
 class IHistoryProvider {
 public:
     virtual ~IHistoryProvider() = default;
@@ -86,6 +102,12 @@ public:
         const std::string &query,
         const SearchFilter &filter) const = 0;
     virtual std::vector<HistoryEntry> recent(int count) const = 0;
+
+    // Provider-specific aggregate stats. Default implementation returns
+    // an empty struct — backends that don't have cheap aggregation
+    // (e.g., a future Atuin bridge) can opt out and the `history stats`
+    // builtin will show "(unsupported by this provider)".
+    virtual HistoryStats stats() const { return {}; }
 };
 
 class IHookProvider {
@@ -151,6 +173,16 @@ public:
     [[nodiscard]] std::vector<HistoryEntry> search_history(
         const std::string &query,
         const SearchFilter &filter) const;
+
+    // Dispatch: pull N most recent entries from the primary history
+    // provider. Used by startup to hydrate replxx's in-memory ring so
+    // up-arrow sees the full cross-session corpus instead of just the
+    // last session's .tash_history.
+    [[nodiscard]] std::vector<HistoryEntry> recent_history(int count) const;
+
+    // Dispatch: aggregate stats from the primary history provider.
+    // Returns an empty struct when no provider is registered.
+    [[nodiscard]] HistoryStats history_stats() const;
 
     // Dispatch: fire all hooks
     void fire_before_command(const std::string &command,

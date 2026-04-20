@@ -23,6 +23,7 @@ public:
         const std::string &query,
         const SearchFilter &filter) const override;
     std::vector<HistoryEntry> recent(int count) const override;
+    HistoryStats stats() const override;
 
 private:
     void init_schema();

@@ -32,10 +32,8 @@
 #include "tash/plugins/sqlite_history_provider.h"
 #endif
 
-#ifdef TASH_AI_ENABLED
 #include "tash/ai.h"
 #include "tash/plugins/ai_error_hook_provider.h"
-#endif
 
 using std::string;
 
@@ -101,14 +99,12 @@ void register_default_plugins() {
         reg.register_hook_provider(std::make_unique<AliasSuggestProvider>());
         tash::io::debug("plugin: registered alias-suggest");
     }
-#ifdef TASH_AI_ENABLED
     if (!plugin_disabled("TASH_DISABLE_AI_ERROR_HOOK") &&
         gate.enabled("ai-error-recovery")) {
         reg.register_hook_provider(std::make_unique<AiErrorHookProvider>(
             []() -> std::unique_ptr<LLMClient> { return ai_create_client(); }));
         tash::io::debug("plugin: registered ai-error-recovery");
     }
-#endif
 
     // Completion providers -----------------------------------------
     if (!plugin_disabled("TASH_DISABLE_MANPAGE_COMPLETION") &&

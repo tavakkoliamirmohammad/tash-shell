@@ -1,4 +1,3 @@
-#ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
 #include <fstream>
@@ -87,4 +86,3 @@ TransitionMap& get_transition_map() {
     return instance;
 }
 
-#endif // TASH_AI_ENABLED

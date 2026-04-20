@@ -114,6 +114,20 @@ std::vector<HistoryEntry> PluginRegistry::search_history(
     return history_providers_.front()->search(query, filter);
 }
 
+std::vector<HistoryEntry> PluginRegistry::recent_history(int count) const {
+    if (history_providers_.empty()) {
+        return {};
+    }
+    return history_providers_.front()->recent(count);
+}
+
+HistoryStats PluginRegistry::history_stats() const {
+    if (history_providers_.empty()) {
+        return {};
+    }
+    return history_providers_.front()->stats();
+}
+
 // ── Hook dispatch ─────────────────────────────────────────────
 
 void PluginRegistry::fire_before_command(

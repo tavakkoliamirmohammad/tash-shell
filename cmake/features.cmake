@@ -7,7 +7,7 @@
 #   SQLite3_FOUND, SQLite3_*     — optional SQLite history backend
 #   nlohmann_json_FOUND (+SDIR)  — system package if present; fetched in
 #                                  fetch_deps.cmake otherwise
-#   TASH_AI_ENABLED              — always ON (libcurl is required)
+#   (AI features are always on; libcurl is a hard dependency)
 #   TASH_SQLITE_ENABLED          — ON iff SQLite3 was found
 #   TASH_NEED_FETCH_JSON         — internal: true iff system package missing
 
@@ -44,7 +44,6 @@ endif()
 # every supported distro ships at least this.
 find_package(CURL 7.61 REQUIRED)
 find_package(Threads REQUIRED)
-set(TASH_AI_ENABLED ON)
 message(STATUS "AI features enabled (libcurl ${CURL_VERSION_STRING})")
 
 # ── SQLite history (optional) ─────────────────────────────────

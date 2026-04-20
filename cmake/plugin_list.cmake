@@ -68,20 +68,18 @@ tash_register_plugin(
     NAME ai
     SOURCES
         src/ai/ai_handler.cpp
+        src/ai/ai_abort.cpp
         src/ai/llm_client.cpp
         src/ai/llm_diagnostics.cpp
         src/ai/llm_registry.cpp
         src/ai/ai_config.cpp
         src/ai/context_suggest.cpp
-    REQUIRES TASH_AI_ENABLED
     TEST_SOURCES tests/unit/test_ai.cpp
     TEST_PREFIX "unit/ai/"
-    TEST_AI_AWARE
 )
 
 tash_register_plugin(
     NAME llm_diagnostics
-    REQUIRES TASH_AI_ENABLED
     TEST_SOURCES tests/unit/test_llm_diagnostics.cpp
                  src/ai/llm_diagnostics.cpp
                  src/util/io.cpp
@@ -92,26 +90,20 @@ tash_register_plugin(
 tash_register_plugin(
     NAME ai_error_hook
     SOURCES src/plugins/ai_error_hook_provider.cpp
-    REQUIRES TASH_AI_ENABLED
     TEST_SOURCES tests/unit/test_ai_error_hook.cpp
     TEST_PREFIX "unit/plugins/ai/"
-    TEST_AI_AWARE
 )
 
 tash_register_plugin(
     NAME key_file_perms
-    REQUIRES TASH_AI_ENABLED
     TEST_SOURCES tests/unit/test_key_file_perms.cpp
     TEST_PREFIX "unit/ai/"
-    TEST_AI_AWARE
 )
 
 tash_register_plugin(
     NAME config_dir_migration
-    REQUIRES TASH_AI_ENABLED
     TEST_SOURCES tests/unit/test_config_dir_migration.cpp
     TEST_PREFIX "unit/ai/"
-    TEST_AI_AWARE
 )
 
 tash_register_plugin(
@@ -128,10 +120,8 @@ tash_register_plugin(
 tash_register_plugin(
     NAME contextual_ai
     SOURCES src/ai/contextual_ai.cpp
-    REQUIRES TASH_AI_ENABLED
     TEST_SOURCES tests/unit/test_contextual_ai.cpp
     TEST_PREFIX "unit/ai/"
-    TEST_AI_AWARE
 )
 
 tash_register_plugin(
@@ -207,10 +197,8 @@ tash_register_plugin(
 tash_register_plugin(
     NAME structured_pipe
     SOURCES src/core/structured_pipe.cpp
-    REQUIRES TASH_AI_ENABLED
     TEST_SOURCES tests/unit/test_pipeline.cpp
     TEST_PREFIX "unit/core/"
-    TEST_AI_AWARE
 )
 
 tash_register_plugin(
@@ -227,7 +215,6 @@ tash_register_plugin(
 
 tash_register_plugin(
     NAME hook_ordering
-    TEST_AI_AWARE
     TEST_SOURCES tests/unit/test_hook_ordering.cpp
     TEST_PREFIX "unit/core/"
 )

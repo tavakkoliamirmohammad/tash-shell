@@ -44,11 +44,7 @@ static int print_version_and_features() {
 #endif
     std::printf("tash %s\n", TASH_VERSION_STRING);
     std::printf("features:");
-#ifdef TASH_AI_ENABLED
     std::printf(" +ai");
-#else
-    std::printf(" -ai");
-#endif
 #ifdef TASH_SQLITE_ENABLED
     std::printf(" +sqlite-history");
 #else

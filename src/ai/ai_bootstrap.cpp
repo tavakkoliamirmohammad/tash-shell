@@ -1,16 +1,14 @@
 // All AI-specific startup work in one place. Extracted from main.cpp +
 // repl.cpp as part of the main-split refactor so everything
-// AI-conditional is localised:
+// AI-adjacent is localised:
 //
 //   tash::ai::bootstrap(state)
 //     ├─ builds the context-aware transition map from history
 //     └─ prompts the user to run the setup wizard on first run
 //
 // Callers pass a ShellState so the map build can reference the current
-// history path. Build guarded by TASH_AI_ENABLED; a no-op alternative
-// is provided for the disabled build so main.cpp doesn't need #ifdefs.
+// history path.
 
-#ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
 #include "tash/ai/bootstrap.h"
@@ -70,13 +68,3 @@ void offer_setup_wizard() {
 
 } // namespace tash::ai
 
-#else  // !TASH_AI_ENABLED — provide empty stubs so callers stay clean.
-
-#include "tash/ai/bootstrap.h"
-
-namespace tash::ai {
-void build_history_context() {}
-void offer_setup_wizard() {}
-} // namespace tash::ai
-
-#endif // TASH_AI_ENABLED

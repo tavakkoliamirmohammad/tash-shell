@@ -14,9 +14,7 @@
 #include "tash/core/parser.h"
 #include "tash/plugin.h"
 #include "tash/shell.h"
-#ifdef TASH_AI_ENABLED
 #include "tash/core/structured_pipe.h"
-#endif
 
 namespace {
 
@@ -130,7 +128,6 @@ TEST(HookOrdering, CommandSubstitutionRespectsSkip) {
     rec->force_skip = false;
 }
 
-#ifdef TASH_AI_ENABLED
 TEST(HookOrdering, StructuredPipeFirstSegmentInvokesBeforeHook) {
     auto *rec = install_recorder();
     ShellState state;
@@ -159,7 +156,6 @@ TEST(HookOrdering, StructuredPipeRespectsSkip) {
     EXPECT_TRUE(out.empty());
     rec->force_skip = false;
 }
-#endif
 
 TEST(HookOrdering, ExecuteSingleCommandFiresBeforeHook) {
     // H6 foundation: verify execute_single_command fires the hook.

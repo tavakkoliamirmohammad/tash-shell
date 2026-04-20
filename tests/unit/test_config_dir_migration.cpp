@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#ifdef TASH_AI_ENABLED
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -60,10 +59,3 @@ TEST(ConfigDirMigration, RefusesSymlinkedConfigDir) {
     std::filesystem::remove_all(real_dir, ec);
 }
 
-#else
-
-TEST(ConfigDirMigrationDisabled, AiDisabled) {
-    SUCCEED() << "AI features disabled at build time";
-}
-
-#endif // TASH_AI_ENABLED

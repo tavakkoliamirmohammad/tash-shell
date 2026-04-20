@@ -25,9 +25,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-#ifdef TASH_AI_ENABLED
 #include "tash/core/structured_pipe.h"
-#endif
 
 using namespace std;
 
@@ -311,7 +309,6 @@ int execute_single_command(string command, ShellState &state,
         }
     }
 
-#ifdef TASH_AI_ENABLED
     // Structured pipeline (`cmd |> where ... |> sort-by ...`) short-circuits
     // before normal parsing so the `|>` operator isn't confused with `|`.
     if (tash::structured_pipe::has_structured_pipe(command)) {
@@ -320,7 +317,6 @@ int execute_single_command(string command, ShellState &state,
         if (!out.empty() && out.back() != '\n') write_stdout("\n");
         return 0;
     }
-#endif
 
     command = expand_variables(command, state.core.last_exit_status);
     command = expand_command_substitution(command, state);

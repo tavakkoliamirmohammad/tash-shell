@@ -1,13 +1,16 @@
-#ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
+#include "tash/ai/ai_abort.h"
 #include "tash/ai/llm_registry.h"
 #include "tash/ai/model_defaults.h"
+#include "tash/core/builtins.h"
 #include "tash/core/executor.h"
 #include "tash/core/signals.h"
+#include "tash/plugin.h"
 #include "tash/util/io.h"
 #include "theme.h"
 #include <nlohmann/json.hpp>
+#include <sys/utsname.h>
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
@@ -120,9 +123,12 @@ static void stop_spinner() {
 
 // ── System prompt ────────────────────────────────────────────
 
+// Structured-output schema guidance (used by the JSON-schema code path).
+// Each provider builds its own schema; this text just tells the model
+// which response shapes are legal so it picks one consistently.
 static const char *PROMPT_UNIFIED =
-    "You are an AI assistant embedded in a Unix shell. The user types natural language "
-    "and you respond based on what they ask.\n\n"
+    "You are an AI assistant embedded in tash (Tavakkoli's Shell). The user types "
+    "natural language and you respond based on what they ask.\n\n"
     "Guidelines:\n"
     "- Single command: set response_type to \"command\", content to the command.\n"
     "- Multiple commands/steps: set response_type to \"steps\", and steps to an array "
@@ -133,6 +139,7 @@ static const char *PROMPT_UNIFIED =
     "filename to a suggested name.\n"
     "- Explanations or help: set response_type to \"answer\", content to your response.\n\n"
     "Keep responses concise. No markdown formatting in content.";
+
 
 // ── Output helpers ────────────────────────────────────────────
 
@@ -149,42 +156,121 @@ static void ai_print_error(const string &msg) {
 
 static vector<ConversationTurn> conversation_history;
 static const size_t MAX_CONVERSATION_TURNS = 10;
+static bool conversation_loaded = false;
+
+// Lazy-load persisted turns from disk the first time any @ai path needs
+// them in a session. Keeps startup free of I/O when AI isn't used, and
+// lets `@ai clear` between sessions actually erase the state (clearing
+// calls ai_clear_conversation_file + rewrites this vector to empty).
+static void load_conversation_if_needed() {
+    if (conversation_loaded) return;
+    conversation_loaded = true;
+    auto loaded = ai_load_conversation();
+    // Guard against a disk file that grew beyond the current cap
+    // (older build with a larger cap, user tampering, etc.).
+    while (loaded.size() > MAX_CONVERSATION_TURNS) {
+        loaded.erase(loaded.begin());
+    }
+    conversation_history = std::move(loaded);
+}
 
 static void add_to_conversation(const string &role, const string &text) {
+    load_conversation_if_needed();
     conversation_history.push_back({role, text});
     while (conversation_history.size() > MAX_CONVERSATION_TURNS) {
         conversation_history.erase(conversation_history.begin());
     }
+    // Persist after each turn so a Ctrl+D or crash doesn't lose the
+    // just-completed exchange. Cost is trivial — at most 10 turns x
+    // short-ish strings serialised to JSON and fsynced.
+    ai_save_conversation(conversation_history);
 }
-
-// ── Rate limiter ─────────────────────────────────────────────
-
-static AiRateLimiter rate_limiter(10, 60); // Gemini free tier: 10 RPM
 
 // ── Context-aware system prompt ──────────────────────────────
 
-static string build_system_context() {
-    string ctx = "You are an AI assistant embedded in tash (Tavakkoli's Shell). ";
+// Cached for the life of the process — the tash binary never mutates its
+// builtin table at runtime, and uname() values don't change mid-session
+// either. Keeps the per-request overhead at zero.
+static const string& cached_env_context() {
+    static string cached = []() {
+        string ctx;
 
-    // OS
-    #ifdef __APPLE__
-    ctx += "The user is on macOS. ";
-    #else
-    ctx += "The user is on Linux. ";
-    #endif
+        // Runtime OS + kernel. `uname -sr` gives us the actual target
+        // (e.g. "Linux 6.8.0-40-generic", "Darwin 24.0.0") rather than
+        // whatever __APPLE__ was at compile time. Matters when a Linux
+        // binary is run inside a container on macOS via Rosetta, or
+        // when a user has SSH'd into a different OS.
+        struct utsname u{};
+        if (uname(&u) == 0) {
+            ctx += "OS: " + string(u.sysname) + " " + string(u.release)
+                 + " (" + string(u.machine) + "). ";
+        }
+        ctx += "Shell: tash " + string(TASH_VERSION_STRING) + ". ";
 
-    // Current directory
-    char cwd[1024];
+        // Tash-specific builtin list. Without this the model happily
+        // suggests bash idioms for things tash already implements
+        // natively (z, session, trap, bglist, etc.).
+        ctx += "tash builtins (prefer these over external tools when they "
+               "apply): ";
+        const auto &binfo = get_builtins_info();
+        bool first = true;
+        for (const auto &b : binfo) {
+            if (!first) ctx += ", ";
+            ctx += b.name;
+            first = false;
+        }
+        ctx += ". Tash also supports: pipes (|), structured pipelines (|>), "
+               "redirections (>, >>, <, 2>, 2>&1), heredocs (<<, <<-), "
+               "command substitution ($(...)), subshells (cmd; cmd), "
+               "operators (&&, ||, ;), aliases, globs, tilde and $VAR "
+               "expansion, auto-cd, and POSIX trap. ";
+
+        return ctx;
+    }();
+    return cached;
+}
+
+// Per-request dynamic context: cwd, git branch, and last N history entries
+// scoped to the current directory (when a history provider is registered).
+// Must be rebuilt on every call because users change directories.
+static string build_dynamic_context(const ShellState &state) {
+    string ctx;
+
+    char cwd[4096];
     if (getcwd(cwd, sizeof(cwd))) {
-        ctx += "Current directory: " + string(cwd) + ". ";
+        ctx += "cwd: " + string(cwd) + "\n";
     }
 
-    ctx += "Shell features: pipes (|), redirections (>, >>, <, 2>), "
-           "aliases, background jobs (bg), globs (*,?), env vars ($VAR), "
-           "command substitution ($(...)), operators (&&, ||, ;), auto-cd, "
-           "and tilde expansion (~). ";
+    // Last 8 successful + failed commands in this cwd, from the primary
+    // history provider (SQLite-backed when available). Gives the model
+    // the state of the session: "you just tried X, it failed with Y —
+    // help me". Capped small to keep tokens manageable.
+    auto &reg = global_plugin_registry();
+    if (reg.history_provider_count() > 0 && cwd[0] != '\0') {
+        SearchFilter f;
+        f.directory = cwd;
+        f.limit = 8;
+        auto recent = reg.search_history("", f);
+        if (!recent.empty()) {
+            ctx += "Recent commands in this directory (newest first):\n";
+            for (const auto &e : recent) {
+                ctx += "  " + std::to_string(e.exit_code) + "| " + e.command;
+                if (!ctx.empty() && ctx.back() != '\n') ctx += "\n";
+            }
+        }
+    }
+    // Fallback to whatever ShellState recorded when no provider
+    // delivered history (fresh shell, persistent DB disabled).
+    else if (!state.ai.last_executed_cmd.empty()) {
+        ctx += "Last command: " + state.ai.last_executed_cmd
+             + " (exit " + std::to_string(state.core.last_exit_status) + ")\n";
+    }
 
     return ctx;
+}
+
+static string build_system_context(const ShellState &state) {
+    return cached_env_context() + build_dynamic_context(state);
 }
 
 // ── Menu input hygiene ───────────────────────────────────────
@@ -251,13 +337,17 @@ static std::string sanitize_menu_input(const std::string &in) {
 // Model names in the wild: "gemini-3-flash-preview", "gpt-4.1-nano",
 // "llama3.2:3b", "qwen2.5-coder:7b-instruct". Accept the union of
 // identifier-ish chars so new providers' naming schemes don't trip
-// the check. Cap length so nothing absurd lands on disk.
+// the check. Cap length so nothing absurd lands on disk. `/` and `..`
+// are explicitly rejected because the value flows into URL path
+// segments (Gemini /v1beta/models/<name>:generate) and into the
+// ai_model config file path. No provider legitimately uses `/`.
 static bool is_valid_model_name(const std::string &s) {
     if (s.empty() || s.size() > 128) return false;
+    if (s.find("..") != std::string::npos) return false;
     for (char c : s) {
         bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                   (c >= '0' && c <= '9') ||
-                  c == '-' || c == '_' || c == '.' || c == ':' || c == '/';
+                  c == '-' || c == '_' || c == '.' || c == ':';
         if (!ok) return false;
     }
     return true;
@@ -298,13 +388,22 @@ static unique_ptr<LLMClient> create_current_client() {
     bool override_ok = !model_override ||
                        model_matches_provider(provider, *model_override);
     if (model_override && !override_ok) {
-        static bool warned = false;
-        if (!warned) {
-            tash::io::warning("ignoring saved model '" + *model_override +
-                               "' — incompatible with provider '" + provider +
-                               "'. Using provider default.");
-            warned = true;
+        static bool announced = false;
+        if (!announced && isatty(STDOUT_FILENO)) {
+            // Visible, one-per-process notice. Goes through ai_print_label
+            // so users see the origin of the message instead of a silent
+            // reset buried behind --debug. Still logged through tash::io
+            // so scripts scraping stderr pick it up too.
+            ai_print_label();
+            write_stdout(CAT_YELLOW + "resetting saved model '"
+                         + *model_override
+                         + "' — incompatible with provider '"
+                         + provider + "' (using provider default).\n" CAT_RESET);
+            announced = true;
         }
+        tash::io::warning("ignoring saved model '" + *model_override +
+                           "' — incompatible with provider '" + provider +
+                           "'. Using provider default.");
         ai_set_model_override("");
         model_override.reset();  // so the apply-step below doesn't use it
     }
@@ -442,8 +541,27 @@ ParsedResponse parse_ai_response(const string &raw) {
 
 // ── Unified AI handler ───────────────────────────────────────
 
+// Show the one-time privacy banner before the first AI call in a shell
+// that's never seen @ai before. Explains that commands/stderr may get
+// sent to the provider and points at the opt-out knob. Idempotent: only
+// fires once per install because ai_privacy_banner_mark_shown persists
+// a marker file.
+static void maybe_show_privacy_banner() {
+    if (!isatty(STDOUT_FILENO)) return;
+    if (!ai_privacy_banner_pending()) return;
+    ai_print_label();
+    write_stdout(CAT_DIM
+                 "First @ai use — note: your query, cwd, recent history, and "
+                 "(optionally) the stderr of the last failed command are sent "
+                 "to the configured provider.\n"
+                 "  Disable stderr with: @ai privacy off\n"
+                 "  Review full policy:  @ai privacy\n"
+                 CAT_RESET);
+    ai_privacy_banner_mark_shown();
+}
+
 static int handle_ask(const string &query, ShellState &state, string *prefill_cmd) {
-    if (!rate_limiter.allow()) {
+    if (!global_ai_rate_limiter().allow()) {
         ai_print_error("rate limit exceeded. Please wait a moment.");
         return 1;
     }
@@ -451,9 +569,13 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
     unique_ptr<LLMClient> client = ensure_client(state);
     if (!client) return 1;
 
-    string system_prompt = build_system_context() + PROMPT_UNIFIED;
+    maybe_show_privacy_banner();
 
-    // Enrich query with error context if asking about last error
+    string system_prompt = build_system_context(state) + PROMPT_UNIFIED;
+
+    // Enrich query with error context if asking about last error. Respects
+    // the ai_send_stderr privacy toggle — when the user has opted out,
+    // only the command and exit code ride along, not the raw stderr bytes.
     string enriched_query = query;
     if (state.core.last_exit_status != 0 && !state.ai.last_command_text.empty()) {
         string lower_query = query;
@@ -469,21 +591,58 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
             enriched_query += "\n\nContext — last failed command:\n";
             enriched_query += "Command: " + state.ai.last_command_text +
                               "\nExit code: " + to_string(state.core.last_exit_status);
-            if (!state.ai.last_stderr_output.empty()) {
+            if (!state.ai.last_stderr_output.empty() && ai_get_send_stderr()) {
                 enriched_query += "\nError output: " + state.ai.last_stderr_output;
             }
         }
     }
 
-    // Generate response using structured output for reliable JSON parsing
+    // Stream the response. We still use structured output (the schema is
+    // set by the provider API, not the prompt — unforgeable), but layer
+    // server-side streaming on top so the user sees the `content` field
+    // render char-by-char instead of waiting for the whole JSON. The
+    // spinner's only job now is bridging the connection-setup latency
+    // before the first byte arrives.
+    tash::ai::abort_flag::begin_request();
+
+    // Track whether we've begun visible output so we can turn off the
+    // spinner exactly once when the first user-facing byte shows up.
+    bool label_printed = false;
+    std::atomic<bool> first_byte{false};
+    JsonContentStreamer content_stream(
+        [&](const string &piece) {
+            if (!first_byte.exchange(true)) {
+                stop_spinner();
+                ai_print_label();
+                label_printed = true;
+            }
+            write_stdout(piece);
+        });
+    auto on_chunk = [&](const string &chunk) {
+        content_stream.feed(chunk);
+    };
+
+    // Pull persisted turns from $TASH_DATA_HOME/ai/conversation.json so
+    // "now delete those files" still has context across a Ctrl+D.
+    load_conversation_if_needed();
+
     start_spinner();
     LLMResponse resp;
     if (!conversation_history.empty()) {
-        resp = client->generate_structured_with_context(system_prompt, conversation_history, enriched_query);
+        resp = client->generate_structured_stream_with_context(
+            system_prompt, conversation_history, enriched_query, on_chunk);
     } else {
-        resp = client->generate_structured(system_prompt, enriched_query);
+        resp = client->generate_structured_stream(
+            system_prompt, enriched_query, on_chunk);
     }
     stop_spinner();
+    tash::ai::abort_flag::end_request();
+
+    if (label_printed) {
+        // Finish the streamed line cleanly before any follow-up prompts
+        // ("Run? [y/n]") that we're about to emit.
+        write_stdout("\n");
+    }
 
     if (!resp.success) {
         ai_print_error(resp.error_message);
@@ -507,12 +666,18 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
     // Parse the structured response
     ParsedResponse parsed = parse_ai_response(resp.text);
+    const bool content_streamed = label_printed;
 
     switch (parsed.type) {
         case RESP_COMMAND: {
-            // Show command and offer to run
-            ai_print_label();
-            write_stdout(AI_CMD + parsed.content + CAT_RESET "\n\n");
+            // The content (the command string) already streamed to stdout
+            // during the request. Skip re-showing it — just add the
+            // coloured highlight if we somehow ran without streaming, and
+            // move straight to the Run? prompt.
+            if (!content_streamed) {
+                ai_print_label();
+                write_stdout(AI_CMD + parsed.content + CAT_RESET "\n\n");
+            }
 
             if (!isatty(STDIN_FILENO)) return 0;
 
@@ -537,9 +702,11 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
         }
 
         case RESP_SCRIPT: {
-            // Show script and offer to save
-            ai_print_label();
-            write_stdout("\n" + parsed.content + "\n\n");
+            // Script body already streamed; just move to the save prompt.
+            if (!content_streamed) {
+                ai_print_label();
+                write_stdout("\n" + parsed.content + "\n\n");
+            }
 
             if (!isatty(STDIN_FILENO)) return 0;
 
@@ -593,10 +760,14 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
         }
 
         case RESP_STEPS: {
-            // Show steps and execute one by one with confirmation
+            // Show steps and execute one by one with confirmation. The
+            // summary content already streamed (if any), so just emit
+            // the step count header + the list below.
             if (parsed.steps.empty()) {
-                ai_print_label();
-                write_stdout("\n" + parsed.content + "\n");
+                if (!content_streamed) {
+                    ai_print_label();
+                    write_stdout("\n" + parsed.content + "\n");
+                }
                 return 0;
             }
 
@@ -649,9 +820,12 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
         case RESP_ANSWER:
         default: {
-            // Just display the answer
-            ai_print_label();
-            write_stdout("\n" + parsed.content + "\n");
+            // Answer text already streamed during the request — the
+            // trailing newline above closed the line. Nothing else to do.
+            if (!content_streamed) {
+                ai_print_label();
+                write_stdout("\n" + parsed.content + "\n");
+            }
             return 0;
         }
     }
@@ -659,8 +833,28 @@ static int handle_ask(const string &query, ShellState &state, string *prefill_cm
 
 // ── Feature: Status ───────────────────────────────────────────
 
+// Distinguish the four key-file conditions in the status display so the
+// user can see *why* a key is missing (never set vs. file unreadable).
+// The old code collapsed Absent / Unreadable / Empty into "not configured"
+// which masked perms problems after restoring a backup.
+static string format_key_status(const KeyLoadResult &r, const string &provider) {
+    if (provider == "ollama") return string(AI_CMD) + "n/a (Ollama is local)" + CAT_RESET;
+    switch (r.status) {
+        case KeyStatus::Ok:
+            return string(AI_CMD) + "configured" + CAT_RESET;
+        case KeyStatus::Empty:
+            return string(AI_ERROR) + "file exists but is empty (re-run @ai config)"
+                 + CAT_RESET;
+        case KeyStatus::Unreadable:
+            return string(AI_ERROR) + "unreadable: " + r.diagnostic + CAT_RESET;
+        case KeyStatus::Absent:
+        default:
+            return string(AI_ERROR) + "not configured" + CAT_RESET;
+    }
+}
+
 static int handle_status(ShellState &state) {
-    static const int RPM_LIMIT = 15;
+    static const int RPM_LIMIT = 10;
 
     string provider = ai_get_provider();
     auto model_override = ai_get_model_override();
@@ -671,18 +865,63 @@ static int handle_status(ShellState &state) {
     ai_print_label();
     write_stdout("AI Status\n\n");
 
-    auto key = ai_load_provider_key(provider);
-    bool key_ok = (provider == "ollama") || key.has_value();
+    auto key_r = ai_load_provider_key_ex(provider);
 
     write_stdout("  Provider: " + AI_CMD + provider + CAT_RESET "\n");
     write_stdout("  Model:    " + AI_CMD + current_model + CAT_RESET "\n");
-    write_stdout("  Key:      " + string(key_ok ? AI_CMD + "configured" : AI_ERROR + "not configured") + CAT_RESET "\n");
+    write_stdout("  Key:      " + format_key_status(key_r, provider) + "\n");
     write_stdout("  Status:   " + string(state.ai.ai_enabled ? AI_CMD + "enabled" : AI_ERROR + "disabled") + CAT_RESET "\n");
+    write_stdout(string("  stderr:   ")
+                 + (ai_get_send_stderr()
+                       ? string(AI_CMD) + "sent with error queries"
+                       : string(CAT_DIM) + "NOT sent (privacy off)")
+                 + CAT_RESET "\n");
 
     int usage = ai_get_today_usage();
     write_stdout("  Today:    " + AI_CMD + to_string(usage) + " requests" CAT_RESET "\n");
     write_stdout("  Rate:     " CAT_DIM + to_string(RPM_LIMIT) + " requests/min (enforced)" CAT_RESET "\n\n");
 
+    return 0;
+}
+
+// ── Feature: Privacy ──────────────────────────────────────────
+
+static int handle_privacy(const string &rest) {
+    // Sub-args: `on` / `off` toggle stderr send; no arg shows the policy.
+    string arg = rest;
+    while (!arg.empty() && arg.front() == ' ') arg.erase(arg.begin());
+    while (!arg.empty() && arg.back() == ' ') arg.pop_back();
+
+    if (arg == "on" || arg == "enable") {
+        ai_set_send_stderr(true);
+        ai_print_label();
+        write_stdout(AI_CMD + "stderr WILL be sent with @ai explain/fix queries."
+                     + CAT_RESET + "\n");
+        return 0;
+    }
+    if (arg == "off" || arg == "disable") {
+        ai_set_send_stderr(false);
+        ai_print_label();
+        write_stdout(AI_CMD + "stderr will NOT be sent with @ai queries. Only "
+                     + "the command text and exit code ride along." + CAT_RESET + "\n");
+        return 0;
+    }
+
+    ai_print_label();
+    write_stdout("Privacy policy\n\n");
+    write_stdout("  Every @ai call sends these fields to the provider:\n");
+    write_stdout("    - Your prompt (the text after @ai)\n");
+    write_stdout("    - OS + kernel + tash version (uname -sr)\n");
+    write_stdout("    - Current working directory\n");
+    write_stdout("    - Up to 8 recent commands in this cwd (from history)\n");
+    write_stdout("    - Conversation history for this session (up to 10 turns)\n\n");
+    write_stdout("  When you ask @ai to explain/fix/etc. a failed command, the\n");
+    write_stdout("  captured stderr of that command ALSO gets sent — unless you\n");
+    write_stdout("  opt out with  @ai privacy off.\n\n");
+    write_stdout("  Current setting: " +
+                 string(ai_get_send_stderr() ? AI_CMD + "stderr is sent"
+                                              : AI_CMD + "stderr NOT sent") +
+                 CAT_RESET + "\n\n");
     return 0;
 }
 
@@ -710,6 +949,8 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         write_stdout("Usage:\n\n");
         write_stdout("  @ai <anything>           ask the AI in natural language\n");
         write_stdout("  @ai config               configure provider, model, and API keys\n");
+        write_stdout("  @ai status               show current config and key health\n");
+        write_stdout("  @ai privacy [on|off]     show policy / toggle stderr send\n");
         write_stdout("  @ai clear                clear conversation history\n");
         write_stdout("  @ai on / off             enable or disable AI\n\n");
         write_stdout(CAT_DIM "  Examples:" CAT_RESET "\n");
@@ -807,7 +1048,7 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
             }
         } else if (ch == '5') {
             // Test connection
-            if (!rate_limiter.allow()) {
+            if (!global_ai_rate_limiter().allow()) {
                 ai_print_error("rate limit exceeded. Please wait a moment.");
                 return 1;
             }
@@ -852,15 +1093,24 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
 
     if (rest == "clear") {
         conversation_history.clear();
+        conversation_loaded = true;        // suppress a later lazy reload
+        ai_clear_conversation_file();      // survive Ctrl+D
         ai_print_label();
         write_stdout(AI_CMD + "Conversation cleared." CAT_RESET "\n");
         return 0;
     }
 
+    // ── 3a. privacy ───────────────────────────────────────────
+
+    if (rest == "privacy" || rest.rfind("privacy ", 0) == 0) {
+        string sub = (rest.size() > 7) ? rest.substr(7) : "";
+        return handle_privacy(sub);
+    }
+
     // ── 4. Hidden shortcuts (still work, not shown in help) ──
 
     if (rest == "test") {
-        if (!rate_limiter.allow()) {
+        if (!global_ai_rate_limiter().allow()) {
             ai_print_error("rate limit exceeded. Please wait a moment.");
             return 1;
         }
@@ -902,11 +1152,15 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
         string model = rest.substr(6);
         while (!model.empty() && model.front() == ' ') model.erase(model.begin());
         while (!model.empty() && model.back() == ' ') model.pop_back();
-        if (!model.empty()) {
-            ai_set_model_override(model);
-            ai_print_label();
-            write_stdout(AI_CMD + "Model set to " + model + "." CAT_RESET "\n");
+        if (model.empty()) return 0;
+        if (!is_valid_model_name(model)) {
+            ai_print_error("invalid model name (letters, digits, dots, "
+                           "dashes, underscores, colons; no slashes; max 128 chars).");
+            return 1;
         }
+        ai_set_model_override(model);
+        ai_print_label();
+        write_stdout(AI_CMD + "Model set to " + model + "." CAT_RESET "\n");
         return 0;
     }
 
@@ -915,4 +1169,3 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
     return handle_ask(rest, state, prefill_cmd);
 }
 
-#endif // TASH_AI_ENABLED

@@ -18,17 +18,18 @@ set(TASH_PLUGIN_TEST_NAMES "")
 #   NAME <name>                     unique short identifier (required)
 #   SOURCES <files>                 .cpp files added to SHELL_SOURCES
 #   REQUIRES <var>                  variable name; skip this plugin if its value is falsy
-#                                   (e.g. TASH_AI_ENABLED, TASH_SQLITE_ENABLED)
+#                                   (e.g. TASH_SQLITE_ENABLED)
 #   TEST_SOURCES <files>            test .cpp files (creates test_<NAME> executable)
 #   TEST_PREFIX <string>            gtest_discover_tests TEST_PREFIX (default: unit/<NAME>/)
 #   TEST_INCLUDES <dirs>            extra target_include_directories for the test
 #   TEST_LIBS <libs>                extra target_link_libraries for the test
 #   TEST_DEFS <defs>                extra target_compile_definitions for the test
-#   TEST_AI_AWARE                   when TASH_AI_ENABLED, add the AI define + libcurl
 #   TEST_STANDALONE                 do NOT link shell_lib (use when the test compiles
-#                                   its own sources and needs isolation)
+#                                   its own sources and needs isolation; such tests
+#                                   still get libcurl + nlohmann_json since AI is
+#                                   always compiled in.)
 function(tash_register_plugin)
-    set(options TEST_AI_AWARE TEST_STANDALONE)
+    set(options TEST_STANDALONE)
     set(oneValueArgs NAME REQUIRES TEST_PREFIX)
     set(multiValueArgs SOURCES TEST_SOURCES TEST_INCLUDES TEST_LIBS TEST_DEFS)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
@@ -57,11 +58,6 @@ function(tash_register_plugin)
             set("${_pref}_PREFIX" "${ARG_TEST_PREFIX}" PARENT_SCOPE)
         else()
             set("${_pref}_PREFIX" "unit/${ARG_NAME}/"  PARENT_SCOPE)
-        endif()
-        if(ARG_TEST_AI_AWARE)
-            set("${_pref}_AI_AWARE" TRUE PARENT_SCOPE)
-        else()
-            set("${_pref}_AI_AWARE" FALSE PARENT_SCOPE)
         endif()
         if(ARG_TEST_STANDALONE)
             set("${_pref}_STANDALONE" TRUE PARENT_SCOPE)
@@ -97,12 +93,13 @@ function(tash_finalize_plugin_tests)
             target_compile_definitions(test_${name} PRIVATE ${${_pref}_DEFS})
         endif()
 
-        if(${${_pref}_AI_AWARE} AND TASH_AI_ENABLED)
-            target_compile_definitions(test_${name} PRIVATE TASH_AI_ENABLED)
-            target_include_directories(test_${name} PRIVATE
-                ${nlohmann_json_SOURCE_DIR}/include)
-            target_link_libraries(test_${name} PRIVATE CURL::libcurl)
-        endif()
+        # AI is always compiled in (libcurl is a hard build dependency), so
+        # every test that uses shell_lib or pulls in tash headers needs the
+        # JSON headers + libcurl on the link line. Standalone tests that
+        # only exercise pure utilities happen to pick these up cheaply.
+        target_include_directories(test_${name} PRIVATE
+            ${nlohmann_json_SOURCE_DIR}/include)
+        target_link_libraries(test_${name} PRIVATE CURL::libcurl)
 
         gtest_discover_tests(test_${name} TEST_PREFIX "${${_pref}_PREFIX}")
     endforeach()

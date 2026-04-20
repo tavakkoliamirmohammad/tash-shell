@@ -1,7 +1,6 @@
 #ifndef TASH_AI_ERROR_HOOK_PROVIDER_H
 #define TASH_AI_ERROR_HOOK_PROVIDER_H
 
-#ifdef TASH_AI_ENABLED
 
 #include "tash/plugin.h"
 #include "tash/llm_client.h"
@@ -88,5 +87,4 @@ private:
     LLMClient *ensure_client();           // returns active client or nullptr
 };
 
-#endif // TASH_AI_ENABLED
 #endif // TASH_AI_ERROR_HOOK_PROVIDER_H

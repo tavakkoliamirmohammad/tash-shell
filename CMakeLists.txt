@@ -89,7 +89,6 @@ configure_file(
 target_sources(tash.out PRIVATE "${CMAKE_BINARY_DIR}/generated/ai_models_embedded.cpp")
 target_include_directories(tash.out PRIVATE "${CMAKE_BINARY_DIR}/generated")
 
-target_compile_definitions(tash.out PRIVATE TASH_AI_ENABLED)
 target_link_libraries(tash.out PRIVATE CURL::libcurl Threads::Threads)
 
 if(TASH_SQLITE_ENABLED)

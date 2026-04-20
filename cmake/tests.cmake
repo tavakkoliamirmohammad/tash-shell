@@ -38,7 +38,6 @@ if(BUILD_TESTS)
     # Same embed as tash.out — tests need the AI model registry too.
     target_sources(shell_lib PRIVATE "${CMAKE_BINARY_DIR}/generated/ai_models_embedded.cpp")
 
-    target_compile_definitions(shell_lib PRIVATE TASH_AI_ENABLED)
     target_link_libraries(shell_lib PRIVATE CURL::libcurl Threads::Threads)
 
     if(TASH_SQLITE_ENABLED)

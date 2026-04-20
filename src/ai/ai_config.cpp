@@ -1,10 +1,10 @@
-#ifdef TASH_AI_ENABLED
 
 #include "tash/ai.h"
 #include "tash/core/signals.h"
 #include "tash/util/config_resolver.h"
 #include "tash/util/io.h"
 #include "theme.h"
+#include <nlohmann/json.hpp>
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/file.h>
@@ -110,6 +110,56 @@ static string read_file_line(const string &path) {
     return line;
 }
 
+// Distinguishes "absent" from "present but unreadable". The older
+// read_file_line collapsed both to "" which made `@ai status` display
+// "not configured" even when the key file existed but had wrong perms
+// (e.g. recovered from a tarball without preserving 0600).
+static KeyLoadResult classify_file_read(const string &path) {
+    KeyLoadResult out;
+    out.status = KeyStatus::Absent;
+    if (path.empty()) {
+        out.status = KeyStatus::Absent;
+        return out;
+    }
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0) {
+        // ENOENT is "absent"; EACCES / other errors are "unreadable".
+        if (errno == ENOENT) {
+            out.status = KeyStatus::Absent;
+        } else {
+            out.status = KeyStatus::Unreadable;
+            out.diagnostic = strerror(errno);
+        }
+        return out;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        out.status = KeyStatus::Unreadable;
+        out.diagnostic = "not a regular file";
+        return out;
+    }
+    ifstream file(path);
+    if (!file.is_open()) {
+        out.status = KeyStatus::Unreadable;
+        out.diagnostic = strerror(errno);
+        return out;
+    }
+    string line;
+    if (!getline(file, line) && file.bad()) {
+        out.status = KeyStatus::Unreadable;
+        out.diagnostic = "read failed";
+        return out;
+    }
+    while (!line.empty() && (line.back() == '\n' || line.back() == '\r' || line.back() == ' '))
+        line.pop_back();
+    if (line.empty()) {
+        out.status = KeyStatus::Empty;
+        return out;
+    }
+    out.status = KeyStatus::Ok;
+    out.value = std::move(line);
+    return out;
+}
+
 // ── Helper: write single-line file ───────────────────────────
 
 static bool write_file_line(const string &path, const string &content) {
@@ -173,12 +223,24 @@ void ai_set_model_override(const string &model) {
 }
 
 std::optional<std::string> ai_load_provider_key(const string &provider) {
-    if (provider != "gemini" && provider != "openai" && provider != "ollama") return std::nullopt;
+    KeyLoadResult r = ai_load_provider_key_ex(provider);
+    if (r.status != KeyStatus::Ok) return std::nullopt;
+    return r.value;
+}
+
+KeyLoadResult ai_load_provider_key_ex(const string &provider) {
+    KeyLoadResult out;
+    if (provider != "gemini" && provider != "openai" && provider != "ollama") {
+        out.status = KeyStatus::Absent;
+        return out;
+    }
     string dir = ai_get_config_dir();
-    if (dir.empty()) return std::nullopt;
-    std::string v = read_file_line(dir + "/" + provider + "_key");
-    if (v.empty()) return std::nullopt;
-    return v;
+    if (dir.empty()) {
+        out.status = KeyStatus::Unreadable;
+        out.diagnostic = "config dir unavailable";
+        return out;
+    }
+    return classify_file_read(dir + "/" + provider + "_key");
 }
 
 bool ai_save_provider_key(const string &provider, const string &key) {
@@ -331,6 +393,104 @@ bool AiRateLimiter::allow() {
     return true;
 }
 
+// Meyers-singleton rate limiter shared by @ai and the error-recovery hook.
+// 10 RPM matches the Gemini free tier; OpenAI is higher but using the same
+// bucket prevents either path from starving the other. Hardcoded because
+// the limit is keyed to the lowest-common-denominator provider — raising
+// it without provider-awareness would just move the 429s.
+AiRateLimiter& global_ai_rate_limiter() {
+    static AiRateLimiter lim(10, 60);
+    return lim;
+}
+
+// ── Privacy preference ───────────────────────────────────────
+
+bool ai_get_send_stderr() {
+    string dir = ai_get_config_dir();
+    if (dir.empty()) return true;  // conservative default: preserve old behavior
+    // File present with "0" => off; anything else or absent => on.
+    string val = read_file_line(dir + "/ai_send_stderr");
+    if (val.empty()) return true;
+    return !(val == "0" || val == "off" || val == "false" || val == "no");
+}
+
+void ai_set_send_stderr(bool on) {
+    string dir = ai_get_config_dir();
+    if (dir.empty()) return;
+    write_file_line(dir + "/ai_send_stderr", on ? "1" : "0");
+}
+
+bool ai_privacy_banner_pending() {
+    string dir = ai_get_config_dir();
+    if (dir.empty()) return false;      // can't persist => don't loop forever
+    string marker = dir + "/ai_banner_shown";
+    struct stat st{};
+    return stat(marker.c_str(), &st) != 0;   // pending iff marker missing
+}
+
+void ai_privacy_banner_mark_shown() {
+    string dir = ai_get_config_dir();
+    if (dir.empty()) return;
+    ensure_config_dir();
+    write_file_line(dir + "/ai_banner_shown", "1");
+}
+
+// ── Conversation persistence ─────────────────────────────────
+
+string ai_get_conversation_path() {
+    string dir = ai_get_config_dir();
+    if (dir.empty()) return "";
+    return dir + "/ai_conversation.json";
+}
+
+std::vector<ConversationTurn> ai_load_conversation() {
+    std::vector<ConversationTurn> out;
+    string path = ai_get_conversation_path();
+    if (path.empty()) return out;
+    ifstream f(path);
+    if (!f.is_open()) return out;     // absent or unreadable — start fresh
+    std::string text((std::istreambuf_iterator<char>(f)),
+                      std::istreambuf_iterator<char>());
+    if (text.empty()) return out;
+    try {
+        auto j = nlohmann::json::parse(text);
+        if (!j.is_array()) return out;
+        for (const auto &t : j) {
+            if (!t.is_object()) continue;
+            if (!t.contains("role") || !t.contains("text")) continue;
+            if (!t["role"].is_string() || !t["text"].is_string()) continue;
+            ConversationTurn turn;
+            turn.role = t["role"].get<std::string>();
+            turn.text = t["text"].get<std::string>();
+            out.push_back(std::move(turn));
+        }
+    } catch (const std::exception &) {
+        // Corrupt file — start over rather than leaking the parse
+        // error into every @ai call. The next save will overwrite it.
+        return {};
+    }
+    return out;
+}
+
+void ai_save_conversation(const std::vector<ConversationTurn> &turns) {
+    string path = ai_get_conversation_path();
+    if (path.empty()) return;
+    if (!ensure_config_dir()) return;
+    nlohmann::json j = nlohmann::json::array();
+    for (const auto &t : turns) {
+        j.push_back({{"role", t.role}, {"text", t.text}});
+    }
+    // Conversation content can include paths, hostnames, failed-command
+    // stderr — same sensitivity class as key files. 0600.
+    write_secure_file(path, j.dump() + "\n");
+}
+
+void ai_clear_conversation_file() {
+    string path = ai_get_conversation_path();
+    if (path.empty()) return;
+    ::unlink(path.c_str());
+}
+
 // ── Usage tracking ────────────────────────────────────────────
 
 string ai_get_usage_path() {
@@ -417,4 +577,3 @@ void ai_increment_usage() {
     close(fd);
 }
 
-#endif // TASH_AI_ENABLED
