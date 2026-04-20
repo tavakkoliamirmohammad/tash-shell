@@ -17,6 +17,10 @@ void StreamWatcher::run() {
         if (!e) continue;              // malformed JSON / missing fields
         if (!dedup_.admit(*e)) continue;
 
+        // apply_event traverses Registry pointers and mutates instance
+        // state; must not run concurrently with engine commands on the
+        // main thread.
+        auto guard = reg_->lock();
         apply_event(*e, *reg_, *notify_);
     }
     finished_.store(true, std::memory_order_release);

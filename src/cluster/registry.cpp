@@ -22,6 +22,25 @@ namespace tash::cluster {
 using nlohmann::json;
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Ctor / dtor / move — keep Registry movable so `load` can return by value.
+// The mutex itself is held via unique_ptr; moving transfers ownership.
+// ══════════════════════════════════════════════════════════════════════════════
+
+Registry::Registry()
+    : mu_(std::make_unique<std::recursive_mutex>()) {}
+
+Registry::Registry(Registry&&) noexcept = default;
+Registry& Registry::operator=(Registry&&) noexcept = default;
+Registry::~Registry() = default;
+
+std::unique_lock<std::recursive_mutex> Registry::lock() const {
+    // mu_ is always populated by the default ctor (load() returns by
+    // value, which leaves mu_ owned in the destination). A moved-from
+    // Registry has null mu_ and must not be used.
+    return std::unique_lock<std::recursive_mutex>(*mu_);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Enum ↔ string  (single source of truth; used for both read and write).
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -203,6 +222,7 @@ Registry Registry::load(const std::filesystem::path& path) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 void Registry::save(const std::filesystem::path& path) const {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     json j;
     j["schema_version"] = schema_version;
     json arr = json::array();
@@ -229,10 +249,12 @@ void Registry::save(const std::filesystem::path& path) const {
 // ══════════════════════════════════════════════════════════════════════════════
 
 void Registry::add_allocation(Allocation a) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     allocations.push_back(std::move(a));
 }
 
 bool Registry::remove_allocation(std::string_view id) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     for (auto it = allocations.begin(); it != allocations.end(); ++it) {
         if (it->id == id) { allocations.erase(it); return true; }
     }
@@ -240,16 +262,19 @@ bool Registry::remove_allocation(std::string_view id) {
 }
 
 Allocation* Registry::find_allocation(std::string_view id) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     for (auto& a : allocations) if (a.id == id) return &a;
     return nullptr;
 }
 
 const Allocation* Registry::find_allocation(std::string_view id) const {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     for (const auto& a : allocations) if (a.id == id) return &a;
     return nullptr;
 }
 
 bool Registry::add_workspace(std::string_view alloc_id, Workspace ws) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     if (auto* a = find_allocation(alloc_id)) {
         a->workspaces.push_back(std::move(ws));
         return true;
@@ -258,6 +283,7 @@ bool Registry::add_workspace(std::string_view alloc_id, Workspace ws) {
 }
 
 bool Registry::remove_workspace(std::string_view alloc_id, std::string_view ws_name) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     auto* a = find_allocation(alloc_id);
     if (!a) return false;
     for (auto it = a->workspaces.begin(); it != a->workspaces.end(); ++it) {
@@ -267,6 +293,7 @@ bool Registry::remove_workspace(std::string_view alloc_id, std::string_view ws_n
 }
 
 bool Registry::add_instance(std::string_view alloc_id, std::string_view ws_name, Instance inst) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     auto* a = find_allocation(alloc_id);
     if (!a) return false;
     for (auto& w : a->workspaces) {
@@ -281,6 +308,7 @@ bool Registry::add_instance(std::string_view alloc_id, std::string_view ws_name,
 bool Registry::remove_instance(std::string_view alloc_id,
                                 std::string_view ws_name,
                                 std::string_view inst_id) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     auto* a = find_allocation(alloc_id);
     if (!a) return false;
     for (auto& w : a->workspaces) {
@@ -297,6 +325,7 @@ bool Registry::remove_instance(std::string_view alloc_id,
 // ══════════════════════════════════════════════════════════════════════════════
 
 int Registry::reconcile(std::string_view cluster, const std::vector<JobState>& snapshot) {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
     int transitioned = 0;
     for (auto& a : allocations) {
         if (a.cluster != cluster)            continue;

@@ -172,3 +172,93 @@ TEST(WatcherHookProvider, DefaultFactoryReturnsUsableWatcher) {
     // We can call stop() before run() without UB.
     w->stop();
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Regression: a watcher whose run() ignores stop() and sleeps past the
+// join_backstop must NOT
+//   (a) block on_exit forever,
+//   (b) std::terminate when threads_ is cleared with a joinable thread,
+//   (c) leave the joiner referencing destroyed stack state after detach,
+//   (d) leave the detached thread dereferencing a destroyed IWatcher.
+// ══════════════════════════════════════════════════════════════════════════════
+namespace {
+
+class HungWatcher : public IWatcher {
+public:
+    std::atomic<bool> started{false};
+    std::atomic<bool> stop_requested{false};
+    std::atomic<bool> finished{false};
+    std::chrono::milliseconds run_for;
+
+    explicit HungWatcher(std::chrono::milliseconds d) : run_for(d) {}
+
+    void run() override {
+        started.store(true, std::memory_order_release);
+        // Ignore the stop flag intentionally — simulate a blocking
+        // syscall that can't be cancelled by a flag poll (this is the
+        // real-world ssh-tail case).
+        std::this_thread::sleep_for(run_for);
+        finished.store(true, std::memory_order_release);
+    }
+
+    void stop() override {
+        stop_requested.store(true, std::memory_order_release);
+    }
+};
+
+struct HungFactory {
+    std::vector<std::shared_ptr<HungWatcher>> created;
+    std::chrono::milliseconds run_for{std::chrono::milliseconds{300}};
+
+    WatcherFactory callable() {
+        return [this](const Allocation&, Registry&) -> std::unique_ptr<IWatcher> {
+            auto u  = std::make_unique<HungWatcher>(run_for);
+            auto sp = std::shared_ptr<HungWatcher>(u.get(), [](HungWatcher*){});
+            created.push_back(sp);
+            return u;
+        };
+    }
+};
+
+}  // namespace
+
+TEST(WatcherHookProvider, HungWatcherRespectsBackstopThenDetaches) {
+    Registry reg;
+    reg.add_allocation(alloc("c1", "1", AllocationState::Running));
+    reg.add_allocation(alloc("c2", "2", AllocationState::Running));
+
+    HungFactory factory;
+    factory.run_for = std::chrono::milliseconds{300};
+    ClusterWatcherHookProvider p(reg, factory.callable());
+    p.join_backstop = std::chrono::milliseconds{30};
+
+    ShellState state{};
+    p.on_startup(state);
+
+    // Wait until both threads are in run() before asking them to stop,
+    // otherwise we might fast-path through join() before they block.
+    for (int i = 0; i < 500; ++i) {
+        int started = 0;
+        for (const auto& w : factory.created) {
+            if (w->started.load(std::memory_order_acquire)) ++started;
+        }
+        if (started == static_cast<int>(factory.created.size())) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    const auto t0 = std::chrono::steady_clock::now();
+    p.on_exit(state);
+    const auto dt = std::chrono::steady_clock::now() - t0;
+
+    // Returned near the backstop — proves we didn't block for run_for.
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(dt).count(),
+              250);
+
+    // Give the detached thread time to actually finish its sleep so its
+    // HungWatcher must still be alive when finished is written. If the
+    // provider destroyed watchers on clear(), this store would UAF.
+    std::this_thread::sleep_for(factory.run_for + std::chrono::milliseconds{200});
+    for (const auto& w : factory.created) {
+        EXPECT_TRUE(w->finished.load(std::memory_order_acquire));
+    }
+}

@@ -161,6 +161,11 @@ SshResult spawn_capture(const std::vector<std::string>& argv,
         const int n = ::poll(pfd, 2, to);
         if (n < 0) {
             if (errno == EINTR) continue;
+            // Unexpected poll error (EBADF, ENOMEM, etc.). The child
+            // is still running and the subsequent waitpid() below
+            // blocks with flag 0 — without this kill we'd hang
+            // forever. Treat poll errors like a timeout.
+            ::kill(pid, SIGKILL);
             break;
         }
         if (n == 0) {

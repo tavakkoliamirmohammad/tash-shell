@@ -92,8 +92,12 @@ private:
     Registry*      reg_;
     WatcherFactory factory_;
 
-    // Each index i corresponds to the same thread/watcher pair.
-    std::vector<std::unique_ptr<IWatcher>> watchers_;
+    // Each index i corresponds to the same thread/watcher pair. We
+    // use shared_ptr<IWatcher> (not unique_ptr) so that a detached
+    // watcher thread keeps its own IWatcher alive via a lambda
+    // capture — preventing UAF if on_exit clears the provider's
+    // reference while the detached thread is still running.
+    std::vector<std::shared_ptr<IWatcher>> watchers_;
     std::vector<std::thread>               threads_;
 };
 

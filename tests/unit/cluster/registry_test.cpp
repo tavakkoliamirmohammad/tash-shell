@@ -324,3 +324,59 @@ TEST_F(RegistryTest, LockScopeConvenienceUsesLockSidecar) {
     EXPECT_TRUE(std::filesystem::exists(
         std::filesystem::path(path).concat(".lock")));
 }
+
+// ── 13. intra-process thread safety  ────────────────────────────────
+//
+// Registry is shared between the main thread (engine commands) and
+// watcher threads (apply_event). Every public mutator / query must
+// serialize via an internal mutex. This test spawns N threads that
+// concurrently add_allocation / find_allocation / remove_allocation,
+// then asserts no lost writes and no crash.
+TEST_F(RegistryTest, ConcurrentAddsAndReadsAreSerialized) {
+    Registry r;
+    const int writers = 4;
+    const int per_writer = 250;
+
+    std::atomic<bool> go{false};
+    std::vector<std::thread> ts;
+
+    for (int w = 0; w < writers; ++w) {
+        ts.emplace_back([&, w]() {
+            while (!go.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+            for (int i = 0; i < per_writer; ++i) {
+                Allocation a;
+                a.id      = std::to_string(w) + "-" + std::to_string(i);
+                a.cluster = "c" + std::to_string(w);
+                a.jobid   = std::to_string(i);
+                a.state   = AllocationState::Running;
+                r.add_allocation(std::move(a));
+            }
+        });
+    }
+
+    // Concurrent readers — must not crash or observe torn state.
+    std::atomic<int> read_hits{0};
+    for (int j = 0; j < 2; ++j) {
+        ts.emplace_back([&]() {
+            while (!go.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+            for (int i = 0; i < 1000; ++i) {
+                const std::string id = "0-" + std::to_string(i % per_writer);
+                if (r.find_allocation(id) != nullptr) {
+                    read_hits.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    go.store(true, std::memory_order_release);
+    for (auto& t : ts) t.join();
+
+    // Exactly writers * per_writer allocations — no lost writes.
+    auto lk = r.lock();   // take the external lock to safely inspect
+    EXPECT_EQ(r.allocations.size(),
+              static_cast<std::size_t>(writers * per_writer));
+}

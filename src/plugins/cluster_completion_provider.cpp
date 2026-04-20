@@ -8,6 +8,7 @@
 #include "tash/cluster/config.h"
 #include "tash/cluster/registry.h"
 
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -125,6 +126,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
 
     if (prev == "--workspace") {
         std::vector<Completion> out;
+        auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
         if (eng) for (const auto& a : eng->registry().allocations)
             for (const auto& w : a.workspaces) {
                 bool dup = false;
@@ -137,6 +139,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
 
     if (prev == "--alloc") {
         std::vector<Completion> out;
+        auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
         if (eng) for (const auto& a : eng->registry().allocations)
             out.push_back(make(a.id,
                 a.resource.empty() ? "allocation" : a.resource,
@@ -147,6 +150,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
     // ── Positional slots ──────────────────────────────────────
     if (sub == "attach" || sub == "kill") {
         std::vector<Completion> out;
+        auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
         if (eng) for (const auto& a : eng->registry().allocations)
             for (const auto& w : a.workspaces)
                 for (const auto& i : w.instances)
@@ -157,6 +161,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
 
     if (sub == "down") {
         std::vector<Completion> out;
+        auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
         if (eng) for (const auto& a : eng->registry().allocations)
             out.push_back(make(a.id,
                 a.resource.empty() ? "allocation" : a.resource,

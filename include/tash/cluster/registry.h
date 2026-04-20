@@ -26,6 +26,7 @@
 #include "tash/cluster/types.h"
 
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -62,6 +63,17 @@ public:
     // Returns the number of allocations that transitioned to Ended.
     int reconcile(std::string_view cluster, const std::vector<JobState>& snapshot);
 
+    // ── Intra-process locking ──────────────────────────────────
+    // Public methods above are self-locking, but callers that need
+    // compound read-modify-write (iterate `allocations` directly, or
+    // call apply_event which follows pointers into the registry) must
+    // hold this lock for the duration of the sequence.
+    //
+    // Recursive so a locked region can call Registry mutators without
+    // deadlocking. Returns a unique_lock so the caller can release
+    // early if desired.
+    [[nodiscard]] std::unique_lock<std::recursive_mutex> lock() const;
+
     // ── File lock (advisory, POSIX flock) ──────────────────────
     class LockScope {
     public:
@@ -82,6 +94,24 @@ public:
 
     // Convenience: locks "<registry_path>.lock".
     static LockScope lock_scope(const std::filesystem::path& registry_path);
+
+    // Move semantics: std::recursive_mutex isn't movable, so we hold it
+    // via unique_ptr. The moved-from Registry gets a fresh mutex on use
+    // (via a lazy helper) — but by convention, a moved-from Registry is
+    // reconstructed only at `load` time where no thread references it
+    // yet, so this path is never exercised concurrently.
+    Registry();
+    Registry(Registry&&) noexcept;
+    Registry& operator=(Registry&&) noexcept;
+    Registry(const Registry&)            = delete;
+    Registry& operator=(const Registry&) = delete;
+    ~Registry();
+
+private:
+    // Intra-process mutex. `mutable` so `const` members (find_allocation
+    // const-overload, save) can still lock. Wrapped in unique_ptr so
+    // Registry stays movable (required by `load()` which returns by value).
+    mutable std::unique_ptr<std::recursive_mutex> mu_;
 };
 
 }  // namespace tash::cluster

@@ -234,6 +234,38 @@ TEST_F(SshStubFixture, ConnectAndDisconnectEmitCorrectArgv) {
     EXPECT_NE(log.find("c2-host"),     std::string::npos);
 }
 
+// Regression: if the stub sleeps well past the SshClient timeout,
+// spawn_capture must kill it and reap it, not hang the caller. This
+// covers the kill+waitpid path and exercises the "child still alive
+// at break" invariant that the fix for C2 also depends on.
+TEST_F(SshStubFixture, RunTimesOutAndKillsHungChild) {
+    // Rewrite the stub in place to sleep forever.
+    std::ofstream f(stub_dir / "ssh");
+    f << R"SH(#!/usr/bin/env bash
+sleep 30
+)SH";
+    f.close();
+    std::filesystem::permissions(stub_dir / "ssh",
+        std::filesystem::perms::owner_all | std::filesystem::perms::group_read |
+        std::filesystem::perms::group_exec,
+        std::filesystem::perm_options::replace);
+
+    auto client = make_ssh_client(
+        [](const std::string& c) { return c + "-host"; }, sockets);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    auto r = client->run("c1", {"true"}, std::chrono::milliseconds{200});
+    const auto dt = std::chrono::steady_clock::now() - t0;
+
+    // Must return within a small multiple of the timeout — proves the
+    // child was SIGKILLed and reaped, not blocking waitpid.
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(dt).count(),
+              1500);
+    // exit_code reflects the SIGKILL (128 + 9 = 137) or a non-zero
+    // failure — we don't assert exact, just that it's not a clean 0.
+    EXPECT_NE(r.exit_code, 0);
+}
+
 TEST_F(SshStubFixture, MakeSshClientCreatesSocketDir) {
     const auto deep = stub_dir / "nonexistent" / "nested";
     ASSERT_FALSE(std::filesystem::exists(deep));

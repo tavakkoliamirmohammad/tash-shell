@@ -35,13 +35,16 @@ void ClusterWatcherHookProvider::on_startup(ShellState& /*state*/) {
     for (const auto& a : reg_->allocations) {
         if (a.state != AllocationState::Running) continue;
 
-        auto w = factory_(a, *reg_);
-        if (!w) continue;   // factory opted out for this allocation
+        auto up = factory_(a, *reg_);
+        if (!up) continue;   // factory opted out for this allocation
 
-        IWatcher* raw = w.get();
-        watchers_.push_back(std::move(w));
-        threads_.emplace_back([raw]() {
-            raw->run();
+        std::shared_ptr<IWatcher> sp(std::move(up));
+        watchers_.push_back(sp);
+        // Capture `sp` by value so the watcher stays alive as long as
+        // this thread is running — even if the provider later clears
+        // its own references.
+        threads_.emplace_back([sp]() {
+            sp->run();
         });
     }
 }
@@ -49,6 +52,19 @@ void ClusterWatcherHookProvider::on_startup(ShellState& /*state*/) {
 void ClusterWatcherHookProvider::on_exit(ShellState& /*state*/) {
     stop_and_join_all();
 }
+
+// Shared state between stop_and_join_all and each joiner helper.
+// Heap-allocated (via shared_ptr) so that:
+//   - waiter and joiner each hold a strong reference,
+//   - state outlives the stack frame of stop_and_join_all even if we
+//     end up detaching the joiner on timeout.
+namespace {
+struct JoinState {
+    std::mutex              m;
+    std::condition_variable cv;
+    bool                    done{false};
+};
+}  // namespace
 
 void ClusterWatcherHookProvider::stop_and_join_all() {
     // Signal every watcher to stop.
@@ -59,51 +75,60 @@ void ClusterWatcherHookProvider::stop_and_join_all() {
     // Join threads. Any thread still running after join_backstop gets
     // detached so a hung watcher can't block tash shutdown.
     //
-    // std::thread doesn't expose try_join, so the strategy is: spawn
-    // a helper thread that does join(); wait up to the backstop via
-    // condition_variable; if still not done, detach the original.
+    // std::thread doesn't expose try_join, so the strategy is:
+    //   1. Move the thread into a helper ("joiner") that calls join().
+    //   2. Wait up to the remaining backstop via condition_variable.
+    //   3. If the joiner finished, join it; else detach it.
+    //
+    // The joiner owns the underlying thread object, so after detach
+    // there's no joinable std::thread sitting in threads_ waiting to
+    // trigger std::terminate on destruction. The joiner also owns a
+    // shared_ptr to the JoinState, so the mutex/cv/flag outlive the
+    // stack frame of stop_and_join_all.
     using clock = std::chrono::steady_clock;
     const auto deadline = clock::now() + join_backstop;
 
     for (auto& t : threads_) {
         if (!t.joinable()) continue;
 
-        // Best-effort: the FakeWatchers in tests observe stop almost
-        // immediately, so this join returns fast. For production,
-        // join_backstop gates it.
         const auto remaining = deadline - clock::now();
-        if (remaining.count() <= 0) { t.detach(); continue; }
-
-        // Hand the join to a helper that signals when done, then wait
-        // on the helper with a timeout.
-        std::mutex              m;
-        std::condition_variable cv;
-        std::atomic<bool>       done{false};
-
-        std::thread joiner([&]() {
-            t.join();
-            {
-                std::lock_guard<std::mutex> lk(m);
-                done.store(true, std::memory_order_release);
-            }
-            cv.notify_all();
-        });
-
-        {
-            std::unique_lock<std::mutex> lk(m);
-            cv.wait_for(lk, remaining, [&]{ return done.load(std::memory_order_acquire); });
+        if (remaining.count() <= 0) {
+            t.detach();   // budget exhausted — give up on this one
+            continue;
         }
 
-        if (done.load(std::memory_order_acquire)) {
+        auto st = std::make_shared<JoinState>();
+
+        std::thread joiner([st, tt = std::move(t)]() mutable {
+            tt.join();
+            {
+                std::lock_guard<std::mutex> lk(st->m);
+                st->done = true;
+            }
+            st->cv.notify_all();
+        });
+
+        bool finished;
+        {
+            std::unique_lock<std::mutex> lk(st->m);
+            st->cv.wait_for(lk, remaining, [&]{ return st->done; });
+            finished = st->done;
+        }
+
+        if (finished) {
             joiner.join();
         } else {
-            // Thread t is still running; we've used the backstop. Detach
-            // both the watcher thread and the joiner (the joiner will
-            // exit cleanly once t eventually finishes).
+            // Underlying watcher thread is still running inside the
+            // joiner. Detach the joiner — it owns both the thread and
+            // the JoinState, so it will finish cleanly on its own.
             joiner.detach();
         }
     }
 
+    // Every element of threads_ has been moved-from (joiner owns it) or
+    // detached — safe to clear. Watchers are held by shared_ptr; any
+    // detached thread still running has its own shared_ptr via lambda
+    // capture and keeps its IWatcher alive.
     threads_.clear();
     watchers_.clear();
 }

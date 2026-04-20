@@ -106,6 +106,7 @@ ClusterEngine::ClusterEngine(const Config& cfg,
 // ══════════════════════════════════════════════════════════════════════════════
 
 ClusterResult<std::vector<Allocation>> ClusterEngine::list(const ListSpec& spec) {
+    auto lk = reg_.lock();
     std::vector<Allocation> out;
     for (const auto& a : reg_.allocations) {
         if (spec.cluster && a.cluster != *spec.cluster) continue;
@@ -118,6 +119,7 @@ ClusterResult<Allocation> ClusterEngine::down(const DownSpec& spec) {
     if (spec.alloc_id.empty()) {
         return EngineError{"--alloc-id is required for `cluster down`"};
     }
+    auto lk = reg_.lock();
     auto* a = reg_.find_allocation(spec.alloc_id);
     if (!a) {
         return EngineError{"no allocation with id: " + spec.alloc_id};
@@ -137,6 +139,7 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
         return EngineError{"--workspace and --instance are required for `cluster kill`"};
     }
 
+    auto lk = reg_.lock();
     struct Match { Allocation* a; Workspace* w; std::size_t idx; };
     std::vector<Match> matches;
     for (auto& a : reg_.allocations) {
@@ -211,6 +214,7 @@ ClusterResult<ClusterEngine::ProbeReport> ClusterEngine::probe(const ProbeSpec& 
 }
 
 ClusterResult<ClusterEngine::SyncReport> ClusterEngine::sync(const SyncSpec& spec) {
+    auto lk = reg_.lock();
     // Build the set of clusters to probe: each distinct cluster in the
     // registry, optionally filtered to just spec.cluster.
     std::vector<std::string> clusters;
@@ -334,6 +338,7 @@ ClusterResult<Allocation> ClusterEngine::import(const ImportSpec& spec) {
     if (spec.jobid.empty() || spec.cluster.empty()) {
         return EngineError{"import: jobid and --via <cluster> are required"};
     }
+    auto lk = reg_.lock();
     const std::string id = spec.cluster + ":" + spec.jobid;
     if (reg_.find_allocation(id)) {
         return EngineError{"allocation " + id + " is already tracked"};
@@ -439,6 +444,7 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
     if (spec.workspace.empty()) {
         return EngineError{"--workspace is required"};
     }
+    auto lk = reg_.lock();
     // If both --cmd and --preset are set, --cmd wins silently. This
     // matches the plan's "ad-hoc --cmd bypasses preset" wording.
 
@@ -527,6 +533,7 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
         return EngineError{"--workspace and --instance are required"};
     }
 
+    auto lk = reg_.lock();
     // Collect every (allocation, workspace, instance) that matches.
     struct Match { Allocation* a; Workspace* w; Instance* i; };
     std::vector<Match> matches;
@@ -598,6 +605,7 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
     if (res->routes.empty()) {
         return EngineError{"resource '" + spec.resource + "' has no routes declared"};
     }
+    auto lk = reg_.lock();
 
     // 2. Pick candidate routes.
     std::vector<const Route*> candidates;
