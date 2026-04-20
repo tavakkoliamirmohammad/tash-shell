@@ -204,6 +204,32 @@ HookedCaptureResult run_command_with_hooks_capture(const string &raw_cmd,
 
 // ── Public: execute a single command segment ──────────────────
 
+// Expand the first word of `command` if it matches an alias. Runs
+// *before* fire_before_command so the safety hook sees the real
+// command text. Without this, `alias del='rm -rf'; del /` would
+// classify as harmless because the hook saw "del /" — then the
+// executor would alias-expand later and happily invoke `rm -rf /`.
+//
+// Only the leading token is replaced here; tail arguments and any
+// downstream pipeline segments are untouched. That matches what the
+// safety classifier actually inspects (argv[0] only), so classification
+// sees the true command head regardless of how many aliases follow.
+// The downstream per-segment alias expansion in the executor still
+// runs, making this a pre-hook textual substitution that's idempotent
+// after the first pass.
+static string expand_argv0_alias_for_hook(
+    const string &command,
+    const std::unordered_map<string, string> &aliases) {
+    size_t start = command.find_first_not_of(" \t");
+    if (start == string::npos) return command;
+    size_t end = start;
+    while (end < command.size() &&
+           command[end] != ' ' && command[end] != '\t') ++end;
+    auto it = aliases.find(command.substr(start, end - start));
+    if (it == aliases.end()) return command;
+    return command.substr(0, start) + it->second + command.substr(end);
+}
+
 int execute_single_command(string command, ShellState &state,
                            vector<PendingHeredoc> *heredocs) {
     if (command.empty() || command.find_first_not_of(" \t") == string::npos) return 0;
@@ -219,6 +245,10 @@ int execute_single_command(string command, ShellState &state,
     }
 
     if (!bypass_hooks) {
+        // Expand leading alias BEFORE firing the hook so the safety
+        // classifier can't be bypassed by aliasing a dangerous command
+        // to a harmless-looking name.
+        command = expand_argv0_alias_for_hook(command, state.core.aliases);
         global_plugin_registry().fire_before_command(command, state);
         if (state.exec.skip_execution) {
             state.exec.skip_execution = false;
