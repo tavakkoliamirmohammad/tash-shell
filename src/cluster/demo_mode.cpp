@@ -69,8 +69,9 @@ public:
         }};
     }
 
-    void scancel(const std::string&, const std::string& jobid, ISshClient&) override {
+    bool scancel(const std::string&, const std::string& jobid, ISshClient&) override {
         jobs_.erase(jobid);
+        return true;
     }
 
 private:

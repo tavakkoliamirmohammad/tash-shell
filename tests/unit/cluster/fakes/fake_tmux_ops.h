@@ -71,9 +71,18 @@ public:
         return r;
     }
 
+    // If set, kill_window DOES NOT mark the window dead — simulates a
+    // tmux kill that was refused (e.g., permission error, stale PID).
+    // Default false means: kill_window marks the window dead so a
+    // subsequent is_window_alive() check returns false.
+    bool kill_window_refuses = false;
+
     void kill_window(const RemoteTarget& t, const std::string& s,
                       const std::string& w, ISshClient&) override {
         kill_window_calls.push_back({t, s, w});
+        if (!kill_window_refuses) {
+            dead_windows.insert(s + "/" + w);
+        }
     }
 
     bool is_window_alive(const RemoteTarget& t, const std::string& s,
@@ -96,6 +105,7 @@ public:
         exec_attach_calls.clear();
         list_sessions_queue.clear();
         dead_windows.clear();
+        kill_window_refuses = false;
     }
 };
 

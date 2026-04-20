@@ -77,3 +77,23 @@ TEST(ClusterEngineDown, EmptyAllocIdRejected) {
     ASSERT_NE(err, nullptr);
     EXPECT_NE(err->message.find("alloc"), std::string::npos) << err->message;
 }
+
+// Regression: if SLURM refuses scancel (exit != 0), the engine must
+// leave the registry unchanged. Otherwise we'd forget about a still-
+// running job.
+TEST(ClusterEngineDown, ScancelFailureLeavesRegistryIntact) {
+    Harness h;
+    h.reg.add_allocation(alloc("c1", "100"));
+    h.slurm.scancel_result = false;
+
+    DownSpec ds; ds.alloc_id = "c1:100";
+    auto r = h.engine().down(ds);
+
+    auto* err = std::get_if<EngineError>(&r);
+    ASSERT_NE(err, nullptr);
+    EXPECT_NE(err->message.find("scancel"), std::string::npos) << err->message;
+
+    ASSERT_EQ(h.reg.allocations.size(), 1u);
+    EXPECT_EQ(h.reg.allocations[0].id, "c1:100");
+    EXPECT_EQ(h.reg.allocations[0].state, AllocationState::Running);
+}

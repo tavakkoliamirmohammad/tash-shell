@@ -41,12 +41,13 @@ public:
         return slurm_parse::parse_sinfo(r.out);
     }
 
-    void scancel(const std::string& cluster,
+    bool scancel(const std::string& cluster,
                   const std::string& jobid,
                   ISshClient& ssh) override {
-        (void)ssh.run(cluster,
-                       slurm_parse::build_scancel_argv(jobid),
-                       std::chrono::seconds{10});
+        const auto r = ssh.run(cluster,
+                                 slurm_parse::build_scancel_argv(jobid),
+                                 std::chrono::seconds{10});
+        return r.exit_code == 0;
     }
 };
 

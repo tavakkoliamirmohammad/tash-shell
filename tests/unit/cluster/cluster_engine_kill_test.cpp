@@ -100,3 +100,24 @@ TEST(ClusterEngineKill, AmbiguousAcrossAllocsErrors) {
     ASSERT_NE(err, nullptr);
     EXPECT_NE(err->message.find("ambiguous"), std::string::npos) << err->message;
 }
+
+// Regression: if tmux refuses to kill the window (permission error,
+// stale pid), the engine must leave the instance in registry so the
+// user can retry, not silently forget about a running process.
+TEST(ClusterEngineKill, TmuxRefusesKillLeavesInstanceIntact) {
+    Harness h;
+    h.reg.add_allocation(alloc_with_ws_inst("c1", "100", "n1", "repoA", {"1"}));
+    h.tmux.kill_window_refuses = true;
+
+    KillSpec ks; ks.workspace = "repoA"; ks.instance = "1";
+    auto r = h.engine().kill(ks);
+
+    auto* err = std::get_if<EngineError>(&r);
+    ASSERT_NE(err, nullptr);
+    EXPECT_NE(err->message.find("refused"), std::string::npos) << err->message;
+
+    // Instance still present — the next retry will find it.
+    ASSERT_EQ(h.reg.allocations.size(), 1u);
+    ASSERT_EQ(h.reg.allocations[0].workspaces.size(), 1u);
+    ASSERT_EQ(h.reg.allocations[0].workspaces[0].instances.size(), 1u);
+}

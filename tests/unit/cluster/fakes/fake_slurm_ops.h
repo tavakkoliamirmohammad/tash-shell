@@ -58,8 +58,13 @@ public:
         return r;
     }
 
-    void scancel(const std::string& cluster, const std::string& jobid, ISshClient&) override {
+    // Default: scancel succeeds. Tests that want to exercise the
+    // "SLURM refused cancel" path set scancel_result = false.
+    bool scancel_result = true;
+
+    bool scancel(const std::string& cluster, const std::string& jobid, ISshClient&) override {
         scancel_calls.push_back({cluster, jobid});
+        return scancel_result;
     }
 
     void reset() {

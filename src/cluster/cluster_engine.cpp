@@ -127,7 +127,13 @@ ClusterResult<Allocation> ClusterEngine::down(const DownSpec& spec) {
 
     Allocation snapshot = *a;      // copy before removal
     if (a->state != AllocationState::Ended) {
-        slurm_.scancel(a->cluster, a->jobid, ssh_);
+        if (!slurm_.scancel(a->cluster, a->jobid, ssh_)) {
+            // Don't desync: the job may still be alive on the cluster.
+            // Leave the allocation in place so the user can retry / inspect.
+            return EngineError{"scancel refused job " + a->jobid +
+                                " on " + a->cluster +
+                                "; allocation left in registry"};
+        }
     }
     snapshot.state = AllocationState::Ended;
     reg_.remove_allocation(spec.alloc_id);
@@ -175,6 +181,14 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
 
     const RemoteTarget target{m.a->cluster, m.a->node};
     tmux_.kill_window(target, m.w->tmux_session, killed.tmux_window, ssh_);
+    // Confirm the kill took effect before mutating registry. If tmux
+    // refused (permission, stale pid, session gone), leave the instance
+    // so the user can retry or inspect rather than silently forgetting.
+    if (tmux_.is_window_alive(target, m.w->tmux_session, killed.tmux_window, ssh_)) {
+        return EngineError{"tmux refused kill-window for " + spec.workspace +
+                            "/" + spec.instance +
+                            "; instance left in registry"};
+    }
 
     m.w->instances.erase(m.w->instances.begin() + static_cast<std::ptrdiff_t>(m.idx));
     return killed;

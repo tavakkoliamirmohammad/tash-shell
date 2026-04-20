@@ -259,6 +259,18 @@ Notifications are delivered via the platform's native mechanism:
 Plus a `\a` BEL on stderr on every platform. No cloud / push
 integrations in v1.
 
+### Scope of auto-notifications in v1
+
+The watcher hook provider that spawns one background thread per Running
+allocation is fully implemented and unit-tested, but is only auto-wired
+when `TASH_CLUSTER_DEMO=1`. For a live cluster the underlying machinery
+(`ClusterWatcherHookProvider`, `apply_event`, `INotifier`) can be driven
+programmatically, but there's currently no startup code that installs
+the provider against a user-configured engine. If you want
+notifications on a live cluster today you can run `cluster sync`
+between `cluster up` and `cluster launch` to re-reconcile state; full
+background notifications in production are tracked as follow-up work.
+
 ## Demo mode (no cluster required)
 
 Want to kick the tires without a real cluster? Launch tash with

@@ -23,7 +23,10 @@ public:
     virtual std::vector<PartitionState> sinfo  (const std::string& cluster,
                                                   const std::string& partition,
                                                   ISshClient&) = 0;
-    virtual void scancel(const std::string& cluster,
+    // Returns true iff scancel exits 0. When false the caller MUST NOT
+    // mutate its own registry for this job — the cluster-side state
+    // wasn't confirmed to have changed.
+    virtual bool scancel(const std::string& cluster,
                           const std::string& jobid,
                           ISshClient&) = 0;
 };
