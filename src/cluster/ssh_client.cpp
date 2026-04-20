@@ -267,6 +267,44 @@ SshResult spawn_capture(const std::vector<std::string>& argv,
     return r;
 }
 
+// Spawn argv with the child inheriting the parent's stdio (terminal).
+// Used by connect() so ssh's password + Duo prompts reach the user
+// directly instead of being captured into a pipe the caller never
+// displays. Waits up to `timeout_ms`; kills the child on timeout.
+int spawn_inherit(const std::vector<std::string>& argv,
+                   std::chrono::milliseconds timeout_ms) {
+    if (argv.empty()) return -1;
+    pid_t pid = ::fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        std::vector<char*> c_argv;
+        c_argv.reserve(argv.size() + 1);
+        for (const auto& a : argv) c_argv.push_back(const_cast<char*>(a.c_str()));
+        c_argv.push_back(nullptr);
+        ::execvp(c_argv[0], c_argv.data());
+        _exit(127);
+    }
+    const long long deadline =
+        timeout_ms.count() > 0 ? now_ms() + timeout_ms.count() : -1;
+    while (true) {
+        int status = 0;
+        pid_t r = ::waitpid(pid, &status, WNOHANG);
+        if (r == pid) {
+            if (WIFEXITED(status))        return WEXITSTATUS(status);
+            if (WIFSIGNALED(status))      return 128 + WTERMSIG(status);
+            return -1;
+        }
+        if (r < 0) return -1;
+        if (deadline > 0 && now_ms() >= deadline) {
+            ::kill(pid, SIGKILL);
+            ::waitpid(pid, &status, 0);
+            return -1;
+        }
+        struct timespec ts{0, 100'000'000};  // 100ms
+        ::nanosleep(&ts, nullptr);
+    }
+}
+
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -297,9 +335,12 @@ public:
         return r.exit_code == 0;
     }
 
+    // Pre-warm the ControlMaster interactively. MUST inherit stdio so
+    // the user can see password + Duo prompts on their terminal; a
+    // captured pipe eats the prompts and ssh stalls until we kill it.
     void connect(const std::string& cluster) override {
         SshFlags f{sockets_, resolve_(cluster), /*batch*/false};
-        (void)spawn_capture(build_connect_argv(f), std::chrono::minutes{2});
+        (void)spawn_inherit(build_connect_argv(f), std::chrono::minutes{2});
     }
 
     void disconnect(const std::string& cluster) override {
