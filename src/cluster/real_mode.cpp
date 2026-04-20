@@ -34,18 +34,22 @@ namespace tash::cluster {
 
 namespace {
 
-// Stdin-backed prompt. Reads one line, returns its first char if it's
-// in `choices`; otherwise returns '\0' (engine treats as non-
-// interactive fall-through).
+// Non-blocking prompt. Reading from std::cin inside a tash builtin
+// fights with replxx's raw-mode terminal state and hangs silently,
+// and the user has no reliable way to know we're blocked on stdin.
+//
+// Return '\0' immediately so the engine falls through to its
+// non-interactive default ("detach-and-keep" in the `cluster up`
+// queued-too-long case). The message is still printed so the user
+// knows what decision was made on their behalf.
 class StdinPrompt : public IPrompt {
 public:
     char choice(const std::string& message,
-                const std::string& choices) override {
-        std::cerr << message << std::flush;
-        std::string line;
-        if (!std::getline(std::cin, line) || line.empty()) return '\0';
-        const char c = line.front();
-        return (choices.find(c) != std::string::npos) ? c : '\0';
+                const std::string& /*choices*/) override {
+        std::fprintf(stderr, "tash: cluster: %s — auto-detaching; "
+                             "check `cluster list` to monitor\n",
+                             message.c_str());
+        return '\0';
     }
 };
 
