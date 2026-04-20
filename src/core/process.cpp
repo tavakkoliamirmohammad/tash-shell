@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unordered_set>
 #include <vector>
 
@@ -194,6 +195,17 @@ int foreground_process(const vector<string> &argv,
             intercept_stdout = false;
         }
     }
+
+    // Drain any leftover bytes in the tty's input queue before fork.
+    // Replxx edits lines in raw mode and restores cooked mode before
+    // returning the command, but kernel-level input-queue residue
+    // (stray \n, paste-buffer tail, stacked keystrokes) survives that
+    // round-trip. Interactive children that immediately read from
+    // /dev/tty — classic example: ssh's password prompt — then eat
+    // that residue as a phantom first "empty password" submission,
+    // fail auth once, and prompt again. tcflush(TCIFLUSH) drops
+    // the pending input so the child sees a clean queue.
+    if (::isatty(STDIN_FILENO)) ::tcflush(STDIN_FILENO, TCIFLUSH);
 
     int status;
     pid_t pid = fork();
