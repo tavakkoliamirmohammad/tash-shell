@@ -142,11 +142,9 @@ struct ShellState {
 
 extern volatile sig_atomic_t sigchld_received;
 extern std::atomic<pid_t> fg_child_pid;
-
-// Enforced in the header so every TU reading this atomic from a signal
-// handler inherits the lock-free check.
-static_assert(std::atomic<pid_t>::is_always_lock_free,
-              "fg_child_pid must be lock-free for async-signal-safety");
+// The lock-free static_assert for fg_child_pid lives next to its
+// declaration in include/tash/core/signals.h — keeping both copies here
+// and there would fire twice per TU that includes both headers.
 
 // ── Builtin function type ──────────────────────────────────────
 
