@@ -103,7 +103,7 @@ ClusterEngine::ClusterEngine(const Config& cfg,
       notify_(notify), prompt_(prompt), clock_(clock) {}
 
 // ══════════════════════════════════════════════════════════════════════════════
-// list / down / kill / sync / probe / import
+// list / down / kill / sync
 // ══════════════════════════════════════════════════════════════════════════════
 
 ClusterResult<std::vector<Allocation>> ClusterEngine::list(const ListSpec& spec) {
@@ -206,39 +206,6 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
     m.w->instances.erase(m.w->instances.begin() + static_cast<std::ptrdiff_t>(m.idx));
     if (save_) save_();
     return killed;
-}
-
-ClusterResult<ClusterEngine::ProbeReport> ClusterEngine::probe(const ProbeSpec& spec) {
-    const Resource* res = find_resource(cfg_, spec.resource);
-    if (!res) {
-        return EngineError{"unknown resource: " + spec.resource};
-    }
-
-    ProbeReport rep;
-    rep.resource = res->name;
-    for (const auto& r : res->routes) {
-        RouteStatus st;
-        st.cluster   = r.cluster;
-        st.partition = r.partition;
-        const auto states = slurm_.sinfo(r.cluster, r.partition, ssh_);
-        for (const auto& ps : states) {
-            st.idle_nodes    += ps.idle_nodes;
-            if (!st.partition_state.empty() && st.partition_state != ps.state) {
-                st.partition_state = "mixed";
-            } else {
-                st.partition_state = ps.state;
-            }
-            if (r.gres.empty()) {
-                st.idle_matching_gres += ps.idle_nodes;
-            } else {
-                for (const auto& g : ps.idle_gres) {
-                    if (g == r.gres) ++st.idle_matching_gres;
-                }
-            }
-        }
-        rep.routes.push_back(std::move(st));
-    }
-    return rep;
 }
 
 ClusterResult<ClusterEngine::PruneReport> ClusterEngine::prune() {
@@ -373,114 +340,6 @@ ClusterEngine::doctor(const DoctorSpec& spec) {
         rep.clusters.push_back(std::move(blk));
     }
 
-    return rep;
-}
-
-ClusterResult<Allocation> ClusterEngine::import(const ImportSpec& spec) {
-    if (spec.jobid.empty() || spec.cluster.empty()) {
-        return EngineError{"import: jobid and --via <cluster> are required"};
-    }
-    auto lk = reg_.lock();
-    const std::string id = spec.cluster + ":" + spec.jobid;
-    if (reg_.find_allocation(id)) {
-        return EngineError{"allocation " + id + " is already tracked"};
-    }
-
-    const auto snap = slurm_.squeue(spec.cluster, ssh_);
-    const JobState* js = nullptr;
-    for (const auto& j : snap) {
-        if (j.jobid == spec.jobid) { js = &j; break; }
-    }
-    if (!js) {
-        return EngineError{"jobid " + spec.jobid +
-                            " not found in squeue for cluster " + spec.cluster};
-    }
-
-    Allocation a;
-    a.id       = id;
-    a.cluster  = spec.cluster;
-    a.jobid    = spec.jobid;
-    a.resource = spec.resource.value_or("");
-    a.node     = js->node;
-    a.state    = (js->state == "R") ? AllocationState::Running
-                                      : AllocationState::Pending;
-    reg_.add_allocation(a);
-    if (save_) save_();
-    return a;
-}
-
-// ── logs ───────────────────────────────────────────────────────
-//
-// Target resolution:
-//   - spec.alloc_id narrows by allocation id.
-//   - spec.workspace narrows by workspace name.
-//   - If multiple candidates and no alloc_id, return ambiguity error.
-//
-// Remote command:
-//   sh -c 'for f in $HOME/.tash-cluster/events/<ws>/<pattern>.event; do
-//            [ -f "$f" ] || continue
-//            echo "==> $f <=="
-//            tail -n <N> "$f"
-//          done'
-//
-// We use a for-loop rather than `tail -n <N>` on a glob because the
-// header-style output tail emits for multiple files is BSD/GNU-
-// dependent. Shell-for with explicit echo works everywhere.
-ClusterResult<ClusterEngine::LogsReport> ClusterEngine::logs(const LogsSpec& spec) {
-    if (spec.workspace.empty()) {
-        return EngineError{"logs: --workspace is required"};
-    }
-    auto lk = reg_.lock();
-
-    // Collect candidate (allocation, workspace) pairs.
-    struct Match { Allocation* a; Workspace* w; };
-    std::vector<Match> matches;
-    for (auto& a : reg_.allocations) {
-        if (spec.alloc_id && a.id != *spec.alloc_id) continue;
-        for (auto& w : a.workspaces) {
-            if (w.name == spec.workspace) matches.push_back({&a, &w});
-        }
-    }
-    if (matches.empty()) {
-        return EngineError{"no workspace '" + spec.workspace +
-                            "' in any allocation; run `cluster list`"};
-    }
-    if (matches.size() > 1u) {
-        std::string msg = "ambiguous: workspace '" + spec.workspace +
-                           "' present in multiple allocations (";
-        for (std::size_t i = 0; i < matches.size(); ++i) {
-            if (i) msg += ", ";
-            msg += matches[i].a->id;
-        }
-        msg += "); pass --alloc to pick one";
-        return EngineError{std::move(msg)};
-    }
-
-    const Allocation* a = matches.front().a;
-
-    const std::string pattern = spec.instance ? *spec.instance : std::string{"*"};
-    const int N = spec.tail_lines > 0 ? spec.tail_lines : 100;
-
-    std::string remote_cmd;
-    remote_cmd += "for f in \"$HOME/.tash-cluster/events/";
-    remote_cmd += spec.workspace;
-    remote_cmd += "/";
-    remote_cmd += pattern;
-    remote_cmd += ".event\"; do [ -f \"$f\" ] || continue; echo \"==> $f <==\"; tail -n ";
-    remote_cmd += std::to_string(N);
-    remote_cmd += " \"$f\"; done";
-
-    const std::vector<std::string> argv = {"/bin/sh", "-c", remote_cmd};
-    const auto r = ssh_.run(a->cluster, argv, std::chrono::seconds{15});
-    if (r.exit_code != 0) {
-        return EngineError{"ssh refused logs fetch on " + a->cluster +
-                            " (exit " + std::to_string(r.exit_code) + ")"};
-    }
-
-    LogsReport rep;
-    rep.cluster  = a->cluster;
-    rep.alloc_id = a->id;
-    rep.contents = r.out.empty() ? "(no events yet)\n" : r.out;
     return rep;
 }
 
@@ -907,7 +766,7 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
                 if (!cancelled) {
                     return EngineError{"scancel refused job " + sr.jobid +
                                         " on " + chosen->cluster +
-                                        "; job may still be queued — check `cluster import`"};
+                                        "; job may still be queued"};
                 }
                 return EngineError{"cancelled while queued (job " + sr.jobid + ")"};
             }

@@ -332,48 +332,6 @@ TEST(ClusterBuiltin, SyncDispatches) {
     EXPECT_NE(out.str().find("probed"), std::string::npos);
 }
 
-TEST(ClusterBuiltin, ProbeDispatches) {
-    Harness h;
-    h.slurm.queue_sinfo({PartitionState{"p", "up", 1, {"gpu:a100:1"}}});
-
-    auto eng = h.engine();
-    std::ostringstream out, err;
-    int rc = dispatch_cluster(argv_of({"cluster", "probe", "-r", "a100"}), eng, out, err);
-    EXPECT_EQ(rc, 0) << err.str();
-    EXPECT_NE(out.str().find("a100"), std::string::npos);
-}
-
-TEST(ClusterBuiltin, ProbeMissingResourceErrors) {
-    Harness h;
-    auto eng = h.engine();
-    std::ostringstream out, err;
-    int rc = dispatch_cluster(argv_of({"cluster", "probe"}), eng, out, err);
-    EXPECT_NE(rc, 0);
-    EXPECT_NE(err.str().find("resource"), std::string::npos);
-}
-
-TEST(ClusterBuiltin, ImportDispatches) {
-    Harness h;
-    h.slurm.queue_squeue({JobState{"777", "R", "n7", "01:00:00"}});
-
-    auto eng = h.engine();
-    std::ostringstream out, err;
-    int rc = dispatch_cluster(argv_of({"cluster", "import", "777", "--via", "c1"}),
-                                eng, out, err);
-    EXPECT_EQ(rc, 0) << err.str();
-    EXPECT_NE(out.str().find("imported"), std::string::npos);
-    EXPECT_NE(out.str().find("c1:777"),   std::string::npos);
-}
-
-TEST(ClusterBuiltin, ImportMissingViaErrors) {
-    Harness h;
-    auto eng = h.engine();
-    std::ostringstream out, err;
-    int rc = dispatch_cluster(argv_of({"cluster", "import", "777"}), eng, out, err);
-    EXPECT_NE(rc, 0);
-    EXPECT_NE(err.str().find("--via"), std::string::npos);
-}
-
 TEST(ClusterBuiltin, HelpSubcommandFormRenders) {
     Harness h;
     auto eng = h.engine();

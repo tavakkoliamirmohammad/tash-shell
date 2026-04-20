@@ -23,7 +23,7 @@ namespace {
 
 constexpr const char* kSubcommands[] = {
     "up", "launch", "attach", "list", "down", "kill",
-    "sync", "probe", "import", "doctor", "logs", "help",
+    "sync", "doctor", "help",
 };
 
 const std::vector<std::string>& flags_for(std::string_view sub) {
@@ -37,8 +37,6 @@ const std::vector<std::string>& flags_for(std::string_view sub) {
     static const std::vector<std::string> down   = { "--yes", "-y" };
     static const std::vector<std::string> kill_  = { "--alloc", "--yes", "-y" };
     static const std::vector<std::string> sync;
-    static const std::vector<std::string> probe  = { "--resource" };
-    static const std::vector<std::string> imp    = { "--via", "--resource" };
     static const std::vector<std::string> none;
 
     if (sub == "up")     return up;
@@ -47,8 +45,6 @@ const std::vector<std::string>& flags_for(std::string_view sub) {
     if (sub == "down")   return down;
     if (sub == "kill")   return kill_;
     if (sub == "sync")   return sync;
-    if (sub == "probe")  return probe;
-    if (sub == "import") return imp;
     return none;
 }
 

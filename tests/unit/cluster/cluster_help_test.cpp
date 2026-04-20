@@ -66,8 +66,7 @@ TEST(ClusterHelp, TopLevelListsEverySubcommand) {
 
     const std::string s = out.str();
     for (const auto& sub : {"up", "launch", "attach", "list", "down",
-                              "kill", "sync", "probe", "import", "doctor",
-                              "help"}) {
+                              "kill", "sync", "doctor", "help"}) {
         EXPECT_TRUE(contains(s, sub)) << "missing subcommand in help: " << sub;
     }
     EXPECT_TRUE(contains(s, "usage: cluster")) << s;
@@ -108,8 +107,6 @@ const SubcommandExpectation kExpect[] = {
     { "down",   { "cluster down",   "usage:", "allocation" } },
     { "kill",   { "cluster kill",   "usage:" } },
     { "sync",   { "cluster sync",   "usage:" } },
-    { "probe",  { "cluster probe",  "usage:", "--resource" } },
-    { "import", { "cluster import", "usage:", "--via" } },
     { "doctor", { "cluster doctor", "usage:" } },
 };
 }  // namespace
@@ -178,21 +175,6 @@ TEST(ClusterHelp, KillMissingPositionalErrorFormat) {
     std::ostringstream out, err;
     dispatch_cluster(argv_of({"cluster", "kill"}), h.engine, out, err);
     EXPECT_TRUE(contains(err.str(), "tash: cluster: "));
-}
-
-TEST(ClusterHelp, ProbeMissingResourceErrorFormat) {
-    Harness h;
-    std::ostringstream out, err;
-    dispatch_cluster(argv_of({"cluster", "probe"}), h.engine, out, err);
-    EXPECT_TRUE(contains(err.str(), "tash: cluster: "));
-}
-
-TEST(ClusterHelp, ImportMissingViaErrorFormat) {
-    Harness h;
-    std::ostringstream out, err;
-    dispatch_cluster(argv_of({"cluster", "import", "777"}), h.engine, out, err);
-    EXPECT_TRUE(contains(err.str(), "tash: cluster: "));
-    EXPECT_TRUE(contains(err.str(), "--via"));
 }
 
 TEST(ClusterHelp, UpUnknownOptionErrorFormat) {

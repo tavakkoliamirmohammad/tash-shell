@@ -3,7 +3,7 @@
 // Holds references to the Config, Registry, and every seam, then exposes
 // one method per user command:
 //
-//   up / launch / attach / list / down / kill / probe / sync / import
+//   up / launch / attach / list / down / kill / sync
 //
 // Each method is synchronous; tests drive them against the fake seams
 // in tests/unit/cluster/fakes/.
@@ -110,20 +110,6 @@ public:
     // Allocation-level state is untouched. Returns the removed instance.
     ClusterResult<Instance> kill(const KillSpec& spec);
 
-    // Diagnostic report for `cluster probe -r <resource>`.
-    struct RouteStatus {
-        std::string cluster;
-        std::string partition;
-        int         idle_nodes        = 0;
-        int         idle_matching_gres = 0;
-        std::string partition_state;          // "up" / "down" / "drain" / …
-    };
-    struct ProbeReport {
-        std::string resource;
-        std::vector<RouteStatus> routes;
-    };
-    ClusterResult<ProbeReport> probe(const ProbeSpec& spec);
-
     // sync: run squeue for each relevant cluster and reconcile the
     // registry. Returns how many allocations transitioned to Ended.
     struct SyncReport {
@@ -139,22 +125,6 @@ public:
         int removed = 0;
     };
     ClusterResult<PruneReport> prune();
-
-    // import: adopt an externally-submitted SLURM job. Queries squeue
-    // on the cluster, finds the jobid, creates an Allocation entry.
-    ClusterResult<Allocation> import(const ImportSpec& spec);
-
-    // logs: fetch stop-hook events for a workspace (optionally for a
-    // specific instance) from the compute node. Returns the last
-    // spec.tail_lines of each matching <ws>/<inst>.event file,
-    // concatenated in deterministic order, along with a per-file
-    // header so callers can attribute lines to an instance.
-    struct LogsReport {
-        std::string cluster;                  // cluster the allocation lives on
-        std::string alloc_id;
-        std::string contents;                 // pre-formatted for display
-    };
-    ClusterResult<LogsReport> logs(const LogsSpec& spec);
 
     // Diagnostic report: per-cluster ssh reach + tool presence. Each
     // check carries OK / WARN / FAIL + a one-line message (fix hint
@@ -197,7 +167,7 @@ public:
 
     // Owner-installed callback that persists the registry to disk.
     // Called after every state-mutating command (up / launch / kill /
-    // down / import / sync) AND — critically — immediately before
+    // down / sync) AND — critically — immediately before
     // exec_attach replaces this process, so an in-progress attach
     // doesn't leave the on-disk registry out of date.
     using SaveFn = std::function<void()>;

@@ -10,8 +10,6 @@
 //   `cluster attach <TAB>`               → "<workspace>/<instance>" pairs
 //   `cluster down <TAB>`                 → allocation-ids from registry
 //   `cluster kill <TAB>`                 → same as attach
-//   `cluster probe -r <TAB>`             → resource names
-//   `cluster import --via <TAB>`         → cluster names
 //
 // When no ClusterEngine is active (no demo / no real wiring yet),
 // dynamic completions gracefully degrade to just the subcommand list.

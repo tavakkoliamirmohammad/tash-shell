@@ -117,20 +117,6 @@ TEST_F(DemoFixture, EndToEndUpListLaunchAttachDown) {
     EXPECT_NE(out.str().find("no allocations"), std::string::npos) << out.str();
 }
 
-TEST_F(DemoFixture, ProbeShowsIdleA100) {
-    install_demo_engine();
-    auto& eng = *active_engine();
-
-    std::ostringstream out, err;
-    int rc = dispatch_cluster(argv_of({"cluster", "probe", "-r", "a100"}),
-                                eng, out, err);
-    ASSERT_EQ(rc, 0) << err.str();
-    EXPECT_NE(out.str().find("a100"), std::string::npos) << out.str();
-    // Demo reports 4 idle nodes with matching gres.
-    EXPECT_NE(out.str().find("4 idle"), std::string::npos);
-    EXPECT_NE(out.str().find("4 matching"), std::string::npos);
-}
-
 TEST_F(DemoFixture, UnsinstalledThenInstalledThenUninstalledCleanly) {
     EXPECT_FALSE(demo_engine_installed());
     install_demo_engine();

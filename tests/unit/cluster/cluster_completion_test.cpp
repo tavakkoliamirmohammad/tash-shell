@@ -109,8 +109,7 @@ TEST(ClusterCompletion, EmptyCurrentWordListsAllSubcommands) {
     EXPECT_TRUE(contains(names, "down"));
     EXPECT_TRUE(contains(names, "kill"));
     EXPECT_TRUE(contains(names, "sync"));
-    EXPECT_TRUE(contains(names, "probe"));
-    EXPECT_TRUE(contains(names, "import"));
+    EXPECT_TRUE(contains(names, "doctor"));
     EXPECT_TRUE(contains(names, "help"));
 }
 
@@ -141,14 +140,6 @@ TEST(ClusterCompletion, AfterUpDashRListsResources) {
         "cluster", "", {"up", "-r"}, dummy_state));
     EXPECT_TRUE(contains(names, "a100"));
     EXPECT_TRUE(contains(names, "h100"));
-}
-
-TEST(ClusterCompletion, AfterProbeDashRListsResources) {
-    EngineHarness h;
-    ClusterCompletionProvider p;
-    const auto names = texts(p.complete(
-        "cluster", "", {"probe", "-r"}, dummy_state));
-    EXPECT_TRUE(contains(names, "a100"));
 }
 
 TEST(ClusterCompletion, AfterDashViaListsClusters) {
