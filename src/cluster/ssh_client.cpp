@@ -170,11 +170,16 @@ std::string sh_single_quote(const std::string& s) {
 std::vector<std::string> build_install_file_argv(const std::string& content,
                                                    const std::string& remote_path) {
     // ssh concatenates argv after <host> with spaces and hands the
-    // single string to the remote shell. If we returned three argv
-    // elements (/bin/sh, -c, "<multi-word cmd>"), the remote shell
-    // would get `/bin/sh -c mkdir -p …` and split after `mkdir`
-    // — making -c's argument just "mkdir" and dropping the rest as
-    // $0/$1. So emit one already-composed shell invocation instead.
+    // single string to the remote shell. Emit one already-composed
+    // shell invocation (see note in README-cluster architecture).
+    //
+    // CRITICAL: target paths are DOUBLE-quoted inside the outer
+    // single-quoted sh -c payload so `$HOME` and other shell vars
+    // get expanded by the remote shell. Single-quoting the path
+    // would take "$HOME/..." literally and create a directory named
+    // "$HOME" in the current working dir. The base64 blob stays
+    // single-quoted (opaque alphabet, no expansion needed; shell
+    // chars inside would break double quotes).
     const auto slash = remote_path.find_last_of('/');
     const std::string parent =
         (slash == std::string::npos) ? "." : remote_path.substr(0, slash);
@@ -182,10 +187,10 @@ std::vector<std::string> build_install_file_argv(const std::string& content,
     const std::string b64 = base64_encode(content);
 
     std::string inner;
-    inner += "mkdir -p -- ";       inner += sh_single_quote(parent);
-    inner += " && printf %s ";     inner += sh_single_quote(b64);
-    inner += " | base64 -d > ";    inner += sh_single_quote(remote_path);
-    inner += " && chmod 0755 ";    inner += sh_single_quote(remote_path);
+    inner += "mkdir -p -- \"";       inner += parent;        inner += "\"";
+    inner += " && printf %s ";       inner += sh_single_quote(b64);
+    inner += " | base64 -d > \"";    inner += remote_path;   inner += "\"";
+    inner += " && chmod 0755 \"";    inner += remote_path;   inner += "\"";
 
     return {"/bin/sh -c " + sh_single_quote(inner)};
 }

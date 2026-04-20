@@ -124,10 +124,23 @@ TEST(SshInstallFile, CommandIncludesMkdirAndChmodAndBase64) {
     EXPECT_NE(cmd.find("/home/u/.tash-cluster/stop-hooks/x.sh"), std::string::npos);
 }
 
-TEST(SshInstallFile, PathsWithSingleQuotesAreShellEscaped) {
-    const auto argv = build_install_file_argv("x", "/tmp/it's/hook.sh");
+TEST(SshInstallFile, HomeVarInPathIsNotSingleQuoted) {
+    // Paths that include $HOME (or other shell vars) must be
+    // double-quoted so the remote shell expands them, not
+    // single-quoted (which would create a dir literally named
+    // "$HOME"). Regression: CHPC granite install was silently
+    // creating ~/$HOME/.tash-cluster/... because of the wrong
+    // quoting.
+    const auto argv = build_install_file_argv(
+        "x", "$HOME/.tash-cluster/stop-hooks/hook.sh");
     const std::string& cmd = argv[0];
-    EXPECT_NE(cmd.find("'\\''"), std::string::npos) << cmd;
+    EXPECT_NE(cmd.find("\"$HOME/.tash-cluster/stop-hooks\""),
+              std::string::npos) << cmd;
+    EXPECT_NE(cmd.find("\"$HOME/.tash-cluster/stop-hooks/hook.sh\""),
+              std::string::npos) << cmd;
+    // And the literal single-quoted form of $HOME must NOT appear —
+    // that's the bug shape we're defending against.
+    EXPECT_EQ(cmd.find("'$HOME"), std::string::npos) << cmd;
 }
 
 TEST(SshInstallFile, BinaryContentSurvivesBase64Roundtrip) {
