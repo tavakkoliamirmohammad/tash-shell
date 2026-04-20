@@ -23,6 +23,7 @@ Jump to:
 - [Typical workflow](#typical-workflow)
 - [Commands reference](#commands-reference)
 - [Notifications](#notifications)
+- [Logs](#logs)
 - [Demo mode (no cluster required)](#demo-mode-no-cluster-required)
 - [Troubleshooting](#troubleshooting)
 
@@ -259,28 +260,54 @@ Notifications are delivered via the platform's native mechanism:
 Plus a `\a` BEL on stderr on every platform. No cloud / push
 integrations in v1.
 
-### Scope of auto-notifications in v1
+### How v1 wires notifications end-to-end
 
-Two notification paths are live:
+Three paths, from fastest to most complete:
 
 1. **Engine-driven notifications.** Whenever a `cluster` command
-   observes an event (e.g. `launch` detects that the window died
-   immediately, `doctor` fails a check), the engine calls `notify_`
-   directly and you get the desktop notification + bell. This works in
-   both demo and production.
-2. **Watcher-hook lifecycle.** `ClusterWatcherHookProvider` is
-   instantiated inside demo mode's bundle and its `on_startup` /
-   `on_exit` are invoked at the right boundaries, so the thread-
-   management scaffolding (spawn one watcher per Running allocation,
-   join with a 2s backstop on shutdown) is exercised end-to-end. In
-   v1, the factory returns a `NoOpWatcher`.
+   observes a state change itself (e.g. `launch` detects that the
+   tmux window died immediately), the engine calls `notify_` directly
+   and you get a desktop notification + terminal bell. Works in both
+   demo and production.
 
-Background event-stream notifications via `ssh <cluster> tail -F
-<event-dir>` are **not** wired in v1 — that requires a real
-`LineSource` backed by a piped `ssh` process, which is tracked as
-post-v1 work (M3.3 / M3.4 in the plan). If you want live
-notifications on a cluster today, run `cluster sync` periodically or
-wrap `cluster list` in your prompt loop.
+2. **Stop-hook install at launch.** When your preset has
+   `stop_hook = "builtin:claude"` (or an absolute path), `cluster
+   launch` base64-encodes the hook and installs it to
+   `$HOME/.tash-cluster/stop-hooks/<basename>` on the compute node,
+   then injects `TASH_CLUSTER_WORKSPACE`, `TASH_CLUSTER_INSTANCE`,
+   `TASH_CLUSTER_EVENT_DIR`, and `TASH_CLUSTER_STOP_HOOK` into the
+   remote environment. The hook runs when Claude Code stops and
+   writes a JSON event to `$HOME/.tash-cluster/events/<ws>/<inst>.event`.
+
+3. **`ssh tail -F` watcher.** The `make_ssh_tail_watcher_factory`
+   API constructs a production watcher that tails the event dir over
+   ssh and routes each event through `apply_event` → `INotifier`.
+   The scaffolding is ready; in v1 demo mode installs a `NoOpWatcher`
+   placeholder factory, and users who want live background
+   notifications can wire the real factory in their own startup
+   glue. Running `cluster logs <workspace>` prints the recent event
+   contents any time without needing the background watcher.
+
+## Logs
+
+`cluster logs <workspace>` fetches the recent stop-hook event files
+over ssh and prints them locally — useful for auditing what Claude
+has been doing without attaching to tmux.
+
+```bash
+cluster logs refactor-bloom               # all instances, last 100 lines each
+cluster logs refactor-bloom --instance 1  # one instance
+cluster logs refactor-bloom -n 500        # longer tail
+cluster logs refactor-bloom --alloc utah-notchpeak:12345
+```
+
+Events originate from the bundled `claude-stop-hook.sh` (or a custom
+script at `preset.stop_hook = "/abs/path"`). Each event is a one-line
+JSON record:
+
+```json
+{"ts":"2026-04-20T17:03:22Z","instance":"refactor-bloom/1","kind":"stopped","detail":"awaiting input"}
+```
 
 ## Demo mode (no cluster required)
 
