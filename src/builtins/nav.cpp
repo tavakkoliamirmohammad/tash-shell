@@ -3,13 +3,25 @@
 #include "tash/builtins.h"
 #include "tash/core/signals.h"
 #include "tash/history.h"
+#include "tash/util/cwd.h"
 
 #include <cstring>
 
 using namespace std;
 
+// Snapshot the cwd for our bookkeeping side — fail cleanly if the
+// directory has been removed underneath us. Returns "" iff we should
+// abort with an error.
+static string cwd_or_fail(const char *builtin_name) {
+    string cwd = tash::util::current_working_directory();
+    if (cwd.empty()) {
+        write_stderr(string(builtin_name) + ": cannot get current directory: "
+                     + strerror(errno) + "\n");
+    }
+    return cwd;
+}
+
 int builtin_cd(const vector<string> &argv, ShellState &state) {
-    char cwd[MAX_SIZE];
     const char *target = nullptr;
 
     if (argv.size() > 1) {
@@ -30,32 +42,30 @@ int builtin_cd(const vector<string> &argv, ShellState &state) {
         }
     }
 
-    if (getcwd(cwd, MAX_SIZE) == nullptr) {
-        write_stderr("cd: " + string(strerror(errno)) + "\n");
-        return 1;
-    }
+    string cwd = cwd_or_fail("cd");
+    if (cwd.empty()) return 1;
 
     if (chdir(target) == -1) {
         write_stderr("cd: " + string(target) + ": " + strerror(errno) + "\n");
         return 1;
     }
 
-    state.core.previous_directory = string(cwd);
+    state.core.previous_directory = std::move(cwd);
 
-    char new_cwd[MAX_SIZE];
-    if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
-        z_record_directory(string(new_cwd));
+    string new_cwd = tash::util::current_working_directory();
+    if (!new_cwd.empty()) {
+        z_record_directory(new_cwd);
         if (argv.size() > 1 && argv[1] == "-") {
-            write_stdout(string(new_cwd) + "\n");
+            write_stdout(new_cwd + "\n");
         }
     }
     return 0;
 }
 
 int builtin_pwd(const vector<string> &, ShellState &) {
-    char temp[MAX_SIZE];
-    if (getcwd(temp, MAX_SIZE) != nullptr) {
-        write_stdout(string(temp) + "\n");
+    string cwd = tash::util::current_working_directory();
+    if (!cwd.empty()) {
+        write_stdout(cwd + "\n");
         return 0;
     }
     write_stderr("pwd: " + string(strerror(errno)) + "\n");
@@ -67,19 +77,16 @@ int builtin_pushd(const vector<string> &argv, ShellState &state) {
         write_stderr("pushd: no directory specified\n");
         return 1;
     }
-    char cwd[MAX_SIZE];
-    if (getcwd(cwd, MAX_SIZE) == nullptr) {
-        write_stderr("pushd: cannot get current directory\n");
-        return 1;
-    }
+    string cwd = cwd_or_fail("pushd");
+    if (cwd.empty()) return 1;
     if (chdir(argv[1].c_str()) == -1) {
         write_stderr("pushd: " + argv[1] + ": " + strerror(errno) + "\n");
         return 1;
     }
-    state.core.dir_stack.push_back(string(cwd));
-    char new_cwd[MAX_SIZE];
-    if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
-        string stack_str = string(new_cwd);
+    state.core.dir_stack.push_back(std::move(cwd));
+    string new_cwd = tash::util::current_working_directory();
+    if (!new_cwd.empty()) {
+        string stack_str = new_cwd;
         for (int si = (int)state.core.dir_stack.size() - 1; si >= 0; si--)
             stack_str += " " + state.core.dir_stack[si];
         write_stdout(stack_str + "\n");
@@ -98,9 +105,9 @@ int builtin_popd(const vector<string> &, ShellState &state) {
         write_stderr("popd: " + target + ": " + string(strerror(errno)) + "\n");
         return 1;
     }
-    char new_cwd[MAX_SIZE];
-    if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
-        string stack_str = string(new_cwd);
+    string new_cwd = tash::util::current_working_directory();
+    if (!new_cwd.empty()) {
+        string stack_str = new_cwd;
         for (int si = (int)state.core.dir_stack.size() - 1; si >= 0; si--)
             stack_str += " " + state.core.dir_stack[si];
         write_stdout(stack_str + "\n");
@@ -109,9 +116,9 @@ int builtin_popd(const vector<string> &, ShellState &state) {
 }
 
 int builtin_dirs(const vector<string> &, ShellState &state) {
-    char cwd[MAX_SIZE];
-    if (getcwd(cwd, MAX_SIZE) != nullptr) {
-        string stack_str = string(cwd);
+    string cwd = tash::util::current_working_directory();
+    if (!cwd.empty()) {
+        string stack_str = cwd;
         for (int si = (int)state.core.dir_stack.size() - 1; si >= 0; si--)
             stack_str += " " + state.core.dir_stack[si];
         write_stdout(stack_str + "\n");
@@ -135,16 +142,13 @@ int builtin_z(const vector<string> &argv, ShellState &state) {
         return 1;
     }
 
-    char cwd[MAX_SIZE];
-    if (getcwd(cwd, MAX_SIZE) == nullptr) {
-        write_stderr("z: cannot get current directory\n");
-        return 1;
-    }
+    string cwd = cwd_or_fail("z");
+    if (cwd.empty()) return 1;
     if (chdir(target.c_str()) == -1) {
         write_stderr("z: " + target + ": " + strerror(errno) + "\n");
         return 1;
     }
-    state.core.previous_directory = string(cwd);
+    state.core.previous_directory = std::move(cwd);
     z_record_directory(target);
     write_stdout(target + "\n");
     return 0;

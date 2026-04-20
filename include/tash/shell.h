@@ -12,7 +12,6 @@
 #include <functional>
 
 // ── Constants ───────────────────────────────────────────────────
-#define MAX_SIZE 1024
 
 #ifdef __APPLE__
 #define COLOR_FLAG "-G"
