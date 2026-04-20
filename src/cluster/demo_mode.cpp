@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace tash::cluster {
 
@@ -83,23 +84,33 @@ private:
 
 class DemoTmuxOps : public ITmuxOps {
 public:
-    bool new_session(const RemoteTarget&, const std::string&,
-                      const std::string&, ISshClient&) override { return true; }
-
-    bool new_window(const RemoteTarget&, const std::string&,
-                     const std::string&, const std::string&,
-                     const std::string&, ISshClient&) override { return true; }
-
-    std::vector<SessionInfo> list_sessions(const RemoteTarget&, ISshClient&) override {
-        return {};
+    bool new_session(const RemoteTarget&, const std::string& session,
+                      const std::string&, ISshClient&) override {
+        sessions_.insert(session);
+        return true;
     }
 
-    void kill_window(const RemoteTarget&, const std::string&,
-                      const std::string&, ISshClient&) override {}
-
-    bool is_window_alive(const RemoteTarget&, const std::string&,
-                           const std::string&, ISshClient&) override {
+    bool new_window(const RemoteTarget&, const std::string& session,
+                     const std::string& window, const std::string&,
+                     const std::string&, ISshClient&) override {
+        alive_.insert(session + "/" + window);
         return true;
+    }
+
+    std::vector<SessionInfo> list_sessions(const RemoteTarget&, ISshClient&) override {
+        std::vector<SessionInfo> out;
+        for (const auto& s : sessions_) out.push_back(SessionInfo{s, 0});
+        return out;
+    }
+
+    void kill_window(const RemoteTarget&, const std::string& session,
+                      const std::string& window, ISshClient&) override {
+        alive_.erase(session + "/" + window);
+    }
+
+    bool is_window_alive(const RemoteTarget&, const std::string& session,
+                           const std::string& window, ISshClient&) override {
+        return alive_.count(session + "/" + window) > 0;
     }
 
     void exec_attach(const RemoteTarget&, const std::string&,
@@ -107,6 +118,10 @@ public:
         // Real impl would replace the process image; demo just logs.
         std::cerr << "[demo cluster] exec_attach (noop)\n";
     }
+
+private:
+    std::unordered_set<std::string> sessions_;
+    std::unordered_set<std::string> alive_;
 };
 
 class DemoNotifier : public INotifier {
