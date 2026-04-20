@@ -180,7 +180,7 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
     auto& m = matches.front();
     Instance killed = m.w->instances[m.idx];
 
-    const RemoteTarget target{m.a->cluster, m.a->node};
+    const RemoteTarget target{m.a->cluster, m.a->node, m.a->jobid};
     tmux_.kill_window(target, m.w->tmux_session, killed.tmux_window, ssh_);
     // Confirm the kill took effect before mutating registry. If tmux
     // refused (permission, stale pid, session gone), leave the instance
@@ -570,7 +570,7 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
         if (w.name == spec.workspace) { ws = &w; break; }
     }
 
-    const RemoteTarget target{alloc.cluster, alloc.node};
+    const RemoteTarget target{alloc.cluster, alloc.node, alloc.jobid};
     const std::string cwd = spec.cwd.empty()
         ? cfg_.defaults.workspace_base + "/" + spec.workspace
         : spec.cwd;
@@ -744,7 +744,7 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
 
     // Exactly one — dispatch.
     const auto& m = matches.front();
-    const RemoteTarget target{m.a->cluster, m.a->node};
+    const RemoteTarget target{m.a->cluster, m.a->node, m.a->jobid};
     tmux_.exec_attach(target, m.w->tmux_session, m.i->tmux_window);
     return *m.i;
 }

@@ -141,10 +141,20 @@ struct Allocation {
 // Seam value types  (ISshClient / ISlurmOps / ITmuxOps input/output)
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Where on the cluster we want to operate. `node` empty = login-node.
+// Where on the cluster we want to operate.
+//
+// Hop priority (first non-empty wins):
+//   jobid  → `ssh <cluster> srun --jobid=<jobid> --overlap <cmd>`
+//            Works on any SLURM site regardless of inter-node ssh policy.
+//            This is the portable, default path when an allocation exists.
+//   node   → `ssh <cluster> ssh <node> <cmd>` (legacy direct hop).
+//            Only works where the site allows login→compute ssh without
+//            extra auth (many sites disable this, e.g. CHPC granite).
+//   empty  → run on login node (for doctor / diagnostic calls).
 struct RemoteTarget {
     std::string cluster;     // Cluster::name; resolves to ssh_host via Config
-    std::string node;        // compute node hostname; empty means login-node
+    std::string node;        // compute node hostname; fallback if jobid empty
+    std::string jobid;       // SLURM jobid — preferred compute-node hop
 };
 
 // Result of one ssh invocation.

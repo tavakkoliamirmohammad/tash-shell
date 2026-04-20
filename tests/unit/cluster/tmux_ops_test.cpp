@@ -129,9 +129,21 @@ TEST(ComposeRemoteCmd, EmptyNodePassesThrough) {
 }
 
 TEST(ComposeRemoteCmd, NodeWrapsWithSshAndShellQuotesEverything) {
-    RemoteTarget t{"c1", "notch123"};
+    RemoteTarget t{"c1", "notch123", /*jobid*/""};
     const auto c = compose_remote_cmd(t, "tmux new-session -d");
     EXPECT_NE(c.find("ssh 'notch123' 'tmux new-session -d'"), std::string::npos) << c;
+}
+
+TEST(ComposeRemoteCmd, JobidPrefersSrunOverSshNodeHop) {
+    // When both jobid and node are set, jobid wins — srun works on
+    // any SLURM cluster, ssh-to-compute is site-policy-dependent.
+    RemoteTarget t{"c1", "notch123", /*jobid*/"1153518"};
+    const auto c = compose_remote_cmd(t, "tmux new-session -d");
+    EXPECT_NE(c.find("srun --jobid='1153518' --overlap bash -c "),
+              std::string::npos) << c;
+    EXPECT_NE(c.find("'tmux new-session -d'"), std::string::npos) << c;
+    // ssh-to-node must NOT appear when jobid provides the hop.
+    EXPECT_EQ(c.find("ssh 'notch123'"), std::string::npos) << c;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -139,7 +151,7 @@ TEST(ComposeRemoteCmd, NodeWrapsWithSshAndShellQuotesEverything) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST(AttachArgv, UsesDashTForTtyAndNestedTmux) {
-    RemoteTarget t{"utah-notch", "n5"};
+    RemoteTarget t{"utah-notch", "n5", /*jobid*/""};
     const auto argv = build_attach_argv(t, "sess", "w1");
     EXPECT_EQ(argv[0], "ssh");
     bool saw_t = false, saw_login = false, saw_compute_cmd = false;
@@ -156,12 +168,28 @@ TEST(AttachArgv, UsesDashTForTtyAndNestedTmux) {
 }
 
 TEST(AttachArgv, HandlesEmptyNodeAsLoginLocal) {
-    RemoteTarget t{"login-host", ""};
+    RemoteTarget t{"login-host", "", /*jobid*/""};
     const auto argv = build_attach_argv(t, "sess", "w1");
     EXPECT_EQ(argv[0], "ssh");
     const std::string joined = [&]{ std::string j; for (const auto& a : argv) { j += a; j += ' '; } return j; }();
     EXPECT_NE(joined.find("login-host"), std::string::npos);
     EXPECT_NE(joined.find("sess:w1"),    std::string::npos);
+}
+
+TEST(AttachArgv, JobidUsesSrunPtyOverSshNodeHop) {
+    RemoteTarget t{"granite", "grn081", /*jobid*/"1153518"};
+    const auto argv = build_attach_argv(t, "smoke", "1");
+    // ssh -t <login> srun --jobid=... --overlap --pty tmux attach-session ...
+    ASSERT_GE(argv.size(), 6u);
+    EXPECT_EQ(argv[0], "ssh");
+    EXPECT_EQ(argv[1], "-t");
+    EXPECT_EQ(argv[2], "granite");
+    EXPECT_EQ(argv[3], "srun");
+    EXPECT_EQ(argv[4], "--jobid=1153518");
+    EXPECT_EQ(argv[5], "--overlap");
+    EXPECT_EQ(argv[6], "--pty");
+    // No second ssh hop to compute node when jobid hops through srun.
+    for (const auto& a : argv) EXPECT_NE(a, "grn081");
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

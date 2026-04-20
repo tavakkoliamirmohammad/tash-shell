@@ -68,8 +68,21 @@ std::string tmux_is_alive(const std::string& session, const std::string& window)
 // ══════════════════════════════════════════════════════════════════════════════
 
 std::string compose_remote_cmd(const RemoteTarget& target, const std::string& inner) {
-    if (target.node.empty()) return inner;
-    return "ssh " + shell_quote(target.node) + " " + shell_quote(inner);
+    // Preferred: run inside the SLURM allocation via srun. Works on any
+    // site that has a running job for this jobid; doesn't require
+    // login→compute ssh to be permitted.
+    if (!target.jobid.empty()) {
+        return "srun --jobid=" + shell_quote(target.jobid) +
+               " --overlap bash -c " + shell_quote(inner);
+    }
+    // Fallback: direct ssh to the compute node. Requires the site to
+    // allow unauthenticated login→compute hops (most CHPC-style sites
+    // do not — granite in particular rejects publickey there).
+    if (!target.node.empty()) {
+        return "ssh " + shell_quote(target.node) + " " + shell_quote(inner);
+    }
+    // Login-node target: run inner directly.
+    return inner;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -82,14 +95,23 @@ std::vector<std::string> build_attach_argv(const RemoteTarget& target,
     const std::string attach_cmd =
         "tmux attach-session -t " + shell_quote(session + ":" + window);
 
+    // ssh -t <login> is always present; TTY has to propagate end-to-end
+    // for tmux to attach properly.
     std::vector<std::string> argv = {"ssh", "-t", target.cluster};
-    if (target.node.empty()) {
+    if (!target.jobid.empty()) {
+        // srun --pty preserves the tty inside the allocation; no need
+        // for a second ssh hop.
+        argv.push_back("srun");
+        argv.push_back("--jobid=" + target.jobid);
+        argv.push_back("--overlap");
+        argv.push_back("--pty");
         argv.push_back(attach_cmd);
-    } else {
-        // Need TTY all the way through: ssh -t <login> ssh -t <node> tmux …
+    } else if (!target.node.empty()) {
         argv.push_back("ssh");
         argv.push_back("-t");
         argv.push_back(target.node);
+        argv.push_back(attach_cmd);
+    } else {
         argv.push_back(attach_cmd);
     }
     return argv;
