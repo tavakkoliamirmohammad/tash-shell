@@ -17,6 +17,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <string>
@@ -271,99 +272,43 @@ SshResult spawn_capture(const std::vector<std::string>& argv,
     return r;
 }
 
-// Spawn argv with the child inheriting the parent's stdio (terminal).
-// Used by connect() so ssh's password + Duo prompts reach the user
-// directly instead of being captured into a pipe the caller never
-// displays. Waits up to `timeout_ms`; kills the child on timeout.
+// Shell-quote a single argument for /bin/sh: wrap in single quotes,
+// escape embedded single quotes as '\''. Used when building a
+// command string for system() so we don't get interpretation of
+// special characters in hostnames or paths.
+std::string sh_quote(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    out.push_back('\'');
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else           out.push_back(c);
+    }
+    out.push_back('\'');
+    return out;
+}
+
+// Run argv through the system shell (/bin/sh -c). system() handles
+// every subtle thing a custom fork/exec would need for an interactive
+// child: the tty stays cooked, signals are restored, ssh's getpass()
+// reads cleanly from /dev/tty, and Duo/keyboard-interactive flows
+// work the same as a plain `ssh host` from the outer shell.
 //
-// Critical: save + restore the terminal's termios state around the
-// child. Tash's replxx leaves the tty in raw mode with -icanon / -echo.
-// Ssh's getpass() assumes cooked mode — in raw mode Enter generates
-// \r instead of \n, so the password it sends to the server is the
-// literal characters the user typed plus a trailing \r. The server
-// rejects that as wrong-password. We flip the tty to cooked before
-// execing ssh and restore tash's state after reap.
+// system() blocks SIGINT/SIGQUIT in the parent while the child runs,
+// so Ctrl-C during the password prompt reaches ssh (cancels auth)
+// instead of killing tash.
 int spawn_inherit(const std::vector<std::string>& argv,
-                   std::chrono::milliseconds timeout_ms) {
+                   std::chrono::milliseconds /*timeout_ms*/) {
     if (argv.empty()) return -1;
-
-    // Pick the tty fd: stdin usually works, but tash's stdin can be
-    // redirected (pipe, here-doc) even when the process itself is
-    // interactive, so fall back to opening /dev/tty directly.
-    int tty_fd = -1;
-    int owned_tty_fd = -1;
-    if (::isatty(STDIN_FILENO)) {
-        tty_fd = STDIN_FILENO;
-    } else {
-        owned_tty_fd = ::open("/dev/tty", O_RDWR | O_CLOEXEC);
-        if (owned_tty_fd >= 0) tty_fd = owned_tty_fd;
+    std::string cmd;
+    for (std::size_t i = 0; i < argv.size(); ++i) {
+        if (i) cmd.push_back(' ');
+        cmd += sh_quote(argv[i]);
     }
-
-    struct termios saved{};
-    const bool have_tty = tty_fd >= 0 &&
-                          ::tcgetattr(tty_fd, &saved) == 0;
-    if (have_tty) {
-        // Replxx puts the tty in raw mode; ssh's getpass() expects a
-        // canonical cooked line discipline. Just OR-ing flags would
-        // leave replxx's cleared bits in place, so build a complete
-        // default cooked termios here.
-        struct termios cooked = saved;
-        cooked.c_iflag &= ~(IGNBRK | PARMRK | ISTRIP | INLCR | IGNCR);
-        cooked.c_iflag |=  (BRKINT | ICRNL  | IXON   | IXANY);
-        cooked.c_oflag |=  (OPOST  | ONLCR);
-        cooked.c_lflag  =  (ICANON | ECHO | ECHOE | ECHOK | ECHONL |
-                            ISIG   | IEXTEN);
-        cooked.c_cflag &= ~(CSIZE  | PARENB);
-        cooked.c_cflag |=  (CS8    | CREAD);
-        cooked.c_cc[VMIN]   = 1;
-        cooked.c_cc[VTIME]  = 0;
-        cooked.c_cc[VINTR]  = 003;   // Ctrl-C
-        cooked.c_cc[VQUIT]  = 034;   // Ctrl-backslash
-        cooked.c_cc[VERASE] = 0177;  // DEL / Backspace
-        cooked.c_cc[VKILL]  = 025;   // Ctrl-U
-        cooked.c_cc[VEOF]   = 004;   // Ctrl-D
-        cooked.c_cc[VSTART] = 021;   // Ctrl-Q
-        cooked.c_cc[VSTOP]  = 023;   // Ctrl-S
-        cooked.c_cc[VSUSP]  = 032;   // Ctrl-Z
-        (void)::tcsetattr(tty_fd, TCSAFLUSH, &cooked);
-    }
-
-    pid_t pid = ::fork();
-    if (pid < 0) {
-        if (have_tty) (void)::tcsetattr(tty_fd, TCSADRAIN, &saved);
-        if (owned_tty_fd >= 0) ::close(owned_tty_fd);
-        return -1;
-    }
-    if (pid == 0) {
-        std::vector<char*> c_argv;
-        c_argv.reserve(argv.size() + 1);
-        for (const auto& a : argv) c_argv.push_back(const_cast<char*>(a.c_str()));
-        c_argv.push_back(nullptr);
-        ::execvp(c_argv[0], c_argv.data());
-        _exit(127);
-    }
-    const long long deadline =
-        timeout_ms.count() > 0 ? now_ms() + timeout_ms.count() : -1;
-    int rc = -1;
-    while (true) {
-        int status = 0;
-        pid_t r = ::waitpid(pid, &status, WNOHANG);
-        if (r == pid) {
-            if (WIFEXITED(status))        rc = WEXITSTATUS(status);
-            else if (WIFSIGNALED(status)) rc = 128 + WTERMSIG(status);
-            break;
-        }
-        if (r < 0) break;
-        if (deadline > 0 && now_ms() >= deadline) {
-            ::kill(pid, SIGKILL);
-            ::waitpid(pid, &status, 0);
-            break;
-        }
-        struct timespec ts{0, 100'000'000};  // 100ms
-        ::nanosleep(&ts, nullptr);
-    }
-    if (have_tty) (void)::tcsetattr(tty_fd, TCSADRAIN, &saved);
-    if (owned_tty_fd >= 0) ::close(owned_tty_fd);
+    const int rc = std::system(cmd.c_str());
+    if (rc == -1) return -1;
+    if (WIFEXITED(rc))   return WEXITSTATUS(rc);
+    if (WIFSIGNALED(rc)) return 128 + WTERMSIG(rc);
     return rc;
 }
 
