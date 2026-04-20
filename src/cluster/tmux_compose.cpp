@@ -35,8 +35,17 @@ std::string tmux_new_session(const std::string& session, const std::string& cwd)
     // mkdir -p the cwd first. Fresh workspaces on HPC scratch often
     // don't have the directory yet; tmux -c <cwd> then fails with
     // "no such file or directory" before the session is created.
+    //
+    // setsid wraps tmux because our remote hop is `srun --jobid
+    // --overlap bash -c <cmd>`. srun kills the step's entire process
+    // group on exit; without setsid, the tmux server daemon (which
+    // `new-session -d` forks) gets swept up in that cleanup. setsid
+    // moves tmux to a new process group + session, so the server
+    // outlives the srun step. Subsequent srun steps (new-window,
+    // list-sessions, kill-window, etc.) then reconnect to the
+    // surviving server via its socket at /tmp/tmux-$UID/default.
     return "mkdir -p " + shell_quote(cwd) +
-           " && tmux new-session -d -s " + shell_quote(session) +
+           " && setsid tmux new-session -d -s " + shell_quote(session) +
              " -c " + shell_quote(cwd);
 }
 
