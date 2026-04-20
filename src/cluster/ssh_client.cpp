@@ -71,7 +71,24 @@ std::vector<std::string> build_run_argv(const SshFlags& f,
     auto base = base_ssh_flags(f);
     a.insert(a.end(), base.begin(), base.end());
     a.push_back(f.ssh_host);
-    a.insert(a.end(), remote.begin(), remote.end());
+    // ssh joins everything after <host> with spaces into a single
+    // string and hands that to the remote shell. If any remote arg
+    // contains a space (e.g. --wrap=sleep infinity), the remote
+    // shell re-splits it and the target binary sees extra positional
+    // args (sbatch: "Script arguments not permitted with --wrap").
+    // Shell-quote each piece so the remote shell reproduces the
+    // original argv vector.
+    for (const auto& r : remote) {
+        std::string q;
+        q.reserve(r.size() + 2);
+        q.push_back('\'');
+        for (char c : r) {
+            if (c == '\'') q += "'\\''";
+            else           q.push_back(c);
+        }
+        q.push_back('\'');
+        a.push_back(std::move(q));
+    }
     return a;
 }
 

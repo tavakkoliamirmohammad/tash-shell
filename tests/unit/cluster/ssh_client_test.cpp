@@ -46,8 +46,10 @@ TEST(SshClientArgv, RunIncludesControlMasterFlagsAndHost) {
     EXPECT_EQ(j.find("ControlPath="),         std::string::npos) << j;
     EXPECT_NE(j.find("BatchMode=yes"),        std::string::npos);   // when batch=true
     EXPECT_NE(j.find("utah-notch"),           std::string::npos);
-    EXPECT_NE(j.find("squeue"),               std::string::npos);
-    EXPECT_NE(j.find(" -h "),                 std::string::npos);
+    // Remote args are shell-quoted to survive ssh's "join with spaces
+    // then let the remote shell re-parse" protocol.
+    EXPECT_NE(j.find("'squeue'"),             std::string::npos) << j;
+    EXPECT_NE(j.find("'-h'"),                 std::string::npos);
 }
 
 TEST(SshClientArgv, BatchModeOffWhenFlagFalse) {
@@ -61,9 +63,21 @@ TEST(SshClientArgv, BatchModeOffWhenFlagFalse) {
 TEST(SshClientArgv, RunPreservesRemoteArgvOrder) {
     const auto argv = build_run_argv(sample_flags(), {"echo", "hello", "world"});
     ASSERT_GE(argv.size(), 3u);
-    EXPECT_EQ(argv[argv.size() - 3], "echo");
-    EXPECT_EQ(argv[argv.size() - 2], "hello");
-    EXPECT_EQ(argv[argv.size() - 1], "world");
+    // Each remote arg is single-quoted so word-splitting on the
+    // remote shell reproduces the original tokens.
+    EXPECT_EQ(argv[argv.size() - 3], "'echo'");
+    EXPECT_EQ(argv[argv.size() - 2], "'hello'");
+    EXPECT_EQ(argv[argv.size() - 1], "'world'");
+}
+
+TEST(SshClientArgv, RunQuotesSpacesInArgs) {
+    // --wrap=sleep infinity must cross the ssh boundary intact; before
+    // quoting, the remote shell split this into --wrap=sleep + infinity
+    // and sbatch refused with "Script arguments not permitted with --wrap".
+    const auto argv = build_run_argv(sample_flags(),
+                                      {"sbatch", "--wrap=sleep infinity"});
+    const std::string j = join(argv);
+    EXPECT_NE(j.find("'--wrap=sleep infinity'"), std::string::npos) << j;
 }
 
 TEST(SshClientArgv, MasterCheckUsesDashOCheck) {
