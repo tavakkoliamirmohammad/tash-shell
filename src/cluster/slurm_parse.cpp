@@ -134,6 +134,21 @@ std::string parse_sbatch_jobid(std::string_view output) {
 // argv builders
 // ══════════════════════════════════════════════════════════════════════════════
 
+// Single-quote a string so the remote shell unquotes it back to the
+// original bytes. Needed for fields we pass through ssh-to-remote-shell
+// that may contain spaces (most commonly --wrap=<script body>).
+static std::string shq(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    out.push_back('\'');
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else           out.push_back(c);
+    }
+    out.push_back('\'');
+    return out;
+}
+
 std::vector<std::string> build_sbatch_argv(const SubmitSpec& s) {
     std::vector<std::string> a = {"sbatch", "--parsable"};
     if (!s.account.empty())   a.push_back("--account="        + s.account);
@@ -144,7 +159,11 @@ std::vector<std::string> build_sbatch_argv(const SubmitSpec& s) {
     if (s.cpus > 0)           a.push_back("--cpus-per-task="  + std::to_string(s.cpus));
     if (!s.mem.empty())       a.push_back("--mem="            + s.mem);
     if (!s.job_name.empty())  a.push_back("--job-name="       + s.job_name);
-    if (!s.wrap.empty())      a.push_back("--wrap="           + s.wrap);
+    // --wrap=<body> body often contains spaces ("sleep infinity").
+    // ssh's "join with spaces, re-parse on remote" workflow requires
+    // the body be shell-quoted or it becomes separate positional args
+    // and sbatch refuses with "Script arguments not permitted".
+    if (!s.wrap.empty())      a.push_back("--wrap="           + shq(s.wrap));
     return a;
 }
 

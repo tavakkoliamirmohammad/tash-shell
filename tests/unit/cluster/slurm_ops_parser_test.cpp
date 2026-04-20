@@ -166,7 +166,9 @@ TEST(BuildSbatchArgv, IncludesEveryFieldWhenSet) {
     EXPECT_NE(joined.find("--cpus-per-task=8"),        std::string::npos);
     EXPECT_NE(joined.find("--mem=64G"),                std::string::npos);
     EXPECT_NE(joined.find("--job-name=tash-a100"),     std::string::npos);
-    EXPECT_NE(joined.find("--wrap=sleep infinity"),    std::string::npos);
+    // --wrap value is single-quoted so the remote shell re-parse
+    // keeps "sleep infinity" as one argv element on sbatch.
+    EXPECT_NE(joined.find("--wrap='sleep infinity'"), std::string::npos) << joined;
 }
 
 TEST(BuildSbatchArgv, OmitsEmptyFields) {
