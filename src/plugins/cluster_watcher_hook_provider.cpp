@@ -8,12 +8,16 @@
 
 #include "tash/plugins/cluster_watcher_hook_provider.h"
 
+#include "tash/cluster/piped_line_source.h"
 #include "tash/cluster/registry.h"
+#include "tash/cluster/stream_watcher.h"
 
 #include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <utility>
+#include <vector>
 
 namespace tash::cluster {
 
@@ -162,6 +166,48 @@ private:
 WatcherFactory default_watcher_factory() {
     return [](const Allocation&, Registry&) -> std::shared_ptr<IWatcher> {
         return std::make_shared<NoOpWatcher>();
+    };
+}
+
+WatcherFactory make_ssh_tail_watcher_factory(
+        std::function<std::string(const Allocation&)> cluster_to_ssh_host,
+        std::function<std::string(const Allocation&)> event_dir_for,
+        INotifier& notifier) {
+    // Notifier is owned by the caller (typically the engine); we only
+    // capture a reference-like pointer. The factory closes over the
+    // lambdas + pointer, which are cheap to copy.
+    return [host = std::move(cluster_to_ssh_host),
+            dir  = std::move(event_dir_for),
+            n    = &notifier](const Allocation& a, Registry& reg)
+               -> std::shared_ptr<IWatcher> {
+        const std::string ssh_host   = host ? host(a) : std::string{};
+        const std::string event_dir  = dir  ? dir(a)  : std::string{};
+        if (ssh_host.empty() || event_dir.empty()) return nullptr;
+
+        // `ssh <host> tail -qF -n +1 <event_dir>/*.event 2>/dev/null`
+        // - -q: suppress the "==> <file> <==" banner.
+        // - -F: re-open files on rotation / truncation / recreation.
+        // - -n +1: emit existing file contents from line 1 (so events
+        //          written before the watcher spawned are still seen).
+        // - stderr discarded so ssh auth prompts land on the user's
+        //   terminal via stderr unbuffered; file-not-found warnings
+        //   from tail don't spam desktop notifications.
+        std::vector<std::string> argv = {
+            "ssh", ssh_host,
+            "tail", "-qF", "-n", "+1",
+            event_dir + "/*.event",
+        };
+        auto proc = std::make_shared<PipedLineSource>(std::move(argv));
+        auto src  = PipedLineSource::as_line_source(proc);
+
+        // StreamWatcher owns the LineSource callable (which itself
+        // keeps the PipedLineSource alive via shared_ptr capture).
+        // The watcher's stop() flips an atomic, but the only way to
+        // interrupt a blocking read is to close the fd — which the
+        // PipedLineSource's own destructor (reached when the watcher
+        // is torn down) will do.
+        auto watcher = std::make_shared<StreamWatcher>(std::move(src), reg, *n);
+        return watcher;
     };
 }
 

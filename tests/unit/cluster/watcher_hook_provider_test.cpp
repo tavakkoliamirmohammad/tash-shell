@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "tash/plugins/cluster_watcher_hook_provider.h"
+#include "tash/cluster/notifier.h"
 #include "tash/cluster/registry.h"
 #include "tash/shell.h"
 
@@ -220,6 +221,53 @@ struct HungFactory {
 };
 
 }  // namespace
+
+// ══════════════════════════════════════════════════════════════════════════════
+// make_ssh_tail_watcher_factory — returns nullptr (opt-out) when
+// either resolver yields empty; otherwise returns a real watcher.
+// ══════════════════════════════════════════════════════════════════════════════
+namespace {
+
+class DummyNotifier : public INotifier {
+public:
+    void desktop(const std::string&, const std::string&) override {}
+    void bell() override {}
+};
+
+}  // namespace
+
+TEST(SshTailWatcherFactory, EmptyHostOrDirYieldsNullOptOut) {
+    DummyNotifier n;
+    auto factory_empty_host = make_ssh_tail_watcher_factory(
+        [](const Allocation&) { return std::string{}; },
+        [](const Allocation&) { return std::string{"/tmp/evt"}; },
+        n);
+    Registry r;
+    auto w1 = factory_empty_host(alloc("c1", "1", AllocationState::Running), r);
+    EXPECT_EQ(w1, nullptr);
+
+    auto factory_empty_dir = make_ssh_tail_watcher_factory(
+        [](const Allocation&) { return std::string{"ssh-host"}; },
+        [](const Allocation&) { return std::string{}; },
+        n);
+    auto w2 = factory_empty_dir(alloc("c1", "1", AllocationState::Running), r);
+    EXPECT_EQ(w2, nullptr);
+}
+
+TEST(SshTailWatcherFactory, ReturnsNonNullWhenResolversProvideValues) {
+    DummyNotifier n;
+    auto factory = make_ssh_tail_watcher_factory(
+        [](const Allocation& a) { return "ssh-" + a.cluster; },
+        [](const Allocation& a) { return "/tmp/" + a.jobid + "/events"; },
+        n);
+    Registry r;
+    auto w = factory(alloc("c1", "42", AllocationState::Running), r);
+    ASSERT_NE(w, nullptr);
+    // Immediately stop — the underlying ssh is not installed on the
+    // test host. We don't exercise run(); we only assert that the
+    // factory produced something we can cleanly tear down.
+    w->stop();
+}
 
 TEST(WatcherHookProvider, HungWatcherRespectsBackstopThenDetaches) {
     Registry reg;

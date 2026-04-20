@@ -162,6 +162,7 @@ public:
     Registry&       registry()        { return reg_; }
     const Registry& registry()  const { return reg_; }
     IPrompt&        prompt()          { return prompt_; }
+    INotifier&      notifier()        { return notify_; }
 
 private:
     const Config& cfg_;

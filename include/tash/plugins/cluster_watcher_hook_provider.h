@@ -55,10 +55,27 @@ public:
 using WatcherFactory =
     std::function<std::shared_ptr<IWatcher>(const Allocation&, Registry&)>;
 
-// Production factory — today returns a NoOpWatcher that idles until
-// stopped; M3.3 extends it to open `ssh <cluster> tail -F …` and
-// dispatch events via `apply_event`.
+// Default factory — returns a NoOpWatcher that idles until stopped.
+// Used when no real notification source is configured.
 WatcherFactory default_watcher_factory();
+
+// Forward declarations (real deps live in cluster-core headers).
+class INotifier;
+
+// Production factory: for each Running allocation, spawn a
+// StreamWatcher whose LineSource is backed by `ssh <cluster> tail -F
+// <event_dir>`. `cluster_to_ssh_host` maps an allocation's cluster
+// name to the ssh alias used on the command line; `event_dir_for`
+// maps an allocation to the remote directory where stop-hook events
+// are written (typically `~/.tash/cluster/<jobid>/events`). The
+// notifier is shared across all watchers spawned by this factory.
+//
+// Returns nullptr if called on an allocation whose resolver lambdas
+// return empty strings (watcher opts out → provider moves on).
+WatcherFactory make_ssh_tail_watcher_factory(
+    std::function<std::string(const Allocation&)> cluster_to_ssh_host,
+    std::function<std::string(const Allocation&)> event_dir_for,
+    INotifier& notifier);
 
 class ClusterWatcherHookProvider : public IHookProvider {
 public:
