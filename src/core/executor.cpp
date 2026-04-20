@@ -15,6 +15,7 @@
 #include "tash/util/fd.h"
 #include "tash/util/io.h"
 #include "tash/util/parse_error.h"
+#include "tash/util/quote_state.h"
 #include "theme.h"
 
 #include <cerrno>
@@ -291,16 +292,14 @@ int execute_single_command(string command, ShellState &state,
         if (first != string::npos && command[first] == '(') {
             // Find matching ')' respecting quotes + nesting.
             int depth = 0;
-            bool in_s = false, in_d = false;
+            tash::util::QuoteState qs;
             size_t close = string::npos;
             for (size_t k = first; k < command.size(); ++k) {
                 char ch = command[k];
-                if (ch == '\'' && !in_d) in_s = !in_s;
-                else if (ch == '"' && !in_s) in_d = !in_d;
-                else if (!in_s && !in_d && ch == '(') ++depth;
-                else if (!in_s && !in_d && ch == ')') {
-                    if (--depth == 0) { close = k; break; }
-                }
+                if (qs.consume(ch)) continue;
+                if (qs.any_active()) continue;
+                if (ch == '(') ++depth;
+                else if (ch == ')' && --depth == 0) { close = k; break; }
             }
             if (close == string::npos) {
                 size_t ln = 1, col = 1;
@@ -315,13 +314,12 @@ int execute_single_command(string command, ShellState &state,
             string trailing = command.substr(close + 1);
             bool has_pipe = false;
             {
-                bool is = false, id = false;
+                tash::util::QuoteState qs;
                 for (size_t k = 0; k < trailing.size(); ++k) {
                     char ch = trailing[k];
-                    if (ch == '\'' && !id) is = !is;
-                    else if (ch == '"' && !is) id = !id;
-                    else if (!is && !id && ch == '|' &&
-                             (k + 1 >= trailing.size() || trailing[k + 1] != '|')) {
+                    if (qs.consume(ch)) continue;
+                    if (!qs.any_active() && ch == '|' &&
+                        (k + 1 >= trailing.size() || trailing[k + 1] != '|')) {
                         has_pipe = true; break;
                     }
                 }
@@ -401,19 +399,20 @@ int execute_single_command(string command, ShellState &state,
     vector<string> pipe_segments;
     {
         string cur;
-        bool in_s = false, in_d = false;
+        tash::util::QuoteState qs;
         int depth = 0;
         for (size_t k = 0; k < command.size(); ++k) {
             char ch = command[k];
-            if (ch == '\'' && !in_d) in_s = !in_s;
-            else if (ch == '"' && !in_s) in_d = !in_d;
-            else if (!in_s && !in_d && ch == '(') ++depth;
-            else if (!in_s && !in_d && ch == ')') { if (depth > 0) --depth; }
-            else if (!in_s && !in_d && depth == 0 && ch == '|' &&
-                     (k + 1 >= command.size() || command[k + 1] != '|')) {
-                pipe_segments.push_back(cur);
-                cur.clear();
-                continue;
+            if (qs.consume(ch)) { cur += ch; continue; }
+            if (!qs.any_active()) {
+                if (ch == '(') ++depth;
+                else if (ch == ')') { if (depth > 0) --depth; }
+                else if (depth == 0 && ch == '|' &&
+                         (k + 1 >= command.size() || command[k + 1] != '|')) {
+                    pipe_segments.push_back(cur);
+                    cur.clear();
+                    continue;
+                }
             }
             cur += ch;
         }

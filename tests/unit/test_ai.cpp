@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <atomic>
+#include <thread>
 
 
 #include "tash/ai.h"
@@ -493,6 +495,36 @@ TEST(RateLimiter, BlocksOverLimit) {
     EXPECT_TRUE(limiter.allow());
     EXPECT_TRUE(limiter.allow());
     EXPECT_FALSE(limiter.allow());
+}
+
+// Concurrency regression: the old implementation read-modify-wrote the
+// timestamp vector without any locking. With N threads each calling
+// allow() K times under a budget of max_requests, the TOTAL number of
+// successes must never exceed max_requests. Without the mutex, racing
+// prune-then-append sequences could let more than max_requests through
+// in the same window (or corrupt the vector under TSan).
+TEST(RateLimiter, ThreadSafeUnderContention) {
+    const int max_requests = 50;
+    AiRateLimiter limiter(max_requests, 60);
+
+    std::atomic<int> allowed{0};
+    const int threads = 8;
+    const int per_thread = 200;
+    std::vector<std::thread> workers;
+    workers.reserve(threads);
+    for (int t = 0; t < threads; ++t) {
+        workers.emplace_back([&] {
+            for (int i = 0; i < per_thread; ++i) {
+                if (limiter.allow()) allowed.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+    for (auto &w : workers) w.join();
+
+    EXPECT_LE(allowed.load(), max_requests)
+        << "Rate limiter granted " << allowed.load()
+        << " allow()s with max_requests=" << max_requests
+        << " — concurrent callers raced past the window cap.";
 }
 
 // ═══════════════════════════════════════════════════════════════
