@@ -32,20 +32,11 @@ std::string shell_quote(std::string_view s) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 std::string tmux_new_session(const std::string& session, const std::string& cwd) {
-    // mkdir -p the cwd first. Fresh workspaces on HPC scratch often
-    // don't have the directory yet; tmux -c <cwd> then fails with
-    // "no such file or directory" before the session is created.
-    //
-    // setsid wraps tmux because our remote hop is `srun --jobid
-    // --overlap bash -c <cmd>`. srun kills the step's entire process
-    // group on exit; without setsid, the tmux server daemon (which
-    // `new-session -d` forks) gets swept up in that cleanup. setsid
-    // moves tmux to a new process group + session, so the server
-    // outlives the srun step. Subsequent srun steps (new-window,
-    // list-sessions, kill-window, etc.) then reconnect to the
-    // surviving server via its socket at /tmp/tmux-$UID/default.
+    // Run on the LOGIN node (see compose_remote_cmd for the
+    // architecture rationale). mkdir -p in case the cwd is a fresh
+    // scratch path the user never touched before.
     return "mkdir -p " + shell_quote(cwd) +
-           " && setsid tmux new-session -d -s " + shell_quote(session) +
+           " && tmux new-session -d -s " + shell_quote(session) +
              " -c " + shell_quote(cwd);
 }
 
@@ -81,20 +72,22 @@ std::string tmux_is_alive(const std::string& session, const std::string& window)
 // ══════════════════════════════════════════════════════════════════════════════
 
 std::string compose_remote_cmd(const RemoteTarget& target, const std::string& inner) {
-    // Preferred: run inside the SLURM allocation via srun. Works on any
-    // site that has a running job for this jobid; doesn't require
-    // login→compute ssh to be permitted.
-    if (!target.jobid.empty()) {
-        return "srun --jobid=" + shell_quote(target.jobid) +
-               " --overlap bash -c " + shell_quote(inner);
-    }
-    // Fallback: direct ssh to the compute node. Requires the site to
-    // allow unauthenticated login→compute hops (most CHPC-style sites
-    // do not — granite in particular rejects publickey there).
-    if (!target.node.empty()) {
+    // Architecture (for both jobid and login-only targets): the tmux
+    // *server* runs on the cluster's login node, because SLURM's
+    // cgroup-based proctrack kills everything — including supposedly-
+    // detached tmux servers — in a step's cgroup when the step ends.
+    // `tmux new-session -d` from inside any srun step would have its
+    // forked server killed immediately.
+    //
+    // The workload commands that want to run on the compute node get
+    // srun-wrapped INSIDE the tmux window's command string, not at
+    // this outer layer. See wrap_for_compute() in cluster_engine.cpp.
+    //
+    // Node-only targets (legacy ssh-to-compute path, kept for sites
+    // that permit it and don't provide a jobid) still get the ssh hop.
+    if (target.jobid.empty() && !target.node.empty()) {
         return "ssh " + shell_quote(target.node) + " " + shell_quote(inner);
     }
-    // Login-node target: run inner directly.
     return inner;
 }
 
@@ -105,28 +98,22 @@ std::string compose_remote_cmd(const RemoteTarget& target, const std::string& in
 std::vector<std::string> build_attach_argv(const RemoteTarget& target,
                                               const std::string& session,
                                               const std::string& window) {
+    // tmux server lives on the login node (see compose_remote_cmd).
+    // Attach is therefore just `ssh -t <login> tmux attach-session`;
+    // the srun step inside the window connects us to whatever workload
+    // is running on the compute side automatically.
     const std::string attach_cmd =
         "tmux attach-session -t " + shell_quote(session + ":" + window);
 
-    // ssh -t <login> is always present; TTY has to propagate end-to-end
-    // for tmux to attach properly.
     std::vector<std::string> argv = {"ssh", "-t", target.cluster};
-    if (!target.jobid.empty()) {
-        // srun --pty preserves the tty inside the allocation; no need
-        // for a second ssh hop.
-        argv.push_back("srun");
-        argv.push_back("--jobid=" + target.jobid);
-        argv.push_back("--overlap");
-        argv.push_back("--pty");
-        argv.push_back(attach_cmd);
-    } else if (!target.node.empty()) {
+    // Legacy compute-node-hosted path: only taken when explicitly
+    // directed at a compute node with no jobid.
+    if (target.jobid.empty() && !target.node.empty()) {
         argv.push_back("ssh");
         argv.push_back("-t");
         argv.push_back(target.node);
-        argv.push_back(attach_cmd);
-    } else {
-        argv.push_back(attach_cmd);
     }
+    argv.push_back(attach_cmd);
     return argv;
 }
 

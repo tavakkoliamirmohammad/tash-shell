@@ -134,16 +134,15 @@ TEST(ComposeRemoteCmd, NodeWrapsWithSshAndShellQuotesEverything) {
     EXPECT_NE(c.find("ssh 'notch123' 'tmux new-session -d'"), std::string::npos) << c;
 }
 
-TEST(ComposeRemoteCmd, JobidPrefersSrunOverSshNodeHop) {
-    // When both jobid and node are set, jobid wins — srun works on
-    // any SLURM cluster, ssh-to-compute is site-policy-dependent.
+TEST(ComposeRemoteCmd, JobidReturnsInnerUnchangedForLoginNodeTmux) {
+    // Architecture note: when a jobid is set, the tmux server lives
+    // on the login node (outside slurm's step cgroup cleanup), so
+    // compose_remote_cmd doesn't wrap in srun. The srun wrapping
+    // happens separately on the window's workload command, in
+    // cluster_engine.cpp::wrap_for_compute().
     RemoteTarget t{"c1", "notch123", /*jobid*/"1153518"};
     const auto c = compose_remote_cmd(t, "tmux new-session -d");
-    EXPECT_NE(c.find("srun --jobid='1153518' --overlap bash -c "),
-              std::string::npos) << c;
-    EXPECT_NE(c.find("'tmux new-session -d'"), std::string::npos) << c;
-    // ssh-to-node must NOT appear when jobid provides the hop.
-    EXPECT_EQ(c.find("ssh 'notch123'"), std::string::npos) << c;
+    EXPECT_EQ(c, "tmux new-session -d") << c;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -176,19 +175,20 @@ TEST(AttachArgv, HandlesEmptyNodeAsLoginLocal) {
     EXPECT_NE(joined.find("sess:w1"),    std::string::npos);
 }
 
-TEST(AttachArgv, JobidUsesSrunPtyOverSshNodeHop) {
+TEST(AttachArgv, JobidAttachesOnLoginWhereTmuxServerLives) {
+    // tmux server lives on the login node (see compose_remote_cmd
+    // architecture note). Attach is therefore `ssh -t <login> tmux
+    // attach-session` — the srun-wrapped workload inside the window
+    // takes care of connecting to the compute node transparently.
     RemoteTarget t{"granite", "grn081", /*jobid*/"1153518"};
     const auto argv = build_attach_argv(t, "smoke", "1");
-    // ssh -t <login> srun --jobid=... --overlap --pty tmux attach-session ...
-    ASSERT_GE(argv.size(), 6u);
+    ASSERT_EQ(argv.size(), 4u);
     EXPECT_EQ(argv[0], "ssh");
     EXPECT_EQ(argv[1], "-t");
     EXPECT_EQ(argv[2], "granite");
-    EXPECT_EQ(argv[3], "srun");
-    EXPECT_EQ(argv[4], "--jobid=1153518");
-    EXPECT_EQ(argv[5], "--overlap");
-    EXPECT_EQ(argv[6], "--pty");
-    // No second ssh hop to compute node when jobid hops through srun.
+    EXPECT_NE(argv[3].find("tmux attach-session"), std::string::npos) << argv[3];
+    EXPECT_NE(argv[3].find("smoke:1"),             std::string::npos) << argv[3];
+    // No compute-node hop at attach time.
     for (const auto& a : argv) EXPECT_NE(a, "grn081");
 }
 

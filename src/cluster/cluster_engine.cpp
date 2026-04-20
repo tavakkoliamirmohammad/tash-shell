@@ -526,6 +526,31 @@ std::string build_window_cmd(const std::string& cmd,
     return out;
 }
 
+// Single-quote a string for inclusion in a shell command on the
+// login node; matches the convention in slurm_parse::shq.
+std::string sq(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    out.push_back('\'');
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else           out.push_back(c);
+    }
+    out.push_back('\'');
+    return out;
+}
+
+// Wrap a shell command so it executes inside the SLURM allocation
+// via `srun --jobid --overlap`. Used so that the tmux session can
+// live on the login node (outside slurm's cgroup cleanup) while the
+// workload itself runs on the compute node where sbatch allocated
+// resources. When the target isn't a SLURM allocation (no jobid),
+// returns cmd verbatim.
+std::string wrap_for_compute(const std::string& jobid, const std::string& cmd) {
+    if (jobid.empty()) return cmd;
+    return "srun --jobid=" + jobid + " --overlap bash -c " + sq(cmd);
+}
+
 }  // namespace
 
 // ── launch ─────────────────────────────────────────────────────────
@@ -652,7 +677,13 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
     // 5. Spawn the window. On ssh / tmux hard failure, roll back any
     // workspace we created in step 3 so the registry never records a
     // half-built workspace with no instances.
-    const std::string window_cmd = build_window_cmd(cmd, env_vars);
+    //
+    // The tmux server lives on the login node, so the raw cmd here
+    // would run on login. Wrap in `srun --jobid --overlap` so the
+    // user's workload actually executes on the allocated compute
+    // node (and is killed by scancel with the allocation).
+    const std::string window_cmd_raw = build_window_cmd(cmd, env_vars);
+    const std::string window_cmd = wrap_for_compute(alloc.jobid, window_cmd_raw);
     if (!tmux_.new_window(target, session_name, inst.tmux_window, cwd, window_cmd, ssh_)) {
         if (workspace_was_new) {
             // Pop the workspace we just added — safe because ws points

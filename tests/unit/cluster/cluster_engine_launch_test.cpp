@@ -86,7 +86,10 @@ TEST(ClusterEngineLaunch, NewWorkspaceCreatesSessionAndWindow) {
     EXPECT_EQ(h.tmux.new_session_calls[0].target.node,    "n1");
 
     ASSERT_EQ(h.tmux.new_window_calls.size(), 1u);
-    EXPECT_EQ(h.tmux.new_window_calls[0].cmd, "claude");
+    // cmd is srun-wrapped so it runs on the compute node even though
+    // the tmux window itself lives in the login-node tmux server.
+    EXPECT_EQ(h.tmux.new_window_calls[0].cmd,
+              "srun --jobid=1001 --overlap bash -c 'claude'");
 
     // Registry updated
     auto* a = h.reg.find_allocation("c1:1001");
@@ -146,7 +149,8 @@ TEST(ClusterEngineLaunch, PresetCommandPropagates) {
     auto r = h.engine().launch(ls);
     ASSERT_NE(std::get_if<Instance>(&r), nullptr);
     ASSERT_EQ(h.tmux.new_window_calls.size(), 1u);
-    EXPECT_EQ(h.tmux.new_window_calls[0].cmd, "python train.py --batch 32");
+    EXPECT_EQ(h.tmux.new_window_calls[0].cmd,
+              "srun --jobid=1001 --overlap bash -c 'python train.py --batch 32'");
 }
 
 // ── 4. Ad-hoc --cmd bypasses preset lookup ─────────────────────────
@@ -164,7 +168,8 @@ TEST(ClusterEngineLaunch, AdHocCmdBypassesPreset) {
     auto r = h.engine().launch(ls);
     ASSERT_NE(std::get_if<Instance>(&r), nullptr) << std::get<EngineError>(r).message;
     ASSERT_EQ(h.tmux.new_window_calls.size(), 1u);
-    EXPECT_EQ(h.tmux.new_window_calls[0].cmd, "bash -i");
+    EXPECT_EQ(h.tmux.new_window_calls[0].cmd,
+              "srun --jobid=1001 --overlap bash -c 'bash -i'");
 }
 
 // ── 5. Window exits within 2s → Exited + notifier fires ────────────

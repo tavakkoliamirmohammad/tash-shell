@@ -251,7 +251,10 @@ TEST(ClusterBuiltin, LaunchDispatches) {
     EXPECT_NE(out.str().find("launched"), std::string::npos) << out.str();
     ASSERT_EQ(h.tmux.new_session_calls.size(), 1u);
     ASSERT_EQ(h.tmux.new_window_calls.size(), 1u);
-    EXPECT_EQ(h.tmux.new_window_calls[0].cmd, "bash");
+    // cmd is srun-wrapped so the login-node tmux window's child
+    // actually runs on the compute node.
+    EXPECT_EQ(h.tmux.new_window_calls[0].cmd,
+              "srun --jobid=100 --overlap bash -c 'bash'");
 }
 
 TEST(ClusterBuiltin, LaunchMissingWorkspaceErrors) {
