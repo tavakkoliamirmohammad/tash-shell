@@ -122,14 +122,27 @@ struct RealMode {
             }
         });
 
-        // Watcher hook: use the no-op factory for now. The real
-        // ssh-tail watcher (make_ssh_tail_watcher_factory) exists
-        // but is opt-in; wiring it unconditionally would spawn a
-        // background `ssh tail -F` per Running allocation the first
-        // time a user opens a tash shell, which is too much surprise
-        // for v1 real-cluster enablement.
+        // Real ssh-tail watcher: for each Running allocation, spawn a
+        // background `ssh <cluster> tail -F ~/.tash-cluster/events/...`
+        // that decodes stop-hook JSON events and fires a desktop
+        // notification via the platform notifier. Allocations with no
+        // workspaces / events at startup just idle until one appears.
+        auto cluster_resolver = [this](const Allocation& a) -> std::string {
+            if (const Cluster* cl = find_cluster(cfg, a.cluster))
+                return cl->ssh_host;
+            return a.cluster;
+        };
+        auto event_dir_resolver = [](const Allocation&) -> std::string {
+            // Engine sets TASH_CLUSTER_EVENT_DIR = "$HOME/.tash-cluster/events"
+            // in every launched window; the watcher's tail -F resolves
+            // the same path remotely.
+            return "$HOME/.tash-cluster/events";
+        };
         watcher_hook = std::make_unique<ClusterWatcherHookProvider>(
-            reg, default_watcher_factory());
+            reg,
+            make_ssh_tail_watcher_factory(std::move(cluster_resolver),
+                                            std::move(event_dir_resolver),
+                                            *notify));
 
         ShellState state{};
         watcher_hook->on_startup(state);
