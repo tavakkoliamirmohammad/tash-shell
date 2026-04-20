@@ -95,6 +95,82 @@ std::vector<std::string> build_disconnect_argv(const SshFlags& f) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// install_remote_file — base64-encoded one-shot transport
+// ══════════════════════════════════════════════════════════════════════════════
+
+namespace {
+
+constexpr char kB64Alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+std::string base64_encode(const std::string& in) {
+    std::string out;
+    out.reserve(((in.size() + 2) / 3) * 4);
+    std::size_t i = 0;
+    for (; i + 3 <= in.size(); i += 3) {
+        const unsigned x = (static_cast<unsigned char>(in[i])   << 16) |
+                           (static_cast<unsigned char>(in[i+1]) <<  8) |
+                            static_cast<unsigned char>(in[i+2]);
+        out += kB64Alphabet[(x >> 18) & 0x3f];
+        out += kB64Alphabet[(x >> 12) & 0x3f];
+        out += kB64Alphabet[(x >>  6) & 0x3f];
+        out += kB64Alphabet[ x        & 0x3f];
+    }
+    if (i < in.size()) {
+        unsigned x = static_cast<unsigned char>(in[i]) << 16;
+        if (i + 1 < in.size()) x |= static_cast<unsigned char>(in[i+1]) << 8;
+        out += kB64Alphabet[(x >> 18) & 0x3f];
+        out += kB64Alphabet[(x >> 12) & 0x3f];
+        out += (i + 1 < in.size()) ? kB64Alphabet[(x >> 6) & 0x3f] : '=';
+        out += '=';
+    }
+    return out;
+}
+
+// Shell-quote a path for safe embedding in a single-quoted sh string.
+// POSIX sh single-quoted strings end at the first ' — so we escape any
+// ' in the path as '\''. Nothing else needs escaping inside '…'.
+std::string sh_single_quote(const std::string& s) {
+    std::string out = "'";
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else           out += c;
+    }
+    out += '\'';
+    return out;
+}
+
+}  // namespace
+
+std::vector<std::string> build_install_file_argv(const std::string& content,
+                                                   const std::string& remote_path) {
+    // `sh -c 'mkdir -p <dir> && printf %s <b64> | base64 -d > <path> && chmod 0755 <path>'`
+    const auto slash = remote_path.find_last_of('/');
+    const std::string parent =
+        (slash == std::string::npos) ? "." : remote_path.substr(0, slash);
+
+    const std::string b64 = base64_encode(content);
+
+    std::string cmd;
+    cmd += "mkdir -p -- ";       cmd += sh_single_quote(parent);
+    cmd += " && printf %s ";     cmd += sh_single_quote(b64);
+    cmd += " | base64 -d > ";    cmd += sh_single_quote(remote_path);
+    cmd += " && chmod 0755 ";    cmd += sh_single_quote(remote_path);
+
+    return {"/bin/sh", "-c", cmd};
+}
+
+bool install_remote_file(ISshClient& ssh,
+                          const std::string& cluster,
+                          const std::string& content,
+                          const std::string& remote_path) {
+    const auto r = ssh.run(cluster,
+                             build_install_file_argv(content, remote_path),
+                             std::chrono::seconds{15});
+    return r.exit_code == 0;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Process-level spawner (local — safe_exec doesn't give us stderr).
 // ══════════════════════════════════════════════════════════════════════════════
 

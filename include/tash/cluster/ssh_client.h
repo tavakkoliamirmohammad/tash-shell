@@ -70,6 +70,24 @@ std::vector<std::string> build_master_check_argv (const SshFlags&);
 std::vector<std::string> build_connect_argv    (const SshFlags&);   // background master
 std::vector<std::string> build_disconnect_argv (const SshFlags&);   // ssh -O exit
 
+// Installs `content` at `remote_path` on the given cluster by piping
+// it through an ssh-driven shell that base64-decodes the content
+// (safe even for scripts containing arbitrary quoting/control chars).
+// The parent directory is created; the file is chmod'd 0755 so it can
+// be exec'd as a hook script.
+//
+// Returns true iff ssh exits 0. On failure the engine MUST NOT
+// proceed as though the hook is installed.
+bool install_remote_file(ISshClient& ssh,
+                          const std::string& cluster,
+                          const std::string& content,
+                          const std::string& remote_path);
+
+// Pure helper — produces the argv for install_remote_file. Exported
+// so tests can verify the command structure without spawning ssh.
+std::vector<std::string> build_install_file_argv(const std::string& content,
+                                                   const std::string& remote_path);
+
 }  // namespace tash::cluster
 
 #endif  // TASH_CLUSTER_SSH_CLIENT_H

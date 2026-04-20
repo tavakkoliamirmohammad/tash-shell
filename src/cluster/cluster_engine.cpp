@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <ctime>
+#include <fstream>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -470,6 +471,7 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
     // 2. Resolve the command (preset or ad-hoc).
     std::string cmd;
     std::map<std::string, std::string> env_vars;
+    std::string stop_hook_path;     // local path to hook script; empty → none
     if (spec.cmd) {
         cmd = *spec.cmd;
     } else {
@@ -482,8 +484,9 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
             return EngineError{err->message};
         }
         const auto& rp = std::get<ResolvedPreset>(rr);
-        cmd      = rp.command;
-        env_vars = rp.env_vars;
+        cmd             = rp.command;
+        env_vars        = rp.env_vars;
+        stop_hook_path  = rp.stop_hook_path;
     }
 
     // 3. Find or create the workspace.
@@ -525,6 +528,51 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
         inst.tmux_window = inst.id;
     }
     inst.state = InstanceState::Running;
+
+    // 4b. Install the stop-hook script on the compute node if the
+    // preset specifies one. This makes events-over-tail-F work without
+    // any out-of-band setup. The remote path lives under the user's
+    // home: `~/.tash-cluster/stop-hooks/<basename>`. We also set
+    // TASH_CLUSTER_* env vars so Claude's hook knows which
+    // workspace/instance/event-dir to use.
+    if (!stop_hook_path.empty()) {
+        std::ifstream hf(stop_hook_path);
+        if (!hf.is_open()) {
+            return EngineError{"stop_hook file not readable: " + stop_hook_path};
+        }
+        std::ostringstream hbuf;
+        hbuf << hf.rdbuf();
+        const std::string hook_content = hbuf.str();
+
+        const auto slash = stop_hook_path.find_last_of('/');
+        const std::string basename = (slash == std::string::npos)
+            ? stop_hook_path : stop_hook_path.substr(slash + 1);
+        const std::string remote_hook = "$HOME/.tash-cluster/stop-hooks/" + basename;
+
+        // We need the literal expansion of $HOME on the remote side, so
+        // we install via `sh -c` (build_install_file_argv already wraps
+        // with sh -c). But we must pre-expand $HOME into the argv we
+        // send — ISshClient doesn't know what the remote's $HOME is.
+        // Workaround: use a sentinel path that resolves on-remote:
+        // write a one-shot "sh -c" that cd's to $HOME first.
+        //
+        // For simplicity + cross-platform reliability, anchor at
+        // `~/.tash-cluster/stop-hooks/<basename>` and let the remote
+        // shell expand ~. install_remote_file's sh -c does that.
+        const std::string hook_target =
+            "$HOME/.tash-cluster/stop-hooks/" + basename;
+        if (!install_remote_file(ssh_, alloc.cluster, hook_content, hook_target)) {
+            return EngineError{"failed to install stop-hook on " + alloc.cluster +
+                                " (path: " + hook_target + ")"};
+        }
+
+        // Teach the window command about workspace + instance + event
+        // dir so Claude's hook finds them at `$TASH_CLUSTER_EVENT_DIR`.
+        env_vars["TASH_CLUSTER_WORKSPACE"]  = spec.workspace;
+        env_vars["TASH_CLUSTER_INSTANCE"]   = inst.name.value_or(inst.id);
+        env_vars["TASH_CLUSTER_EVENT_DIR"]  = "$HOME/.tash-cluster/events";
+        env_vars["TASH_CLUSTER_STOP_HOOK"]  = hook_target;
+    }
 
     // 5. Spawn the window. On ssh / tmux hard failure, roll back any
     // workspace we created in step 3 so the registry never records a

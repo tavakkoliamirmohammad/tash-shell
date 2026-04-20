@@ -90,6 +90,78 @@ TEST(SshClientArgv, ConnectUsesBatchModeOffForPasswordPrompts) {
     EXPECT_EQ(j.find("BatchMode=yes"), std::string::npos) << j;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// install_remote_file argv — base64 encode + sh -c pipeline
+// ══════════════════════════════════════════════════════════════════════════════
+TEST(SshInstallFile, ArgvIsShDashC) {
+    const auto argv = build_install_file_argv("hi\n", "/tmp/hook.sh");
+    ASSERT_EQ(argv.size(), 3u);
+    EXPECT_EQ(argv[0], "/bin/sh");
+    EXPECT_EQ(argv[1], "-c");
+}
+
+TEST(SshInstallFile, CommandIncludesMkdirAndChmodAndBase64) {
+    const auto argv = build_install_file_argv("#!/bin/sh\necho hi\n",
+                                                "/home/u/.tash-cluster/stop-hooks/x.sh");
+    const std::string& cmd = argv[2];
+    EXPECT_NE(cmd.find("mkdir -p"),  std::string::npos) << cmd;
+    EXPECT_NE(cmd.find("chmod 0755"), std::string::npos);
+    EXPECT_NE(cmd.find("base64 -d"),  std::string::npos);
+    // Parent directory mention.
+    EXPECT_NE(cmd.find("/home/u/.tash-cluster/stop-hooks"), std::string::npos);
+    // Destination path mention.
+    EXPECT_NE(cmd.find("/home/u/.tash-cluster/stop-hooks/x.sh"), std::string::npos);
+}
+
+TEST(SshInstallFile, PathsWithSingleQuotesAreShellEscaped) {
+    // Synthetic path containing a single quote — must be split by `'\''`
+    // inside the sh -c single-quoted string.
+    const auto argv = build_install_file_argv("x", "/tmp/it's/hook.sh");
+    const std::string& cmd = argv[2];
+    EXPECT_NE(cmd.find("'\\''"), std::string::npos) << cmd;
+}
+
+TEST(SshInstallFile, BinaryContentSurvivesBase64Roundtrip) {
+    // Build a local file containing null bytes and non-printable chars;
+    // assert the command contains base64 that decodes back to the
+    // original. We decode the base64 ourselves here to avoid a real ssh.
+    std::string input;
+    for (int i = 0; i < 256; ++i) input.push_back(static_cast<char>(i));
+
+    const auto argv = build_install_file_argv(input, "/tmp/b.bin");
+    const std::string& cmd = argv[2];
+
+    // Extract the base64 blob between "printf %s '" and "'" (the next
+    // unescaped single quote). Our path has no quotes, so this is safe.
+    const std::string marker = "printf %s '";
+    const auto p0 = cmd.find(marker);
+    ASSERT_NE(p0, std::string::npos) << cmd;
+    const auto start = p0 + marker.size();
+    const auto end   = cmd.find('\'', start);
+    ASSERT_NE(end, std::string::npos);
+    const std::string b64 = cmd.substr(start, end - start);
+
+    // Decode and compare. Tiny inline base64 decoder for the test.
+    auto dec = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    std::string out;
+    for (std::size_t i = 0; i + 3 < b64.size(); i += 4) {
+        const int a = dec(b64[i]), b = dec(b64[i+1]);
+        const int c = b64[i+2] == '=' ? -1 : dec(b64[i+2]);
+        const int d = b64[i+3] == '=' ? -1 : dec(b64[i+3]);
+        out += static_cast<char>((a << 2) | (b >> 4));
+        if (c >= 0) out += static_cast<char>(((b & 0xf) << 4) | (c >> 2));
+        if (d >= 0) out += static_cast<char>(((c & 0x3) << 6) | d);
+    }
+    EXPECT_EQ(out, input);
+}
+
 TEST(SshClientArgv, DisconnectUsesDashOExit) {
     const auto argv = build_disconnect_argv(sample_flags());
     const std::string j = join(argv);
