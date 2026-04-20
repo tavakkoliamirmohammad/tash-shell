@@ -3,6 +3,7 @@
 #include "tash/core/executor.h"
 #include "tash/core/parser.h"
 #include "tash/shell.h"
+#include "tash/util/quote_state.h"
 
 #include <algorithm>
 #include <sstream>
@@ -105,22 +106,16 @@ static int compare_json(const JsonValue &a, const JsonValue &b) {
 static std::vector<std::string> tokenize_args(const std::string &input) {
     std::vector<std::string> tokens;
     std::string current;
-    bool in_double = false;
-    bool in_single = false;
+    tash::util::QuoteState qs;
     size_t i = 0;
     size_t len = input.size();
 
     while (i < len) {
         char c = input[i];
-        if (c == '"' && !in_single) {
-            in_double = !in_double;
+        if (qs.consume(c)) {
             current += c;
             ++i;
-        } else if (c == '\'' && !in_double) {
-            in_single = !in_single;
-            current += c;
-            ++i;
-        } else if (!in_double && !in_single && (c == ' ' || c == '\t')) {
+        } else if (!qs.any_active() && (c == ' ' || c == '\t')) {
             std::string t = trim_str(current);
             if (!t.empty()) tokens.push_back(t);
             current.clear();
@@ -140,16 +135,12 @@ static std::vector<std::string> tokenize_args(const std::string &input) {
 // ═══════════════════════════════════════════════════════════════
 
 bool has_structured_pipe(const std::string &line) {
-    bool in_double = false;
-    bool in_single = false;
+    tash::util::QuoteState qs;
     size_t len = line.size();
     for (size_t i = 0; i < len; ++i) {
         char c = line[i];
-        if (c == '"' && !in_single) {
-            in_double = !in_double;
-        } else if (c == '\'' && !in_double) {
-            in_single = !in_single;
-        } else if (!in_double && !in_single && c == '|' && i + 1 < len && line[i + 1] == '>') {
+        if (qs.consume(c)) continue;
+        if (!qs.any_active() && c == '|' && i + 1 < len && line[i + 1] == '>') {
             return true;
         }
     }
@@ -159,19 +150,14 @@ bool has_structured_pipe(const std::string &line) {
 std::vector<PipelineSegment> split_pipeline(const std::string &line) {
     std::vector<PipelineSegment> segments;
     std::string current;
-    bool in_double = false;
-    bool in_single = false;
+    tash::util::QuoteState qs;
     size_t len = line.size();
 
     for (size_t i = 0; i < len; ++i) {
         char c = line[i];
-        if (c == '"' && !in_single) {
-            in_double = !in_double;
+        if (qs.consume(c)) {
             current += c;
-        } else if (c == '\'' && !in_double) {
-            in_single = !in_single;
-            current += c;
-        } else if (!in_double && !in_single && c == '|' && i + 1 < len && line[i + 1] == '>') {
+        } else if (!qs.any_active() && c == '|' && i + 1 < len && line[i + 1] == '>') {
             std::string seg = trim_str(current);
             if (!seg.empty()) {
                 PipelineSegment ps;

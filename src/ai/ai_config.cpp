@@ -343,17 +343,16 @@ AiRateLimiter::AiRateLimiter(int max_requests, int window_seconds)
     : max_requests_(max_requests), window_seconds_(window_seconds) {}
 
 bool AiRateLimiter::allow() {
+    std::lock_guard<std::mutex> lk(mu_);
     time_t now = time(NULL);
     time_t cutoff = now - window_seconds_;
 
-    // Prune timestamps older than the window
-    vector<time_t> valid;
-    for (size_t i = 0; i < timestamps_.size(); i++) {
-        if (timestamps_[i] > cutoff) {
-            valid.push_back(timestamps_[i]);
-        }
-    }
-    timestamps_ = valid;
+    // Erase-remove in place; avoids allocating a scratch vector on the
+    // hot path.
+    timestamps_.erase(
+        std::remove_if(timestamps_.begin(), timestamps_.end(),
+                       [cutoff](time_t t) { return t <= cutoff; }),
+        timestamps_.end());
 
     if (static_cast<int>(timestamps_.size()) >= max_requests_) {
         return false;

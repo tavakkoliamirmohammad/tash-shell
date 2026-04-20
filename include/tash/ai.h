@@ -5,6 +5,7 @@
 #include "tash/llm_client.h"
 #include "tash/shell.h"
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -76,17 +77,18 @@ private:
     int max_requests_;
     int window_seconds_;
     std::vector<time_t> timestamps_;
+    // Locked on every allow() call. The AI-error-recovery hook already
+    // fires from background threads in some transports, and the Ollama
+    // streaming path can progress via libcurl's xfer callback while the
+    // REPL thread dispatches another @ai — races would both under- and
+    // over-count the bucket. Mutex cost is negligible next to network IO.
+    mutable std::mutex mu_;
 };
 
 // Process-wide rate limiter shared between @ai and the auto-error-recovery
 // hook so they cannot together exceed the provider's RPM quota. Configured
 // once at first access (default: 10 requests / 60s, matching Gemini free
 // tier).
-//
-// NOT thread-safe. `allow()` mutates the internal timestamp vector
-// without locking; every current caller is on the main REPL thread, so
-// the race is latent. If a future caller fires the limiter from a
-// background thread, add a std::mutex around the vector access.
 AiRateLimiter& global_ai_rate_limiter();
 
 // ── Provider Config ──────────────────────────────────────────
