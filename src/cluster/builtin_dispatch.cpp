@@ -73,6 +73,8 @@ void print_toplevel_help(std::ostream& out) {
            "usage: cluster <subcommand> [options]\n"
            "\n"
            "subcommands:\n"
+           "  connect     open the ssh ControlMaster (password + Duo once)\n"
+           "  disconnect  close the ssh ControlMaster for a cluster\n"
            "  up       submit a new allocation\n"
            "  launch   start a long-running instance in a workspace\n"
            "  attach   attach to a running instance\n"
@@ -164,6 +166,19 @@ void print_subcommand_help(std::string_view sub, std::ostream& out) {
                "\n"
                "Reads $HOME/.tash-cluster/events/<workspace>/<instance>.event\n"
                "on the compute node via ssh and prints the last N lines of each.\n";
+    } else if (sub == "connect") {
+        out << "cluster connect — open the ssh ControlMaster for a cluster\n"
+               "\n"
+               "usage: cluster connect <cluster>\n"
+               "\n"
+               "Spawns a backgrounded `ssh -M -N -f <host>` so subsequent\n"
+               "cluster commands multiplex over one auth (password + Duo\n"
+               "once per ControlPersist window). The socket lives under\n"
+               "$TASH_CLUSTER_HOME/sockets or ~/.tash/cluster/sockets.\n";
+    } else if (sub == "disconnect") {
+        out << "cluster disconnect — close the ssh ControlMaster for a cluster\n"
+               "\n"
+               "usage: cluster disconnect <cluster>\n";
     } else {
         print_toplevel_help(out);
     }
@@ -593,6 +608,46 @@ int cmd_doctor(std::vector<std::string> rest, ClusterEngine& eng,
     return any_fail ? 1 : 0;
 }
 
+int cmd_connect(std::vector<std::string> rest, ClusterEngine& eng,
+                 std::ostream& out, std::ostream& err) {
+    if (handled_help(rest, "connect", out)) return 0;
+    auto pos = positionals(rest);
+    if (pos.size() != 1) {
+        print_err(err, "cluster connect: expected exactly one cluster name");
+        return 1;
+    }
+    const std::string& name = pos[0];
+    if (!find_cluster(eng.config(), name)) {
+        print_err(err, "cluster connect: unknown cluster '" + name +
+                          "' (not in config.toml)");
+        return 1;
+    }
+    out << "opening ssh ControlMaster for " << name
+        << " (password + Duo may prompt on first connect)...\n";
+    out.flush();
+    eng.connect(name);
+    if (eng.master_alive(name)) {
+        out << "connected: ControlMaster is live\n";
+        return 0;
+    }
+    print_err(err, "cluster connect: ssh master did not come up for " + name);
+    return 1;
+}
+
+int cmd_disconnect(std::vector<std::string> rest, ClusterEngine& eng,
+                    std::ostream& out, std::ostream& err) {
+    if (handled_help(rest, "disconnect", out)) return 0;
+    auto pos = positionals(rest);
+    if (pos.size() != 1) {
+        print_err(err, "cluster disconnect: expected exactly one cluster name");
+        return 1;
+    }
+    const std::string& name = pos[0];
+    eng.disconnect(name);
+    out << "disconnected " << name << "\n";
+    return 0;
+}
+
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -618,6 +673,8 @@ int dispatch_cluster(const std::vector<std::string>& argv,
     }
     std::vector<std::string> rest(argv.begin() + 2, argv.end());
 
+    if (sub == "connect")    return cmd_connect   (std::move(rest), eng, out, err);
+    if (sub == "disconnect") return cmd_disconnect(std::move(rest), eng, out, err);
     if (sub == "up")     return cmd_up    (std::move(rest), eng, out, err);
     if (sub == "launch") return cmd_launch(std::move(rest), eng, out, err);
     if (sub == "attach") return cmd_attach(std::move(rest), eng, out, err);

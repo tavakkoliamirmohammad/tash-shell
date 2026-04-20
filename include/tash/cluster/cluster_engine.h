@@ -176,6 +176,15 @@ public:
     IPrompt&        prompt()          { return prompt_; }
     INotifier&      notifier()        { return notify_; }
 
+    // Pre-warm / tear down the per-cluster ssh ControlMaster. Used by
+    // `cluster connect <name>` (the one explicit interactive handshake
+    // per session where password + Duo are typed) and its `disconnect`
+    // counterpart. Both are idempotent on the engine side; the ssh
+    // impl decides whether a new master is actually spawned.
+    void connect   (const std::string& cluster) { ssh_.connect(cluster); }
+    void disconnect(const std::string& cluster) { ssh_.disconnect(cluster); }
+    bool master_alive(const std::string& cluster) { return ssh_.master_alive(cluster); }
+
 private:
     const Config& cfg_;
     Registry&     reg_;
