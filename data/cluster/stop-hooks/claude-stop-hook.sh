@@ -24,7 +24,15 @@ set -euo pipefail
 
 ws="${TASH_CLUSTER_WORKSPACE:-unknown}"
 inst="${TASH_CLUSTER_INSTANCE:-unknown}"
-event_dir="${TASH_CLUSTER_EVENT_DIR:-$HOME/.tash-cluster/events}"
+
+# TASH_CLUSTER_EVENT_DIR often arrives as the literal string
+# "$HOME/.tash-cluster/events" — tash sets env vars with their values
+# single-quoted through the srun wrap, so shell-expansion-time chars
+# like `$HOME` aren't resolved at assignment. `eval echo` re-evaluates
+# the value through one pass of parameter + tilde expansion, giving
+# us an absolute on-disk path.
+raw_event_dir="${TASH_CLUSTER_EVENT_DIR:-$HOME/.tash-cluster/events}"
+event_dir=$(eval echo "$raw_event_dir")
 
 mkdir -p -- "$event_dir/$ws"
 
