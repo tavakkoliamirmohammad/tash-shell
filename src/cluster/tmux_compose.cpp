@@ -32,7 +32,11 @@ std::string shell_quote(std::string_view s) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 std::string tmux_new_session(const std::string& session, const std::string& cwd) {
-    return "tmux new-session -d -s " + shell_quote(session) +
+    // mkdir -p the cwd first. Fresh workspaces on HPC scratch often
+    // don't have the directory yet; tmux -c <cwd> then fails with
+    // "no such file or directory" before the session is created.
+    return "mkdir -p " + shell_quote(cwd) +
+           " && tmux new-session -d -s " + shell_quote(session) +
              " -c " + shell_quote(cwd);
 }
 

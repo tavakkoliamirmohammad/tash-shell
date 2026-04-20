@@ -35,6 +35,16 @@ public:
         // new_window call still works. Any other failure is real.
         const bool dup_ok = r.err.find("duplicate session") != std::string::npos ||
                              r.out.find("duplicate session") != std::string::npos;
+        if (!dup_ok) {
+            // Emit the actual remote stderr to help the caller's user
+            // diagnose cluster-side issues (missing srun flag, missing
+            // directory, missing tmux, etc.). write to tash's real stderr.
+            std::fprintf(stderr,
+                "tash: cluster: tmux new-session stderr: %s\n", r.err.c_str());
+            if (!r.out.empty())
+                std::fprintf(stderr,
+                    "tash: cluster: tmux new-session stdout: %s\n", r.out.c_str());
+        }
         return dup_ok;
     }
 
