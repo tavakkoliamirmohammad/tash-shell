@@ -47,8 +47,13 @@ public:
     virtual void stop() = 0;
 };
 
+// Factory returns shared_ptr because a watcher's lifetime spans (at
+// least) the provider's container, the running thread's lambda
+// capture, and — for tests that observe post-stop state — the test
+// fixture itself. A unique_ptr would force the thread to hold the
+// only strong ref, making post-teardown inspection a UAF.
 using WatcherFactory =
-    std::function<std::unique_ptr<IWatcher>(const Allocation&, Registry&)>;
+    std::function<std::shared_ptr<IWatcher>(const Allocation&, Registry&)>;
 
 // Production factory — today returns a NoOpWatcher that idles until
 // stopped; M3.3 extends it to open `ssh <cluster> tail -F …` and

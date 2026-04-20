@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Shared runner for tash cluster Tier-2 stub binaries.
 #
 # Each stub in this dir is a wrapper that invokes:
@@ -15,11 +15,14 @@
 # tests branch on the remote command — for example:
 #     ssh_stdout_for_argv_contains_squeue="..."
 # When the remote argv contains "squeue", that value overrides SSH_STDOUT.
+#
+# POSIX sh-compatible (runs on Alpine busybox ash, dash, bash). Uses
+# `eval` for indirect variable expansion because ${!var} is bash-only.
 
-set -euo pipefail
+set -eu
 
 name="$1"; shift
-upper="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')"
+upper=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
 
 log="${TASH_FAKE_LOG:-/dev/null}"
 {
@@ -28,18 +31,17 @@ log="${TASH_FAKE_LOG:-/dev/null}"
     printf '\n'
 } >> "$log"
 
-if [[ -n "${TASH_FAKE_SCENARIO:-}" && -r "${TASH_FAKE_SCENARIO}" ]]; then
+if [ -n "${TASH_FAKE_SCENARIO:-}" ] && [ -r "${TASH_FAKE_SCENARIO}" ]; then
     # shellcheck disable=SC1090
-    source "${TASH_FAKE_SCENARIO}"
+    . "${TASH_FAKE_SCENARIO}"
 fi
 
 # ssh-specific per-subcommand branching. If any argv token matches a
 # known routing key, swap the stdout/exit vars. The test can set e.g.
 #   ssh_stdout_squeue="..." ssh_exit_squeue="0"
 # to override just the ssh-invokes-squeue case.
-if [[ "$name" == "ssh" ]]; then
+if [ "$name" = "ssh" ]; then
     for arg in "$@"; do
-        # Only inspect the first token that matches a known SLURM command.
         case "$arg" in
             *sbatch*)  swap_stdout="${ssh_stdout_sbatch:-}"; swap_exit="${ssh_exit_sbatch:-}";;
             *squeue*)  swap_stdout="${ssh_stdout_squeue:-}"; swap_exit="${ssh_exit_squeue:-}";;
@@ -48,16 +50,19 @@ if [[ "$name" == "ssh" ]]; then
             *tmux*)    swap_stdout="${ssh_stdout_tmux:-}";   swap_exit="${ssh_exit_tmux:-}";;
             *)         continue;;
         esac
-        [[ -n "${swap_stdout:-}" ]] && SSH_STDOUT="$swap_stdout"
-        [[ -n "${swap_exit:-}" ]]   && SSH_EXIT="$swap_exit"
+        [ -n "${swap_stdout:-}" ] && SSH_STDOUT="$swap_stdout"
+        [ -n "${swap_exit:-}" ]   && SSH_EXIT="$swap_exit"
         break
     done
 fi
 
-stdout_var="${upper}_STDOUT"
-stderr_var="${upper}_STDERR"
-exit_var="${upper}_EXIT"
+# POSIX-sh indirect expansion: `eval val="\${VAR:-}"` evaluates the
+# outer `eval` first (substituting $VAR's name into the string), then
+# the resulting `val="${ACTUAL_VAR:-}"` runs normally. No bashism.
+eval "stdout_val=\"\${${upper}_STDOUT:-}\""
+eval "stderr_val=\"\${${upper}_STDERR:-}\""
+eval "exit_val=\"\${${upper}_EXIT:-0}\""
 
-printf '%s' "${!stdout_var:-}"
-printf '%s' "${!stderr_var:-}" >&2
-exit "${!exit_var:-0}"
+printf '%s' "$stdout_val"
+printf '%s' "$stderr_val" >&2
+exit "$exit_val"

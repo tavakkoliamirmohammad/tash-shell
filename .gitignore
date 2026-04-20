@@ -84,6 +84,7 @@ Testing/
 *.out
 .claude/
 .worktrees/
+docs/superpowers/
 
 # Developer-personal real-cluster smoke profile (template is checked in).
 tests/smoke/cluster/smoke-profile.toml

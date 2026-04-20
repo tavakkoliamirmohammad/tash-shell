@@ -35,10 +35,9 @@ void ClusterWatcherHookProvider::on_startup(ShellState& /*state*/) {
     for (const auto& a : reg_->allocations) {
         if (a.state != AllocationState::Running) continue;
 
-        auto up = factory_(a, *reg_);
-        if (!up) continue;   // factory opted out for this allocation
+        auto sp = factory_(a, *reg_);
+        if (!sp) continue;   // factory opted out for this allocation
 
-        std::shared_ptr<IWatcher> sp(std::move(up));
         watchers_.push_back(sp);
         // Capture `sp` by value so the watcher stays alive as long as
         // this thread is running — even if the provider later clears
@@ -161,8 +160,8 @@ private:
 }  // namespace
 
 WatcherFactory default_watcher_factory() {
-    return [](const Allocation&, Registry&) -> std::unique_ptr<IWatcher> {
-        return std::make_unique<NoOpWatcher>();
+    return [](const Allocation&, Registry&) -> std::shared_ptr<IWatcher> {
+        return std::make_shared<NoOpWatcher>();
     };
 }
 

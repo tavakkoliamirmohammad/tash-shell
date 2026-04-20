@@ -546,6 +546,14 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME cluster_piped_line_source
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/piped_line_source.cpp
+    TEST_SOURCES tests/unit/cluster/piped_line_source_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
     NAME cluster_watcher_fallback
     REQUIRES TASH_CLUSTER_ENABLED
     TEST_SOURCES tests/unit/cluster/watcher_fallback_test.cpp

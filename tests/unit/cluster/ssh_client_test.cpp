@@ -120,7 +120,9 @@ std::filesystem::path make_ssh_stub_dir() {
 
     const auto script = d / "ssh";
     std::ofstream f(script);
-    f << R"SH(#!/usr/bin/env bash
+    // POSIX sh so this runs on Alpine (busybox ash) in addition to
+    // bash on other lanes.
+    f << R"SH(#!/bin/sh
 log="${TASH_FAKE_SSH_LOG:-/dev/null}"
 {
     printf 'argv='
@@ -241,7 +243,7 @@ TEST_F(SshStubFixture, ConnectAndDisconnectEmitCorrectArgv) {
 TEST_F(SshStubFixture, RunTimesOutAndKillsHungChild) {
     // Rewrite the stub in place to sleep forever.
     std::ofstream f(stub_dir / "ssh");
-    f << R"SH(#!/usr/bin/env bash
+    f << R"SH(#!/bin/sh
 sleep 30
 )SH";
     f.close();

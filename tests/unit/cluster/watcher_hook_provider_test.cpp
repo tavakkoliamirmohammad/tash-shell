@@ -45,20 +45,20 @@ private:
     std::atomic<int>* starts_ref;
 };
 
-// Produces FakeWatchers, tracks how many have been created.
+// Produces FakeWatchers, tracks how many have been created. The
+// factory returns shared_ptrs aliased into `created` so tests can
+// inspect state after the provider has released its own references.
 struct TestFactory {
     std::atomic<int>                            starts{0};
     std::atomic<int>                            creations{0};
-    std::vector<std::shared_ptr<FakeWatcher>>   created;   // keep alive + inspect
+    std::vector<std::shared_ptr<FakeWatcher>>   created;
 
     WatcherFactory callable() {
-        return [this](const Allocation&, Registry&) -> std::unique_ptr<IWatcher> {
-            auto raw = std::make_unique<FakeWatcher>(starts);
-            // Stash a non-owning shared_ptr so tests can inspect state.
-            auto sp  = std::shared_ptr<FakeWatcher>(raw.get(), [](FakeWatcher*){});
+        return [this](const Allocation&, Registry&) -> std::shared_ptr<IWatcher> {
+            auto sp = std::make_shared<FakeWatcher>(starts);
             created.push_back(sp);
             creations.fetch_add(1);
-            return raw;
+            return sp;
         };
     }
 };
@@ -211,11 +211,10 @@ struct HungFactory {
     std::chrono::milliseconds run_for{std::chrono::milliseconds{300}};
 
     WatcherFactory callable() {
-        return [this](const Allocation&, Registry&) -> std::unique_ptr<IWatcher> {
-            auto u  = std::make_unique<HungWatcher>(run_for);
-            auto sp = std::shared_ptr<HungWatcher>(u.get(), [](HungWatcher*){});
+        return [this](const Allocation&, Registry&) -> std::shared_ptr<IWatcher> {
+            auto sp = std::make_shared<HungWatcher>(run_for);
             created.push_back(sp);
-            return u;
+            return sp;
         };
     }
 };
