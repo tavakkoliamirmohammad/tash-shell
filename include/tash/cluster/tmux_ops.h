@@ -22,12 +22,20 @@ class ITmuxOps {
 public:
     virtual ~ITmuxOps() = default;
 
-    virtual void new_session(const RemoteTarget& target,
+    // Creates a tmux session. Returns true iff ssh exit == 0 or the
+    // session already existed (tmux signals "duplicate session" as an
+    // error but we treat it as success — subsequent new_window is
+    // idempotent too). On hard failure (ssh down, permission), callers
+    // MUST NOT record the workspace in their registry.
+    virtual bool new_session(const RemoteTarget& target,
                               const std::string& session,
                               const std::string& cwd,
                               ISshClient& ssh) = 0;
 
-    virtual void new_window(const RemoteTarget& target,
+    // Creates a tmux window inside an existing session. Returns true
+    // iff ssh exit == 0. On failure, callers MUST NOT record the
+    // instance in their registry.
+    virtual bool new_window(const RemoteTarget& target,
                              const std::string& session,
                              const std::string& window,
                              const std::string& cwd,

@@ -24,19 +24,27 @@ namespace {
 
 class TmuxOpsReal : public ITmuxOps {
 public:
-    void new_session(const RemoteTarget& t, const std::string& session,
+    bool new_session(const RemoteTarget& t, const std::string& session,
                       const std::string& cwd, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_new_session(session, cwd);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
-        (void)ssh.run(t.cluster, {payload}, std::chrono::seconds{10});
+        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{10});
+        if (r.exit_code == 0) return true;
+        // tmux exit code 1 with "duplicate session" is benign — the
+        // session already exists from a prior launch, and the upcoming
+        // new_window call still works. Any other failure is real.
+        const bool dup_ok = r.err.find("duplicate session") != std::string::npos ||
+                             r.out.find("duplicate session") != std::string::npos;
+        return dup_ok;
     }
 
-    void new_window(const RemoteTarget& t, const std::string& session,
+    bool new_window(const RemoteTarget& t, const std::string& session,
                      const std::string& window, const std::string& cwd,
                      const std::string& cmd, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_new_window(session, window, cwd, cmd);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
-        (void)ssh.run(t.cluster, {payload}, std::chrono::seconds{10});
+        const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{10});
+        return r.exit_code == 0;
     }
 
     std::vector<SessionInfo> list_sessions(const RemoteTarget& t, ISshClient& ssh) override {

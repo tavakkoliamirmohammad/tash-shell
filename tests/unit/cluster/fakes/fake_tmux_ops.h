@@ -53,15 +53,22 @@ public:
         dead_windows.insert(session + "/" + window);
     }
 
-    void new_session(const RemoteTarget& t, const std::string& s,
+    // Default: both creation calls succeed. Tests that want to
+    // exercise the "remote tmux refused" path flip these to false.
+    bool new_session_result = true;
+    bool new_window_result  = true;
+
+    bool new_session(const RemoteTarget& t, const std::string& s,
                       const std::string& cwd, ISshClient&) override {
         new_session_calls.push_back({t, s, cwd});
+        return new_session_result;
     }
 
-    void new_window(const RemoteTarget& t, const std::string& s,
+    bool new_window(const RemoteTarget& t, const std::string& s,
                      const std::string& w, const std::string& cwd,
                      const std::string& cmd, ISshClient&) override {
         new_window_calls.push_back({t, s, w, cwd, cmd});
+        return new_window_result;
     }
 
     std::vector<SessionInfo> list_sessions(const RemoteTarget& t, ISshClient&) override {
@@ -106,6 +113,8 @@ public:
         list_sessions_queue.clear();
         dead_windows.clear();
         kill_window_refuses = false;
+        new_session_result  = true;
+        new_window_result   = true;
     }
 };
 

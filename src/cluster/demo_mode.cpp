@@ -10,6 +10,8 @@
 #include "tash/cluster/ssh_client.h"
 #include "tash/cluster/tmux_ops.h"
 #include "tash/cluster/types.h"
+#include "tash/plugins/cluster_watcher_hook_provider.h"
+#include "tash/shell.h"
 
 #include <chrono>
 #include <cstdint>
@@ -81,12 +83,12 @@ private:
 
 class DemoTmuxOps : public ITmuxOps {
 public:
-    void new_session(const RemoteTarget&, const std::string&,
-                      const std::string&, ISshClient&) override {}
+    bool new_session(const RemoteTarget&, const std::string&,
+                      const std::string&, ISshClient&) override { return true; }
 
-    void new_window(const RemoteTarget&, const std::string&,
+    bool new_window(const RemoteTarget&, const std::string&,
                      const std::string&, const std::string&,
-                     const std::string&, ISshClient&) override {}
+                     const std::string&, ISshClient&) override { return true; }
 
     std::vector<SessionInfo> list_sessions(const RemoteTarget&, ISshClient&) override {
         return {};
@@ -133,21 +135,35 @@ private:
 // ══════════════════════════════════════════════════════════════════════════════
 
 struct DemoMode {
-    Config         cfg;
-    Registry       reg;
-    DemoSshClient  ssh;
-    DemoSlurmOps   slurm;
-    DemoTmuxOps    tmux;
-    DemoNotifier   notify;
-    DemoPrompt     prompt;
-    DemoClock      clock;
-    ClusterEngine  engine;
+    Config                      cfg;
+    Registry                    reg;
+    DemoSshClient               ssh;
+    DemoSlurmOps                slurm;
+    DemoTmuxOps                 tmux;
+    DemoNotifier                notify;
+    DemoPrompt                  prompt;
+    DemoClock                   clock;
+    ClusterEngine               engine;
+    ClusterWatcherHookProvider  watcher_hook;
 
     DemoMode()
         : cfg(demo_config()),
           reg(),
           ssh(), slurm(), tmux(), notify(), prompt(), clock(),
-          engine(cfg, reg, ssh, slurm, tmux, notify, prompt, clock) {}
+          engine(cfg, reg, ssh, slurm, tmux, notify, prompt, clock),
+          watcher_hook(reg, default_watcher_factory()) {
+        // Prove the hook-provider lifecycle end-to-end in demo mode.
+        // Factory is NoOp today (placeholder until the real ssh tail -F
+        // source lands in M3.3/M3.4); the call below just wires the
+        // startup/shutdown machinery so demo state mirrors production.
+        ShellState state{};
+        watcher_hook.on_startup(state);
+    }
+
+    ~DemoMode() {
+        ShellState state{};
+        watcher_hook.on_exit(state);
+    }
 };
 
 std::unique_ptr<DemoMode> g_demo;

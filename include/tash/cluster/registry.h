@@ -95,11 +95,14 @@ public:
     // Convenience: locks "<registry_path>.lock".
     static LockScope lock_scope(const std::filesystem::path& registry_path);
 
-    // Move semantics: std::recursive_mutex isn't movable, so we hold it
-    // via unique_ptr. The moved-from Registry gets a fresh mutex on use
-    // (via a lazy helper) — but by convention, a moved-from Registry is
-    // reconstructed only at `load` time where no thread references it
-    // yet, so this path is never exercised concurrently.
+    // Move semantics: std::recursive_mutex isn't movable, so we hold
+    // it via unique_ptr. Moving transfers the mutex; the moved-from
+    // Registry has a null mu_ and MUST NOT be used — any subsequent
+    // method call dereferences null. Current callers (`Registry::load`
+    // returns by value, DemoMode owns its Registry by value, tests
+    // construct fresh Registries) don't touch a moved-from instance,
+    // so this is safe in practice — but don't hand a moved-from
+    // Registry to a worker thread.
     Registry();
     Registry(Registry&&) noexcept;
     Registry& operator=(Registry&&) noexcept;

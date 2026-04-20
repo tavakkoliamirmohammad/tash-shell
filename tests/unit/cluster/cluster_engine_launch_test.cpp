@@ -268,3 +268,76 @@ TEST(ClusterEngineLaunch, InstanceNameOverrideUsedAsWindowName) {
     ASSERT_EQ(h.tmux.new_window_calls.size(), 1u);
     EXPECT_EQ(h.tmux.new_window_calls[0].window, "feature-x");
 }
+
+// Regression: if remote tmux refuses new-session, the workspace must
+// NOT be added to the registry. Otherwise the registry records a
+// workspace that doesn't exist on the cluster.
+TEST(ClusterEngineLaunch, NewSessionFailureLeavesRegistryIntact) {
+    Harness h;
+    h.cfg = basic_config();
+    h.reg.add_allocation(running_alloc("c1", "100", "n1"));
+    h.tmux.new_session_result = false;
+
+    LaunchSpec ls;
+    ls.workspace = "repoA";
+    ls.preset    = "claude";
+
+    auto r = h.engine().launch(ls);
+    auto* err = std::get_if<EngineError>(&r);
+    ASSERT_NE(err, nullptr);
+    EXPECT_NE(err->message.find("new-session"), std::string::npos) << err->message;
+
+    ASSERT_EQ(h.reg.allocations.size(), 1u);
+    EXPECT_TRUE(h.reg.allocations[0].workspaces.empty());
+    EXPECT_EQ(h.tmux.new_window_calls.size(), 0u);
+}
+
+// Regression: if new-window fails after a freshly-created workspace,
+// we must roll back the workspace so the registry stays coherent.
+TEST(ClusterEngineLaunch, NewWindowFailureRollsBackFreshWorkspace) {
+    Harness h;
+    h.cfg = basic_config();
+    h.reg.add_allocation(running_alloc("c1", "100", "n1"));
+    h.tmux.new_window_result = false;
+
+    LaunchSpec ls;
+    ls.workspace = "repoA";
+    ls.preset    = "claude";
+
+    auto r = h.engine().launch(ls);
+    auto* err = std::get_if<EngineError>(&r);
+    ASSERT_NE(err, nullptr);
+    EXPECT_NE(err->message.find("new-window"), std::string::npos) << err->message;
+
+    ASSERT_EQ(h.reg.allocations.size(), 1u);
+    EXPECT_TRUE(h.reg.allocations[0].workspaces.empty());
+}
+
+// Regression: when launch into an existing workspace fails at
+// new-window, we must NOT pop the pre-existing workspace. Rollback is
+// only for the workspace we created this call.
+TEST(ClusterEngineLaunch, NewWindowFailureDoesNotTouchExistingWorkspace) {
+    Harness h;
+    h.cfg = basic_config();
+    Allocation a = running_alloc("c1", "100", "n1");
+    Workspace preexisting;
+    preexisting.name         = "repoA";
+    preexisting.cwd          = "/scratch/repoA";
+    preexisting.tmux_session = "tash-c1-100-repoA";
+    a.workspaces.push_back(preexisting);
+    h.reg.add_allocation(a);
+
+    h.tmux.new_window_result = false;
+
+    LaunchSpec ls;
+    ls.workspace = "repoA";
+    ls.preset    = "claude";
+
+    auto r = h.engine().launch(ls);
+    ASSERT_NE(std::get_if<EngineError>(&r), nullptr);
+
+    // Workspace still there, instances still empty.
+    ASSERT_EQ(h.reg.allocations.size(), 1u);
+    ASSERT_EQ(h.reg.allocations[0].workspaces.size(), 1u);
+    EXPECT_TRUE(h.reg.allocations[0].workspaces[0].instances.empty());
+}

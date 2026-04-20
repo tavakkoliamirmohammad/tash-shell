@@ -499,10 +499,14 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
     const std::string session_name =
         "tash-" + alloc.cluster + "-" + alloc.jobid + "-" + spec.workspace;
 
+    const bool workspace_was_new = (ws == nullptr);
     if (!ws) {
-        // New workspace — create tmux session (real impl in M2 treats
-        // "duplicate session" as success; fake just records).
-        tmux_.new_session(target, session_name, cwd, ssh_);
+        // Don't mutate registry until the remote create succeeds.
+        if (!tmux_.new_session(target, session_name, cwd, ssh_)) {
+            return EngineError{"tmux new-session failed on " + alloc.cluster +
+                                "; workspace '" + spec.workspace +
+                                "' not created"};
+        }
         Workspace new_ws;
         new_ws.name         = spec.workspace;
         new_ws.cwd          = cwd;
@@ -522,11 +526,25 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
     }
     inst.state = InstanceState::Running;
 
-    // 5. Spawn the window.
+    // 5. Spawn the window. On ssh / tmux hard failure, roll back any
+    // workspace we created in step 3 so the registry never records a
+    // half-built workspace with no instances.
     const std::string window_cmd = build_window_cmd(cmd, env_vars);
-    tmux_.new_window(target, session_name, inst.tmux_window, cwd, window_cmd, ssh_);
+    if (!tmux_.new_window(target, session_name, inst.tmux_window, cwd, window_cmd, ssh_)) {
+        if (workspace_was_new) {
+            // Pop the workspace we just added — safe because ws points
+            // at alloc.workspaces.back() and no other code has held a
+            // pointer to it.
+            alloc.workspaces.pop_back();
+        }
+        return EngineError{"tmux new-window failed on " + alloc.cluster +
+                            "; instance not created"};
+    }
 
-    // 6. Liveness check after a short settle window.
+    // 6. Liveness check after a short settle window. An Exited outcome
+    // is observed reality (the command died right after launch) — we
+    // surface it to the user and still record the instance so the
+    // notification + registry reflect what actually happened.
     clock_.sleep_for(std::chrono::seconds(2));
     if (!tmux_.is_window_alive(target, session_name, inst.tmux_window, ssh_)) {
         inst.state = InstanceState::Exited;
@@ -675,7 +693,12 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
                 "job " + sr.jobid + " still queued — [c]ancel [k]eep [d]etach?",
                 "ckd");
             if (c == 'c') {
-                slurm_.scancel(chosen->cluster, sr.jobid, ssh_);
+                const bool cancelled = slurm_.scancel(chosen->cluster, sr.jobid, ssh_);
+                if (!cancelled) {
+                    return EngineError{"scancel refused job " + sr.jobid +
+                                        " on " + chosen->cluster +
+                                        "; job may still be queued — check `cluster import`"};
+                }
                 return EngineError{"cancelled while queued (job " + sr.jobid + ")"};
             }
             if (c == 'd') {

@@ -261,15 +261,26 @@ integrations in v1.
 
 ### Scope of auto-notifications in v1
 
-The watcher hook provider that spawns one background thread per Running
-allocation is fully implemented and unit-tested, but is only auto-wired
-when `TASH_CLUSTER_DEMO=1`. For a live cluster the underlying machinery
-(`ClusterWatcherHookProvider`, `apply_event`, `INotifier`) can be driven
-programmatically, but there's currently no startup code that installs
-the provider against a user-configured engine. If you want
-notifications on a live cluster today you can run `cluster sync`
-between `cluster up` and `cluster launch` to re-reconcile state; full
-background notifications in production are tracked as follow-up work.
+Two notification paths are live:
+
+1. **Engine-driven notifications.** Whenever a `cluster` command
+   observes an event (e.g. `launch` detects that the window died
+   immediately, `doctor` fails a check), the engine calls `notify_`
+   directly and you get the desktop notification + bell. This works in
+   both demo and production.
+2. **Watcher-hook lifecycle.** `ClusterWatcherHookProvider` is
+   instantiated inside demo mode's bundle and its `on_startup` /
+   `on_exit` are invoked at the right boundaries, so the thread-
+   management scaffolding (spawn one watcher per Running allocation,
+   join with a 2s backstop on shutdown) is exercised end-to-end. In
+   v1, the factory returns a `NoOpWatcher`.
+
+Background event-stream notifications via `ssh <cluster> tail -F
+<event-dir>` are **not** wired in v1 — that requires a real
+`LineSource` backed by a piped `ssh` process, which is tracked as
+post-v1 work (M3.3 / M3.4 in the plan). If you want live
+notifications on a cluster today, run `cluster sync` periodically or
+wrap `cluster list` in your prompt loop.
 
 ## Demo mode (no cluster required)
 
