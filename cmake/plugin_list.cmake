@@ -424,6 +424,12 @@ tash_register_plugin(
 )
 
 tash_register_plugin(
+    NAME cluster_real_mode
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/real_mode.cpp
+)
+
+tash_register_plugin(
     NAME cluster_slurm_parse
     REQUIRES TASH_CLUSTER_ENABLED
     SOURCES src/cluster/slurm_parse.cpp

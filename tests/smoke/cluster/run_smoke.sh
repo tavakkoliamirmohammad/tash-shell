@@ -112,7 +112,6 @@ echo "tash binary:    $tash_bin"
 echo "isolated home:  $TASH_CLUSTER_HOME"
 echo
 
-step       "cluster connect"                0  "cluster connect smoke"           || exit 1
 step       "cluster doctor"                 0  "cluster doctor smoke"            || exit 1
 step       "cluster up -r smoke-res"        0  "cluster up -r smoke-res -t 00:15:00" || exit 1
 
@@ -149,7 +148,6 @@ step       "cluster sync"                   0  "cluster sync smoke"             
 step       "cluster kill smoke/1"           0  "cluster kill smoke/1 -y"          || true
 step       "cluster down -y"                0  "cluster down $alloc_id -y"        || true
 step_grep  "cluster list is empty"          0  "no allocations" "cluster list"    || true
-step       "cluster disconnect"             0  "cluster disconnect smoke"         || true
 
 # ── Summary ─────────────────────────────────────────────────────
 

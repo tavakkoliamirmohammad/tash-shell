@@ -37,6 +37,7 @@
 
 #ifdef TASH_CLUSTER_ENABLED
 #include "tash/cluster/demo_mode.h"
+#include "tash/cluster/real_mode.h"
 #endif
 
 using std::string;
@@ -169,6 +170,8 @@ void register_default_plugins() {
     if (const char* demo = std::getenv("TASH_CLUSTER_DEMO"); demo && std::string(demo) == "1") {
         tash::cluster::install_demo_engine();
         tash::io::debug("plugin: registered cluster demo engine");
+    } else if (tash::cluster::install_real_engine()) {
+        tash::io::debug("plugin: registered cluster real engine");
     }
 #endif
 
