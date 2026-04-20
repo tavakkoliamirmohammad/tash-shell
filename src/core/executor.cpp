@@ -11,6 +11,7 @@
 #include "tash/history.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"
+#include "tash/util/cwd.h"
 #include "tash/util/fd.h"
 #include "tash/util/io.h"
 #include "tash/util/parse_error.h"
@@ -34,17 +35,16 @@ using namespace std;
 static bool try_auto_cd(const string &token, ShellState &state) {
     struct stat st;
     if (stat(token.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-        char cwd[MAX_SIZE];
-        if (getcwd(cwd, MAX_SIZE) != nullptr) {
-            if (chdir(token.c_str()) == 0) {
-                state.core.previous_directory = string(cwd);
-                char new_cwd[MAX_SIZE];
-                if (getcwd(new_cwd, MAX_SIZE) != nullptr) {
-                    z_record_directory(string(new_cwd));
-                    write_stdout(string(new_cwd) + "\n");
-                }
-                return true;
+        string cwd = tash::util::current_working_directory();
+        if (cwd.empty()) return false;
+        if (chdir(token.c_str()) == 0) {
+            state.core.previous_directory = std::move(cwd);
+            string new_cwd = tash::util::current_working_directory();
+            if (!new_cwd.empty()) {
+                z_record_directory(new_cwd);
+                write_stdout(new_cwd + "\n");
             }
+            return true;
         }
     }
     return false;
@@ -546,8 +546,7 @@ void execute_command_line(const vector<CommandSegment> &segments, ShellState &st
                 entry.command = segments[i].command;
                 entry.exit_code = last_exit;
                 entry.timestamp = static_cast<int64_t>(time(nullptr));
-                char cwd[MAX_SIZE];
-                if (getcwd(cwd, MAX_SIZE)) entry.directory = cwd;
+                entry.directory = tash::util::current_working_directory();
                 global_plugin_registry().record_history(entry);
             }
 

@@ -1,6 +1,7 @@
 #include "tash/core/signals.h"
 #include "tash/plugin.h"
 #include "tash/ui.h"
+#include "tash/util/cwd.h"
 #include "tash/util/safe_exec.h"
 #include "theme.h"
 
@@ -103,12 +104,11 @@ string write_shell_prefix(const ShellState &state) {
         }
     }
 
-    char cwd[MAX_SIZE];
-    if (!getcwd(cwd, MAX_SIZE)) cwd[0] = '\0';
+    string cwd = tash::util::current_working_directory();
     const char *login = getlogin();
     const char *home = getenv("HOME");
     string user = login ? short_name(string(login)) : "user";
-    string cwd_display = string(cwd);
+    string cwd_display = cwd;
     if (home) {
         string home_str(home);
         size_t pos = cwd_display.find(home_str);
