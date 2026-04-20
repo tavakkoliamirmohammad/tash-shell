@@ -175,6 +175,19 @@ int foreground_process(const vector<string> &argv,
     for (const string &a : argv) c_args.push_back(a.c_str());
     c_args.push_back(nullptr);
 
+    // Skip stderr capture for interactive commands (ssh, vim, tmux, etc.).
+    // Piping their stderr through a capture fd changes isatty(2) checks
+    // and can break terminal-driving code paths. Most visible symptom:
+    // ssh's password read returns empty before the user can type,
+    // because the readpassphrase fallback path gets confused by a
+    // non-tty stderr.
+    const bool skip_stderr_capture =
+        !argv.empty() && is_interactive_cmd(argv[0]);
+    if (captured_stderr && skip_stderr_capture) {
+        captured_stderr->clear();
+        captured_stderr = nullptr;
+    }
+
     int stderr_pipe[2] = {-1, -1};
     if (captured_stderr) {
         captured_stderr->clear();
