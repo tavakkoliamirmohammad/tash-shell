@@ -138,6 +138,7 @@ ClusterResult<Allocation> ClusterEngine::down(const DownSpec& spec) {
     }
     snapshot.state = AllocationState::Ended;
     reg_.remove_allocation(spec.alloc_id);
+    if (save_) save_();
     return snapshot;
 }
 
@@ -192,6 +193,7 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
     }
 
     m.w->instances.erase(m.w->instances.begin() + static_cast<std::ptrdiff_t>(m.idx));
+    if (save_) save_();
     return killed;
 }
 
@@ -246,6 +248,7 @@ ClusterResult<ClusterEngine::SyncReport> ClusterEngine::sync(const SyncSpec& spe
         rep.transitions += reg_.reconcile(c, snap);
         ++rep.clusters_probed;
     }
+    if (save_ && rep.transitions > 0) save_();
     return rep;
 }
 
@@ -378,6 +381,7 @@ ClusterResult<Allocation> ClusterEngine::import(const ImportSpec& spec) {
     a.state    = (js->state == "R") ? AllocationState::Running
                                       : AllocationState::Pending;
     reg_.add_allocation(a);
+    if (save_) save_();
     return a;
 }
 
@@ -709,6 +713,7 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
     }
 
     ws->instances.push_back(inst);
+    if (save_) save_();
     return inst;
 }
 
@@ -776,6 +781,11 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
     // Exactly one — dispatch.
     const auto& m = matches.front();
     const RemoteTarget target{m.a->cluster, m.a->node, m.a->jobid};
+    // exec_attach replaces this process image. Persist the registry
+    // *now* so the running allocation / workspace / instance state
+    // the user just set up isn't lost when the next tash session
+    // starts from a stale on-disk snapshot.
+    if (save_) save_();
     tmux_.exec_attach(target, m.w->tmux_session, m.i->tmux_window);
     return *m.i;
 }
@@ -880,6 +890,7 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
                                             : AllocationState::Pending;
     // 7. Persist.
     reg_.add_allocation(alloc);
+    if (save_) save_();
 
     return alloc;
 }

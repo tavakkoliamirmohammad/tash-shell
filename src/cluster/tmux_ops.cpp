@@ -10,7 +10,10 @@
 #include "tash/cluster/tmux_ops.h"
 #include "tash/cluster/tmux_compose.h"
 
+#include <sys/wait.h>
 #include <unistd.h>
+
+#include <cerrno>
 
 #include <chrono>
 #include <cstdio>
@@ -97,14 +100,31 @@ public:
                       const std::string& window) override {
         const auto argv = tmux_compose::build_attach_argv(t, session, window);
         if (argv.empty()) return;
-        std::vector<char*> c_argv;
-        c_argv.reserve(argv.size() + 1);
-        for (const auto& a : argv) c_argv.push_back(const_cast<char*>(a.c_str()));
-        c_argv.push_back(nullptr);
-        ::execvp(c_argv[0], c_argv.data());
-        // Only reached on exec failure. Write a useful error to stderr.
-        std::perror("tash: cluster: exec_attach execvp");
-        std::exit(127);
+        // Fork + wait, NOT execvp-replace: we want tash to survive
+        // when the user detaches from tmux (Ctrl-b d). exec-replace
+        // would kill the parent shell along with the ssh-to-tmux
+        // connection — surprising UX for anyone used to typing
+        // `cluster attach` and returning to their shell after detach.
+        //
+        // Inherits stdio (tty) for the duration so ssh -t + tmux
+        // get their full terminal handoff.
+        pid_t pid = ::fork();
+        if (pid < 0) {
+            std::perror("tash: cluster: attach fork");
+            return;
+        }
+        if (pid == 0) {
+            std::vector<char*> c_argv;
+            c_argv.reserve(argv.size() + 1);
+            for (const auto& a : argv)
+                c_argv.push_back(const_cast<char*>(a.c_str()));
+            c_argv.push_back(nullptr);
+            ::execvp(c_argv[0], c_argv.data());
+            std::perror("tash: cluster: attach execvp");
+            _exit(127);
+        }
+        int status = 0;
+        while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
     }
 };
 

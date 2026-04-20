@@ -26,8 +26,10 @@
 #include "tash/cluster/types.h"
 
 #include <chrono>
+#include <functional>
 #include <string>
 #include <variant>
+#include <utility>
 
 namespace tash::cluster {
 
@@ -185,6 +187,14 @@ public:
     void disconnect(const std::string& cluster) { ssh_.disconnect(cluster); }
     bool master_alive(const std::string& cluster) { return ssh_.master_alive(cluster); }
 
+    // Owner-installed callback that persists the registry to disk.
+    // Called after every state-mutating command (up / launch / kill /
+    // down / import / sync) AND — critically — immediately before
+    // exec_attach replaces this process, so an in-progress attach
+    // doesn't leave the on-disk registry out of date.
+    using SaveFn = std::function<void()>;
+    void set_save_callback(SaveFn fn) { save_ = std::move(fn); }
+
 private:
     const Config& cfg_;
     Registry&     reg_;
@@ -194,6 +204,7 @@ private:
     INotifier&    notify_;
     IPrompt&      prompt_;
     IClock&       clock_;
+    SaveFn        save_;
 };
 
 }  // namespace tash::cluster

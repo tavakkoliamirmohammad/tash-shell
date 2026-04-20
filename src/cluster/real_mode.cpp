@@ -106,6 +106,22 @@ struct RealMode {
         engine = std::make_unique<ClusterEngine>(
             cfg, reg, *ssh, *slurm, *tmux, *notify, prompt, clock);
 
+        // Persist registry after every state-mutating command and,
+        // importantly, just before `cluster attach` exec-replaces
+        // this process (the destructor-based save doesn't run in
+        // that case). Uses atomic tmp+rename via Registry::save.
+        const auto rp     = registry_path;
+        Registry* reg_ptr = &reg;
+        engine->set_save_callback([reg_ptr, rp]() {
+            std::error_code ec;
+            std::filesystem::create_directories(rp.parent_path(), ec);
+            try {
+                reg_ptr->save(rp);
+            } catch (const std::exception& e) {
+                tash::io::debug(std::string("cluster: registry save failed: ") + e.what());
+            }
+        });
+
         // Watcher hook: use the no-op factory for now. The real
         // ssh-tail watcher (make_ssh_tail_watcher_factory) exists
         // but is opt-in; wiring it unconditionally would spawn a
