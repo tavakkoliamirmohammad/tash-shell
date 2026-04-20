@@ -84,7 +84,12 @@ private:
 // Process-wide rate limiter shared between @ai and the auto-error-recovery
 // hook so they cannot together exceed the provider's RPM quota. Configured
 // once at first access (default: 10 requests / 60s, matching Gemini free
-// tier). Thread-safe callers coordinate via AiRateLimiter::allow().
+// tier).
+//
+// NOT thread-safe. `allow()` mutates the internal timestamp vector
+// without locking; every current caller is on the main REPL thread, so
+// the race is latent. If a future caller fires the limiter from a
+// background thread, add a std::mutex around the vector access.
 AiRateLimiter& global_ai_rate_limiter();
 
 // ── Provider Config ──────────────────────────────────────────

@@ -10,6 +10,7 @@
 #include "tash/ai/ai_abort.h"
 #include <atomic>
 #include <csignal>
+#include <pthread.h>
 #include <string>
 #include <sys/types.h>
 #include <unistd.h>
@@ -62,6 +63,25 @@ static void trap_only_handler(int signum) {
 }
 
 // ── Install ───────────────────────────────────────────────────
+
+void reset_child_signal_state() {
+    // Empty mask — any signal the parent had blocked is now unblocked.
+    sigset_t empty;
+    sigemptyset(&empty);
+    (void)pthread_sigmask(SIG_SETMASK, &empty, nullptr);
+    // Restore default disposition for the handlers tash installs. The
+    // parent's SIGINT handler arms AI-abort/fg_child_pid logic that is
+    // meaningless in a child; SIGCHLD sets a flag the parent reads;
+    // SIGQUIT is a common cleanup target. Leave other signals at the
+    // kernel default, which is what a fresh exec'd process expects.
+    struct sigaction sa_dfl;
+    sa_dfl.sa_handler = SIG_DFL;
+    sigemptyset(&sa_dfl.sa_mask);
+    sa_dfl.sa_flags = 0;
+    sigaction(SIGINT,  &sa_dfl, nullptr);
+    sigaction(SIGCHLD, &sa_dfl, nullptr);
+    sigaction(SIGQUIT, &sa_dfl, nullptr);
+}
 
 void install_signal_handlers() {
     struct sigaction sa_int;
