@@ -77,6 +77,18 @@ PipedLineSource::PipedLineSource(std::vector<std::string> argv) {
         // exit (especially noticeable in containerized CI).
         ::setpgid(0, 0);
 
+        // Detach stdin from the parent's terminal. Critical for the
+        // watcher's `ssh tail -F` — without this the child ssh's
+        // stdin stays connected to tash's terminal and fights the
+        // REPL for keystrokes. The user sees their keyboard "lock"
+        // (each keypress gets consumed by ssh and silently thrown
+        // away inside the ssh protocol loop).
+        const int devnull = ::open("/dev/null", O_RDONLY);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDIN_FILENO);
+            ::close(devnull);
+        }
+
         // Wire pipe write-end to stdout, close read-end.
         ::dup2(pipefd[1], STDOUT_FILENO);
         ::close(pipefd[0]);
