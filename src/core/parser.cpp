@@ -350,11 +350,6 @@ vector<string> expand_globs(const vector<string> &args,
     return expanded;
 }
 
-vector<string> expand_globs(const vector<string> &args) {
-    // Back-compat overload for callers that have no quote information.
-    return expand_globs(args, vector<bool>{});
-}
-
 string strip_quotes(string_view s) {
     if (s.size() >= 2) {
         if ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\'')) {

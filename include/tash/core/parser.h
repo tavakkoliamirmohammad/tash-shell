@@ -22,7 +22,6 @@ std::string &trim(std::string &s, const char *t = " \t\n\r\f\v");
 std::vector<std::string> tokenize_string(std::string line, const std::string &delimiter);
 std::string expand_variables(const std::string &input, int last_exit_status);
 std::string expand_command_substitution(const std::string &input, ShellState &state);
-std::vector<std::string> expand_globs(const std::vector<std::string> &args);
 std::vector<std::string> expand_globs(const std::vector<std::string> &args,
                                        const std::vector<bool> &quoted);
 std::string expand_tilde(const std::string &token);

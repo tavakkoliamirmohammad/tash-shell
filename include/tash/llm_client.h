@@ -30,10 +30,6 @@ struct [[nodiscard]] LLMResponse {
     // Populated only on !success. TransportStatus::Ok means "server
     // responded but status wasn't 2xx" (map_*_error owns the message).
     TransportStatus transport = TransportStatus::Ok;
-    // Partial text accumulated before a streaming failure. Streaming
-    // paths fill this so callers can preserve mid-stream output when
-    // the connection drops after some tokens have been delivered.
-    std::string partial_text;
 };
 
 struct ConversationTurn {

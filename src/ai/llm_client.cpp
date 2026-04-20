@@ -779,9 +779,6 @@ static LLMResponse curl_streaming_post(
     CURLcode res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-        // Preserve any text that DID arrive before the failure so the
-        // caller can surface partial output rather than discarding it.
-        resp.partial_text = ctx.accumulated;
         CurlPostResult tmp;
         classify_curl_error(res, ctx.overflowed, tmp);
         resp.transport = public_transport_status(tmp.error_kind);

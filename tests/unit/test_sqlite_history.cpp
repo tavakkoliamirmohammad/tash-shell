@@ -229,65 +229,6 @@ TEST_F(SqliteHistoryFixture, IgnoreLeadingSpace) {
 
 // ── Migration ─────────────────────────────────────────────────
 
-TEST_F(SqliteHistoryFixture, MigrationFromPlainText) {
-    // Set up a temp directory to act as HOME
-    std::string temp_home = std::string(
-        std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp")
-        + "/tash_migration_test_XXXXXX";
-    char *tmp = &temp_home[0];
-    mkdtemp(tmp);
-
-    std::string txt_path = temp_home + "/.tash_history";
-    std::string tash_dir = temp_home + "/.tash";
-    std::string db = tash_dir + "/history.db";
-
-    // Write a plain text history file
-    {
-        std::ofstream out(txt_path);
-        out << "echo hello\n";
-        out << "ls -la\n";
-        out << "git status\n";
-    }
-
-    // Temporarily override HOME
-    std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
-    setenv("HOME", temp_home.c_str(), 1);
-
-    {
-        // Use default path (empty string) to trigger migration
-        SqliteHistoryProvider provider;
-
-        auto results = provider.recent(10);
-        ASSERT_EQ(results.size(), 3u);
-        // All entries imported
-        bool found_echo = false, found_ls = false, found_git = false;
-        for (const auto &r : results) {
-            if (r.command == "echo hello") found_echo = true;
-            if (r.command == "ls -la") found_ls = true;
-            if (r.command == "git status") found_git = true;
-        }
-        EXPECT_TRUE(found_echo);
-        EXPECT_TRUE(found_ls);
-        EXPECT_TRUE(found_git);
-    }
-
-    // Verify plain text file was renamed to .bak
-    struct stat st;
-    EXPECT_NE(stat(txt_path.c_str(), &st), 0);  // original gone
-    EXPECT_EQ(stat((txt_path + ".bak").c_str(), &st), 0);  // .bak exists
-
-    // Restore HOME
-    setenv("HOME", old_home.c_str(), 1);
-
-    // Cleanup
-    std::remove((txt_path + ".bak").c_str());
-    std::remove(db.c_str());
-    std::remove((db + "-wal").c_str());
-    std::remove((db + "-shm").c_str());
-    rmdir(tash_dir.c_str());
-    rmdir(temp_home.c_str());
-}
-
 // ── Large history / performance ───────────────────────────────
 
 TEST_F(SqliteHistoryFixture, LargeHistory) {

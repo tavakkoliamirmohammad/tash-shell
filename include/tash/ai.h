@@ -19,9 +19,6 @@ std::unique_ptr<LLMClient> ai_create_client();
 
 // ── AI Setup ──────────────────────────────────────────────────
 
-std::string ai_get_key_path();
-std::optional<std::string> ai_load_key();
-bool ai_save_key(const std::string &key);
 bool ai_run_setup_wizard();
 bool ai_validate_key(const std::string &key);
 

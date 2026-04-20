@@ -355,11 +355,11 @@ static bool is_valid_model_name(const std::string &s) {
 
 // ── LLM client helpers ───────────────────────────────────────
 
-// Provider-model compatibility check — good enough to self-heal from
-// stale overrides written by pre-#128 test runs (e.g. "gpt-4o" saved
-// while provider was gemini). Prefixes come from the data-driven
-// registry (data/ai_models.json) so bumping provider SKU conventions
-// doesn't require a code change.
+// Provider-model compatibility check. Lets the handler self-heal when
+// a user switches providers but the ai_model override on disk doesn't
+// match (e.g. "gpt-4o" with provider "gemini"). Prefixes come from the
+// data-driven registry (data/ai_models.json) so bumping provider SKU
+// conventions doesn't require a code change.
 static bool model_matches_provider(const std::string &provider,
                                     const std::string &model) {
     if (model.empty()) return true;
@@ -971,10 +971,10 @@ int handle_ai_command(const string &input, ShellState &state, string *prefill_cm
 
         string provider = ai_get_provider();
         // IMPORTANT: call create_current_client() first — it self-heals
-        // stale overrides (e.g. model "gpt-4o" saved while provider was
-        // gemini by pre-#128 test runs) by clearing them from disk.
-        // Read the override AFTER that so the display shows the real
-        // current state, not the junk about to be cleaned up.
+        // stale overrides (e.g. a saved "gpt-4o" when provider is now
+        // "gemini") by clearing them from disk. Read the override AFTER
+        // that so the display reflects the cleaned-up state, not the
+        // junk about to be discarded.
         unique_ptr<LLMClient> client = create_current_client();
         auto model = ai_get_model_override();
         string current_model = client ? client->get_model() : "unknown";
