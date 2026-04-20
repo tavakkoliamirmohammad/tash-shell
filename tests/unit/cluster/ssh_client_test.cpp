@@ -72,15 +72,17 @@ TEST(SshClientArgv, MasterCheckUsesDashOCheck) {
     EXPECT_NE(j.find("utah-notch"),         std::string::npos);
 }
 
-TEST(SshClientArgv, ConnectStartsDetachedMaster) {
+TEST(SshClientArgv, ConnectEstablishesMasterViaForegroundTrue) {
     const auto argv = build_connect_argv(sample_flags());
     const std::string j = join(argv);
     EXPECT_EQ(argv[0], "ssh");
-    // -M = master, -N = no command, -f = background after auth. Together:
-    EXPECT_NE(j.find("-M"), std::string::npos) << j;
-    EXPECT_NE(j.find("-N"), std::string::npos);
-    EXPECT_NE(j.find("-f"), std::string::npos);
-    EXPECT_NE(j.find("utah-notch"), std::string::npos);
+    // ControlMaster=auto + ControlPersist=yes (from base flags) plus
+    // a trivial foreground command establish the persistent master
+    // as a side effect — no -M/-N/-f needed.
+    EXPECT_NE(j.find("ControlMaster=auto"),   std::string::npos) << j;
+    EXPECT_NE(j.find("ControlPersist=yes"),   std::string::npos);
+    EXPECT_EQ(argv.back(), "true");
+    EXPECT_NE(j.find("utah-notch"),           std::string::npos);
 }
 
 TEST(SshClientArgv, ConnectUsesBatchModeOffForPasswordPrompts) {
@@ -301,11 +303,11 @@ TEST_F(SshStubFixture, ConnectAndDisconnectEmitCorrectArgv) {
     client->connect("c2");
     client->disconnect("c2");
     const auto log = read_log();
-    EXPECT_NE(log.find("-M"),          std::string::npos) << log;
-    EXPECT_NE(log.find("-N"),          std::string::npos);
-    EXPECT_NE(log.find("-f"),          std::string::npos);
-    EXPECT_NE(log.find("-O|exit"),     std::string::npos);
-    EXPECT_NE(log.find("c2-host"),     std::string::npos);
+    EXPECT_NE(log.find("ControlMaster=auto"), std::string::npos) << log;
+    EXPECT_NE(log.find("ControlPersist=yes"), std::string::npos);
+    EXPECT_NE(log.find("|true"),              std::string::npos);
+    EXPECT_NE(log.find("-O|exit"),            std::string::npos);
+    EXPECT_NE(log.find("c2-host"),            std::string::npos);
 }
 
 // Regression: if the stub sleeps well past the SshClient timeout,

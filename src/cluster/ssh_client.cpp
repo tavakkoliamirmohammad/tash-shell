@@ -71,17 +71,20 @@ std::vector<std::string> build_master_check_argv(const SshFlags& f) {
 }
 
 std::vector<std::string> build_connect_argv(const SshFlags& f) {
-    // Master mode, no remote command, backgrounded after auth.
-    // BatchMode deliberately off — the user might need to type a
-    // password + Duo response. ControlMaster=auto so the master
-    // socket is created.
+    // Foreground `ssh <host> true`. BatchMode is off so the user
+    // can type password + Duo. ControlMaster=auto + ControlPersist=yes
+    // (from base_ssh_flags) establish the persistent master as a
+    // side effect: the foreground process exits when `true` returns,
+    // but the master backgrounds itself and persists for subsequent
+    // run()s. This mirrors how a plain `ssh <alias> <cmd>` works and
+    // sidesteps -M/-N/-f interactions that some sshds reject.
     SshFlags local = f;
     local.batch_mode = false;
     std::vector<std::string> a = {"ssh"};
     auto base = base_ssh_flags(local);
     a.insert(a.end(), base.begin(), base.end());
-    a.push_back("-M"); a.push_back("-N"); a.push_back("-f");
     a.push_back(f.ssh_host);
+    a.push_back("true");
     return a;
 }
 
