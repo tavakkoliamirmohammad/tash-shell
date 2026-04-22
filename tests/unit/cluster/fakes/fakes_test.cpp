@@ -105,12 +105,24 @@ TEST(FakeSlurmOps, SqueueFifoSequence) {
     slurm.queue_squeue({JobState{"1", "PD", "",  ""}});
     slurm.queue_squeue({JobState{"1", "R",  "n1", "01:00:00"}});
     slurm.queue_squeue({});
+    slurm.queue_squeue_fail();   // probe failure — distinguishable from empty
 
-    EXPECT_EQ(slurm.squeue("u", ssh).at(0).state, "PD");
-    EXPECT_EQ(slurm.squeue("u", ssh).at(0).state, "R");
-    EXPECT_TRUE(slurm.squeue("u", ssh).empty());
+    auto r1 = slurm.squeue("u", ssh);
+    ASSERT_TRUE(r1.has_value());
+    EXPECT_EQ(r1->at(0).state, "PD");
 
-    ASSERT_EQ(slurm.squeue_calls.size(), 3u);
+    auto r2 = slurm.squeue("u", ssh);
+    ASSERT_TRUE(r2.has_value());
+    EXPECT_EQ(r2->at(0).state, "R");
+
+    auto r3 = slurm.squeue("u", ssh);
+    ASSERT_TRUE(r3.has_value());
+    EXPECT_TRUE(r3->empty());
+
+    auto r4 = slurm.squeue("u", ssh);
+    EXPECT_FALSE(r4.has_value()) << "queue_squeue_fail should produce nullopt";
+
+    ASSERT_EQ(slurm.squeue_calls.size(), 4u);
     EXPECT_EQ(slurm.squeue_calls[0].cluster, "u");
 }
 
@@ -120,8 +132,14 @@ TEST(FakeSlurmOps, SinfoAndScancelRecorded) {
 
     slurm.queue_sinfo({PartitionState{"p1", "up", 3, {"gpu:a100:1"}}});
     auto ps = slurm.sinfo("u", "p1", ssh);
-    ASSERT_EQ(ps.size(), 1u);
-    EXPECT_EQ(ps[0].idle_nodes, 3);
+    ASSERT_TRUE(ps.has_value());
+    ASSERT_EQ(ps->size(), 1u);
+    EXPECT_EQ((*ps)[0].idle_nodes, 3);
+
+    slurm.queue_sinfo_fail();
+    auto ps_fail = slurm.sinfo("u", "p1", ssh);
+    EXPECT_FALSE(ps_fail.has_value())
+        << "queue_sinfo_fail should surface a probe failure, not an empty vector";
 
     slurm.scancel("u", "9999", ssh);
     ASSERT_EQ(slurm.scancel_calls.size(), 1u);

@@ -38,6 +38,7 @@
 #ifdef TASH_CLUSTER_ENABLED
 #include "tash/cluster/demo_mode.h"
 #include "tash/cluster/real_mode.h"
+#include "tash/plugins/cluster_completion_provider.h"
 #endif
 
 using std::string;
@@ -130,6 +131,14 @@ void register_default_plugins() {
             std::make_unique<FigCompletionProvider>());
         tash::io::debug("plugin: registered fig");
     }
+#ifdef TASH_CLUSTER_ENABLED
+    if (!plugin_disabled("TASH_DISABLE_CLUSTER_COMPLETION") &&
+        gate.enabled("cluster-completion")) {
+        reg.register_completion_provider(
+            std::make_unique<tash::cluster::ClusterCompletionProvider>());
+        tash::io::debug("plugin: registered cluster-completion");
+    }
+#endif
 
     // Prompt providers ---------------------------------------------
     if (!plugin_disabled("TASH_DISABLE_STARSHIP") &&

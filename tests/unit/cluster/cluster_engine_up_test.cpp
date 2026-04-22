@@ -219,6 +219,38 @@ TEST(ClusterEngineUp, WaitTimeoutDetachReturnsPendingAllocation) {
     EXPECT_EQ(h.slurm.scancel_calls.size(), 0u);
 }
 
+// ── 6c. wait-timeout + non-interactive prompt ('\0') → auto-detach ──
+// Regression: cluster_engine.cpp used to treat '\0' as 'keep waiting'
+// (same as 'k'), which combined with the real StdinPrompt (which
+// always returns '\0' because reading std::cin inside a builtin
+// fights replxx) produced an infinite loop — `cluster up` would
+// re-prompt every wait_timeout interval forever.
+TEST(ClusterEngineUp, WaitTimeoutNonInteractivePromptAutoDetaches) {
+    Harness h;
+    h.slurm.queue_sinfo({idle("p1", 1, {"gpu:a100:1"})});
+    h.slurm.queue_sbatch({"7008", ""});
+    // Many PDs so the fake clock will drive past the deadline.
+    for (int i = 0; i < 50; ++i) {
+        h.slurm.queue_squeue({JobState{"7008", "PD", "", ""}});
+    }
+    // Intentionally do NOT queue a prompt answer — FakePrompt returns
+    // '\0' when empty, modelling the real StdinPrompt's non-interactive
+    // fall-through.
+
+    UpSpec spec; spec.resource = "a100"; spec.wait_timeout = std::chrono::seconds(1);
+    auto r = h.engine().up(spec);
+
+    auto* alloc = std::get_if<Allocation>(&r);
+    ASSERT_NE(alloc, nullptr)
+        << "expected auto-detach to return a Pending allocation, not infinite-loop";
+    EXPECT_EQ(alloc->state, AllocationState::Pending);
+    EXPECT_EQ(alloc->jobid, "7008");
+    EXPECT_EQ(h.slurm.scancel_calls.size(), 0u);
+    // Must have been prompted at least once (but not looped forever —
+    // the test timing out would indicate the bug regressed).
+    EXPECT_GE(h.prompt.calls.size(), 1u);
+}
+
 // ── 7. --via forces a specific route ───────────────────────────────
 
 TEST(ClusterEngineUp, ViaForcesSpecificRoute) {

@@ -214,13 +214,17 @@ WatcherFactory make_ssh_tail_watcher_factory(
         auto proc = std::make_shared<PipedLineSource>(std::move(argv));
         auto src  = PipedLineSource::as_line_source(proc);
 
-        // StreamWatcher owns the LineSource callable (which itself
-        // keeps the PipedLineSource alive via shared_ptr capture).
-        // The watcher's stop() flips an atomic, but the only way to
-        // interrupt a blocking read is to close the fd — which the
-        // PipedLineSource's own destructor (reached when the watcher
-        // is torn down) will do.
-        auto watcher = std::make_shared<StreamWatcher>(std::move(src), reg, *n);
+        // on_stop closes the PipedLineSource's read fd so a blocking
+        // ::read() inside next_line() returns 0 immediately, letting
+        // run() observe nullopt and exit. Without this StreamWatcher's
+        // stop() would only flip an atomic the run loop never reads
+        // (it's blocked in read()), and the provider's join backstop
+        // would detach the thread — leaking thread + ssh subprocess.
+        OnStop on_stop = [proc]() {
+            if (proc) proc->stop();
+        };
+        auto watcher = std::make_shared<StreamWatcher>(
+            std::move(src), std::move(on_stop), reg, *n);
         return watcher;
     };
 }

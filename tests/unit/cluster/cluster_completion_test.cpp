@@ -102,6 +102,9 @@ TEST(ClusterCompletion, EmptyCurrentWordListsAllSubcommands) {
     ClusterCompletionProvider p;
     const auto c = p.complete("cluster", "", {}, dummy_state);
     const auto names = texts(c);
+    // Every currently-shipping subcommand must be offered.
+    EXPECT_TRUE(contains(names, "connect"));
+    EXPECT_TRUE(contains(names, "disconnect"));
     EXPECT_TRUE(contains(names, "up"));
     EXPECT_TRUE(contains(names, "launch"));
     EXPECT_TRUE(contains(names, "attach"));
@@ -109,8 +112,38 @@ TEST(ClusterCompletion, EmptyCurrentWordListsAllSubcommands) {
     EXPECT_TRUE(contains(names, "down"));
     EXPECT_TRUE(contains(names, "kill"));
     EXPECT_TRUE(contains(names, "sync"));
+    EXPECT_TRUE(contains(names, "prune"));
     EXPECT_TRUE(contains(names, "doctor"));
     EXPECT_TRUE(contains(names, "help"));
+
+    // Regression: `logs`, `probe`, `import` were removed in commit
+    // 148c720 — ensure completion doesn't silently resurface them.
+    EXPECT_FALSE(contains(names, "logs"));
+    EXPECT_FALSE(contains(names, "probe"));
+    EXPECT_FALSE(contains(names, "import"));
+}
+
+// Regression companion: the startup wiring must actually register the
+// ClusterCompletionProvider. Before this PR the provider compiled but
+// was never added to the registry — tab completion for `cluster` fell
+// through to generic providers. Assert (a) it can_complete("cluster"),
+// and (b) completing after `cluster connect` offers cluster names.
+TEST(ClusterCompletion, ConnectPositionalOffersClusterNames) {
+    EngineHarness h;
+    ClusterCompletionProvider p;
+    const auto names = texts(p.complete(
+        "cluster", "", {"connect"}, dummy_state));
+    EXPECT_TRUE(contains(names, "utah-n"));
+    EXPECT_TRUE(contains(names, "utah-k"));
+}
+
+TEST(ClusterCompletion, DisconnectPositionalOffersClusterNames) {
+    EngineHarness h;
+    ClusterCompletionProvider p;
+    const auto names = texts(p.complete(
+        "cluster", "", {"disconnect"}, dummy_state));
+    EXPECT_TRUE(contains(names, "utah-n"));
+    EXPECT_TRUE(contains(names, "utah-k"));
 }
 
 TEST(ClusterCompletion, PrefixFiltersSubcommands) {

@@ -56,17 +56,19 @@ public:
         return SubmitResult{id, "Submitted batch job " + id + " (demo)"};
     }
 
-    std::vector<JobState> squeue(const std::string&, ISshClient&) override {
+    std::optional<std::vector<JobState>>
+    squeue(const std::string&, ISshClient&) override {
         std::vector<JobState> out;
         out.reserve(jobs_.size());
         for (const auto& kv : jobs_) out.push_back(kv.second);
         return out;
     }
 
-    std::vector<PartitionState> sinfo(const std::string&,
-                                        const std::string& partition,
-                                        ISshClient&) override {
-        return {PartitionState{
+    std::optional<std::vector<PartitionState>>
+    sinfo(const std::string&,
+           const std::string& partition,
+           ISshClient&) override {
+        return std::vector<PartitionState>{PartitionState{
             partition, "up", 4,
             {"gpu:a100:1", "gpu:a100:1", "gpu:a100:1", "gpu:a100:1"}
         }};

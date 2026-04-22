@@ -25,19 +25,21 @@ public:
         return SubmitResult{slurm_parse::parse_sbatch_jobid(r.out), r.out};
     }
 
-    std::vector<JobState> squeue(const std::string& cluster, ISshClient& ssh) override {
+    std::optional<std::vector<JobState>>
+    squeue(const std::string& cluster, ISshClient& ssh) override {
         const auto argv = slurm_parse::build_squeue_argv();
         const auto r    = ssh.run(cluster, argv, std::chrono::seconds{10});
-        if (r.exit_code != 0) return {};
+        if (r.exit_code != 0) return std::nullopt;
         return slurm_parse::parse_squeue(r.out);
     }
 
-    std::vector<PartitionState> sinfo(const std::string& cluster,
-                                        const std::string& partition,
-                                        ISshClient& ssh) override {
+    std::optional<std::vector<PartitionState>>
+    sinfo(const std::string& cluster,
+           const std::string& partition,
+           ISshClient& ssh) override {
         const auto argv = slurm_parse::build_sinfo_argv(partition);
         const auto r    = ssh.run(cluster, argv, std::chrono::seconds{10});
-        if (r.exit_code != 0) return {};
+        if (r.exit_code != 0) return std::nullopt;
         return slurm_parse::parse_sinfo(r.out);
     }
 

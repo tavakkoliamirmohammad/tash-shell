@@ -22,8 +22,9 @@ namespace tash::cluster {
 namespace {
 
 constexpr const char* kSubcommands[] = {
+    "connect", "disconnect",
     "up", "launch", "attach", "list", "down", "kill",
-    "sync", "doctor", "help",
+    "sync", "prune", "doctor", "help",
 };
 
 const std::vector<std::string>& flags_for(std::string_view sub) {
@@ -144,6 +145,15 @@ std::vector<Completion> ClusterCompletionProvider::complete(
     }
 
     // ── Positional slots ──────────────────────────────────────
+    if (sub == "connect" || sub == "disconnect") {
+        std::vector<Completion> out;
+        if (eng) for (const auto& c : eng->config().clusters)
+            out.push_back(make(c.name,
+                c.description.empty() ? "cluster" : c.description,
+                Completion::ARGUMENT));
+        return filter_prefix(std::move(out), current_word);
+    }
+
     if (sub == "attach" || sub == "kill") {
         std::vector<Completion> out;
         auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();

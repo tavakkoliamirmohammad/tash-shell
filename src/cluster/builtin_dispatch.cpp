@@ -439,6 +439,17 @@ int cmd_sync(std::vector<std::string> rest, ClusterEngine& eng,
     if (auto* s = std::get_if<ClusterEngine::SyncReport>(&r)) {
         out << "probed " << s->clusters_probed << " cluster(s), "
             << s->transitions << " transitions\n";
+        if (s->probe_failures > 0) {
+            std::string msg = "warning: " + std::to_string(s->probe_failures) +
+                               " cluster(s) unreachable — skipped reconcile on:";
+            for (const auto& c : s->failed_clusters) msg += " " + c;
+            msg += "\n         registry unchanged for those clusters "
+                    "(run `cluster sync` again once ssh is back)";
+            print_err(err, msg);
+            // rc != 0 because the user asked to sync and part of the
+            // request didn't succeed; they need to know to retry.
+            return 2;
+        }
         return 0;
     }
     print_err(err, std::get<EngineError>(r).message);

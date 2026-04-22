@@ -1,8 +1,7 @@
 // StreamWatcher — a real IWatcher implementation driven by an
 // injectable LineSource. Works for:
 //   - tests (inject a lambda that yields queued lines)
-//   - production (M3.3/M3.4 wires it to `ssh <cluster> tail -F
-//      <event-dir>/**/*.event` via ISshClient)
+//   - production (ssh <cluster> tail -F piped through PipedLineSource)
 //
 // Per-line behaviour:
 //   1. decode via EventDecoder — malformed lines skipped silently
@@ -10,10 +9,12 @@
 //   3. apply_event on Registry + INotifier — updates instance state,
 //      fires notifier.desktop + .bell
 //
-// Shutdown: stop() sets an atomic flag and asks the LineSource for one
-// more line; the run() loop checks the flag between reads and exits.
-// Sources that may block forever (real tail -F) MUST become interruptible
-// when stop() fires — typically by closing the underlying ssh pipe.
+// Shutdown: stop() sets an atomic flag AND invokes the owner-supplied
+// on_stop callback (typically "close the ssh pipe"). Without the
+// callback the run loop stays blocked inside source_() — a
+// PipedLineSource's blocking read() won't unblock on its own, so the
+// provider's join timeout would fire and a detached thread would leak
+// the child process.
 
 #ifndef TASH_CLUSTER_STREAM_WATCHER_H
 #define TASH_CLUSTER_STREAM_WATCHER_H
@@ -35,9 +36,19 @@ namespace tash::cluster {
 // source is now drained).
 using LineSource = std::function<std::optional<std::string>()>;
 
+// Called from stop() before the atomic flag is set — owner's chance
+// to unblock a pending next_line() call (e.g. close the ssh pipe).
+// May be nullptr for sources that naturally return nullopt (tests).
+using OnStop = std::function<void()>;
+
 class StreamWatcher : public IWatcher {
 public:
+    // Two-arg overload preserved for tests whose sources drain naturally.
     StreamWatcher(LineSource source, Registry& reg, INotifier& notify);
+    // Production form. on_stop is called from stop() so a blocking
+    // source can be unblocked deterministically.
+    StreamWatcher(LineSource source, OnStop on_stop,
+                    Registry& reg, INotifier& notify);
 
     void run()  override;
     void stop() override;
@@ -47,6 +58,7 @@ public:
 
 private:
     LineSource         source_;
+    OnStop             on_stop_;
     Registry*          reg_;
     INotifier*         notify_;
     EventDedup         dedup_;

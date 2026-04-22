@@ -102,3 +102,50 @@ TEST(ClusterEngineSync, FilterToOneClusterSkipsOthers) {
     // c2's state untouched
     EXPECT_EQ(h.reg.find_allocation("c2:300")->state, AllocationState::Running);
 }
+
+// Regression: a transient squeue failure (ssh down, Duo expired) used to
+// return an empty vector, which Registry::reconcile interpreted as "no
+// jobs present" → flipped every Running allocation on that cluster to
+// Ended. `squeue` now returns optional<vector>; sync() must count the
+// failure and LEAVE the allocations untouched.
+TEST(ClusterEngineSync, ProbeFailureDoesNotFlipRunningAllocationsToEnded) {
+    Harness h;
+    h.reg.add_allocation(alloc("c1", "100"));
+    h.reg.add_allocation(alloc("c1", "200"));
+    h.slurm.queue_squeue_fail();   // ssh went down
+
+    auto r = h.engine().sync({});
+    auto* s = std::get_if<ClusterEngine::SyncReport>(&r);
+    ASSERT_NE(s, nullptr);
+    EXPECT_EQ(s->clusters_probed, 0);
+    EXPECT_EQ(s->probe_failures, 1);
+    ASSERT_EQ(s->failed_clusters.size(), 1u);
+    EXPECT_EQ(s->failed_clusters[0], "c1");
+    EXPECT_EQ(s->transitions,    0);
+
+    // Both allocations MUST still be Running — this is the bug.
+    EXPECT_EQ(h.reg.find_allocation("c1:100")->state, AllocationState::Running);
+    EXPECT_EQ(h.reg.find_allocation("c1:200")->state, AllocationState::Running);
+}
+
+// Partial failure across two clusters: c1 probe succeeds and transitions
+// ghosts normally, c2 probe fails and leaves its allocations alone.
+TEST(ClusterEngineSync, PartialProbeFailureReconcilesOnlyReachableClusters) {
+    Harness h;
+    h.reg.add_allocation(alloc("c1", "100"));   // will be seen in squeue
+    h.reg.add_allocation(alloc("c1", "200"));   // ghost → Ended
+    h.reg.add_allocation(alloc("c2", "300"));   // c2 unreachable → unchanged
+
+    h.slurm.queue_squeue({JobState{"100", "R", "n1", ""}});    // c1 ok
+    h.slurm.queue_squeue_fail();                                // c2 failed
+
+    auto r = h.engine().sync({});
+    auto* s = std::get_if<ClusterEngine::SyncReport>(&r);
+    ASSERT_NE(s, nullptr);
+    EXPECT_EQ(s->clusters_probed, 1);
+    EXPECT_EQ(s->probe_failures, 1);
+    EXPECT_EQ(s->transitions,    1);
+    EXPECT_EQ(h.reg.find_allocation("c1:100")->state, AllocationState::Running);
+    EXPECT_EQ(h.reg.find_allocation("c1:200")->state, AllocationState::Ended);
+    EXPECT_EQ(h.reg.find_allocation("c2:300")->state, AllocationState::Running);
+}

@@ -199,3 +199,52 @@ TEST(NotificationEndToEnd, MalformedJsonLinesAreSkipped) {
     queue.close();
     provider.on_exit(state);
 }
+
+// Regression: StreamWatcher::stop() must unblock a source that's
+// currently blocked inside next_line(). Before this fix stop() only
+// flipped an atomic; the run loop never observed it because it was
+// blocked in LineQueue::pop() on a condition_variable. The provider's
+// join backstop would fire and the thread would be detached, leaking
+// it and the underlying subprocess for the remainder of tash's life.
+//
+// The fix: StreamWatcher's production constructor takes an OnStop
+// callback which, for real production, calls PipedLineSource::stop()
+// (closes the read fd). Here we model the same contract with a
+// callback that closes the LineQueue.
+TEST(NotificationEndToEnd, StopUnblocksBlockingSourceWithinBackstop) {
+    Registry     reg;
+    FakeNotifier notify;
+    auto         queue = std::make_shared<LineQueue>();
+    seed_registry(reg);
+
+    // Factory: StreamWatcher with an OnStop that closes the queue —
+    // this is the test analog of PipedLineSource::stop() closing the
+    // ssh pipe fd.
+    WatcherFactory factory =
+        [queue, &notify](const Allocation&, Registry& r) -> std::shared_ptr<IWatcher> {
+            auto on_stop = [queue]() { queue->close(); };
+            return std::make_shared<StreamWatcher>(
+                [queue]() { return queue->pop(); },
+                std::move(on_stop),
+                r, notify);
+        };
+
+    ClusterWatcherHookProvider provider(reg, factory);
+    ShellState state{};
+    provider.on_startup(state);
+
+    // The watcher is now blocked in queue->pop() — no lines queued,
+    // not closed. Measure how long on_exit() takes to return: without
+    // the fix it would take `join_backstop` (seconds) + a leaked
+    // thread. With the fix it's essentially instant.
+    const auto t0 = std::chrono::steady_clock::now();
+    provider.on_exit(state);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0);
+
+    // Leave generous headroom for CI schedulers; the point is that we
+    // didn't hit the provider's multi-second backstop.
+    EXPECT_LT(elapsed, std::chrono::milliseconds{500})
+        << "StreamWatcher::stop() did not unblock a blocking source — "
+            "took " << elapsed.count() << "ms to join (expected <500ms)";
+}

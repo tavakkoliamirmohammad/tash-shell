@@ -73,9 +73,16 @@ SubmitSpec build_submit_spec(const Resource& res, const Route& route, const UpSp
 // A route qualifies if sinfo reports at least one idle node whose
 // idle_gres list contains the route's gres. CPU-only routes (gres empty)
 // qualify whenever any idle node exists.
+//
+// Returns false on sinfo probe failure (nullopt) — the caller falls
+// through to the next candidate or (if all probes fail) to the first
+// declared candidate. Probe failures are distinguished from genuine
+// "no idle capacity" by the nullopt/empty-vector split but the up-path
+// currently only needs the boolean qualifier.
 bool route_has_idle(ISlurmOps& slurm, ISshClient& ssh, const Route& r) {
     const auto states = slurm.sinfo(r.cluster, r.partition, ssh);
-    for (const auto& ps : states) {
+    if (!states) return false;            // probe failed — treat as not idle
+    for (const auto& ps : *states) {
         if (ps.idle_nodes <= 0) continue;
         if (r.gres.empty()) return true;
         for (const auto& g : ps.idle_gres) {
@@ -236,7 +243,16 @@ ClusterResult<ClusterEngine::SyncReport> ClusterEngine::sync(const SyncSpec& spe
     SyncReport rep;
     for (const auto& c : clusters) {
         const auto snap = slurm_.squeue(c, ssh_);
-        rep.transitions += reg_.reconcile(c, snap);
+        if (!snap) {
+            // squeue failed (ssh down, Duo expired, remote error). DO
+            // NOT reconcile — the old behaviour of treating nullopt as
+            // "no jobs present" silently flipped every Running alloc on
+            // this cluster to Ended.
+            ++rep.probe_failures;
+            rep.failed_clusters.push_back(c);
+            continue;
+        }
+        rep.transitions += reg_.reconcile(c, *snap);
         ++rep.clusters_probed;
     }
     if (save_ && rep.transitions > 0) save_();
@@ -740,15 +756,36 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
     }
 
     // 5. Poll squeue until R or wait-timeout.
-    auto   deadline          = clock_.now() + spec.wait_timeout;
-    bool   running           = false;
-    bool   detach_and_keep   = false;
+    //
+    // Transient squeue failures (ssh glitch, Duo expired) are tolerated
+    // up to `max_consecutive_probe_failures` in a row; past that we
+    // bail out rather than pretend the job is just still queued. This
+    // prevents an unreachable cluster from silently eating the full
+    // wait_timeout without surfacing any ssh-level signal.
+    constexpr int max_consecutive_probe_failures = 3;
+    auto   deadline = clock_.now() + spec.wait_timeout;
+    bool   running  = false;
+    int    consecutive_probe_failures = 0;
     std::string node;
 
     while (true) {
         const auto jobs = slurm_.squeue(chosen->cluster, ssh_);
+        if (!jobs) {
+            if (++consecutive_probe_failures >= max_consecutive_probe_failures) {
+                return EngineError{"squeue failed " +
+                    std::to_string(consecutive_probe_failures) +
+                    " times in a row on " + chosen->cluster +
+                    " while polling job " + sr.jobid +
+                    "; registry has the allocation as Pending — retry with `cluster sync " +
+                    chosen->cluster + "` once ssh is back"};
+            }
+            clock_.sleep_for(std::chrono::milliseconds(250));
+            continue;
+        }
+        consecutive_probe_failures = 0;
+
         const JobState* mine = nullptr;
-        for (const auto& j : jobs) {
+        for (const auto& j : *jobs) {
             if (j.jobid == sr.jobid) { mine = &j; break; }
         }
         if (mine && mine->state == "R") {
@@ -770,11 +807,13 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
                 }
                 return EngineError{"cancelled while queued (job " + sr.jobid + ")"};
             }
-            if (c == 'd') {
-                detach_and_keep = true;
+            if (c == 'd' || c == '\0') {
+                // '\0' means non-interactive (e.g., the real StdinPrompt
+                // can't read std::cin inside a builtin). Auto-detach so
+                // we don't busy-loop forever re-prompting no one.
                 break;
             }
-            // 'k' or \0 → keep waiting; extend deadline by one full interval.
+            // 'k' → keep waiting; extend deadline by one full interval.
             deadline = clock_.now() + spec.wait_timeout;
         }
 
@@ -790,9 +829,8 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
     alloc.node         = node;                    // empty when detached-pending
     alloc.submitted_at = submitted_at;
     alloc.started_at   = running ? iso8601_utc_now() : std::string{};
-    alloc.state        = running         ? AllocationState::Running
-                          : detach_and_keep ? AllocationState::Pending
-                                            : AllocationState::Pending;
+    alloc.state        = running ? AllocationState::Running
+                                   : AllocationState::Pending;
     // 7. Persist.
     reg_.add_allocation(alloc);
     if (save_) save_();

@@ -30,6 +30,7 @@
 #include <string>
 #include <variant>
 #include <utility>
+#include <vector>
 
 namespace tash::cluster {
 
@@ -111,10 +112,16 @@ public:
     ClusterResult<Instance> kill(const KillSpec& spec);
 
     // sync: run squeue for each relevant cluster and reconcile the
-    // registry. Returns how many allocations transitioned to Ended.
+    // registry. Returns how many clusters were probed successfully,
+    // how many allocations transitioned to Ended, and which clusters'
+    // probes failed (ssh down, Duo expired, remote error). Clusters in
+    // `failed_clusters` are NOT reconciled — a transient probe failure
+    // must never be interpreted as "all jobs ended".
     struct SyncReport {
         int clusters_probed = 0;
         int transitions     = 0;
+        int probe_failures  = 0;
+        std::vector<std::string> failed_clusters;
     };
     ClusterResult<SyncReport> sync(const SyncSpec& spec);
 
