@@ -27,6 +27,7 @@
 
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <string>
 #include <variant>
 #include <utility>
@@ -35,8 +36,30 @@
 namespace tash::cluster {
 
 // ── Engine error value ────────────────────────────────────────
+// Additional fields (code / cluster / retryable) default to safe
+// values so that constructing an EngineError with just a message —
+// the original idiom — still compiles everywhere. Callers that want
+// to retry on transient ssh failures or render a structured exit
+// code can opt in by setting `code = ErrorCode::Ssh` and `retryable
+// = true`.
+enum class ErrorCode {
+    Unknown   = 0,   // default — treat as internal / unclassified
+    Config,          // config.toml invalid or references an unknown name
+    Ssh,             // ssh / ControlMaster / network
+    Slurm,           // sbatch / squeue / sinfo / scancel failure
+    Tmux,            // tmux new-session / new-window / kill failure
+    Registry,        // local registry I/O (JSON / flock)
+    NotFound,        // workspace / instance / allocation doesn't exist
+    Conflict,        // ambiguous input (multiple matches, duplicate id)
+    Timeout,         // wait_timeout exceeded
+    Internal,        // bug — should never be surfaced to users
+};
+
 struct EngineError {
     std::string message;
+    ErrorCode   code      = ErrorCode::Unknown;
+    std::optional<std::string> cluster;    // set when error is cluster-scoped
+    bool        retryable = false;         // true = caller may re-attempt
 };
 
 // Result sum type — caller get_if<T> or std::visit.
@@ -134,13 +157,21 @@ public:
     ClusterResult<PruneReport> prune();
 
     // Diagnostic report: per-cluster ssh reach + tool presence. Each
-    // check carries OK / WARN / FAIL + a one-line message (fix hint
-    // on WARN/FAIL).
+    // check carries OK / WARN / FAIL + a one-line message (informational
+    // note on OK, diagnostic / fix hint on WARN / FAIL).
+    //
+    // Construct through the named factories (`ok` / `warn` / `fail`) —
+    // they enforce the rule that WARN and FAIL always carry a non-empty
+    // message so "fail with empty message" is unrepresentable.
     struct DoctorCheck {
         enum Level { OK, WARN, FAIL };
         std::string name;
         Level       level = OK;
         std::string message;
+
+        static DoctorCheck ok  (std::string name, std::string note = "");
+        static DoctorCheck warn(std::string name, std::string msg);
+        static DoctorCheck fail(std::string name, std::string msg);
     };
     struct DoctorReport {
         struct ClusterBlock {

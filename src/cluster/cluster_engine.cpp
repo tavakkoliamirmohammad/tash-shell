@@ -130,7 +130,9 @@ ClusterResult<Allocation> ClusterEngine::down(const DownSpec& spec) {
     auto lk = reg_.lock();
     auto* a = reg_.find_allocation(spec.alloc_id);
     if (!a) {
-        return EngineError{"no allocation with id: " + spec.alloc_id};
+        return EngineError{
+            "no allocation with id: " + spec.alloc_id,
+            ErrorCode::NotFound, std::nullopt, /*retryable=*/false};
     }
 
     Allocation snapshot = *a;      // copy before removal
@@ -138,9 +140,10 @@ ClusterResult<Allocation> ClusterEngine::down(const DownSpec& spec) {
         if (!slurm_.scancel(a->cluster, a->jobid, ssh_)) {
             // Don't desync: the job may still be alive on the cluster.
             // Leave the allocation in place so the user can retry / inspect.
-            return EngineError{"scancel refused job " + a->jobid +
-                                " on " + a->cluster +
-                                "; allocation left in registry"};
+            return EngineError{
+                "scancel refused job " + a->jobid + " on " + a->cluster +
+                    "; allocation left in registry",
+                ErrorCode::Slurm, a->cluster, /*retryable=*/true};
         }
     }
     snapshot.state = AllocationState::Ended;
@@ -274,15 +277,29 @@ bool looks_like_path(const std::string& s) {
     return false;
 }
 
-ClusterEngine::DoctorCheck run_check(ClusterEngine::DoctorCheck::Level lvl,
-                                         std::string name,
-                                         std::string msg) {
+}  // namespace
+
+// Named factories: WARN/FAIL require a non-empty message (empty string
+// would be a usability bug — a doctor FAIL with no explanation). OK
+// may carry an optional note (e.g. the resolved path of a tool).
+ClusterEngine::DoctorCheck
+ClusterEngine::DoctorCheck::ok(std::string name, std::string note) {
     ClusterEngine::DoctorCheck c;
-    c.level = lvl; c.name = std::move(name); c.message = std::move(msg);
+    c.level = OK; c.name = std::move(name); c.message = std::move(note);
     return c;
 }
-
-}  // namespace
+ClusterEngine::DoctorCheck
+ClusterEngine::DoctorCheck::warn(std::string name, std::string msg) {
+    ClusterEngine::DoctorCheck c;
+    c.level = WARN; c.name = std::move(name); c.message = std::move(msg);
+    return c;
+}
+ClusterEngine::DoctorCheck
+ClusterEngine::DoctorCheck::fail(std::string name, std::string msg) {
+    ClusterEngine::DoctorCheck c;
+    c.level = FAIL; c.name = std::move(name); c.message = std::move(msg);
+    return c;
+}
 
 ClusterResult<ClusterEngine::DoctorReport>
 ClusterEngine::doctor(const DoctorSpec& spec) {
@@ -291,7 +308,8 @@ ClusterEngine::doctor(const DoctorSpec& spec) {
     if (spec.cluster) {
         const Cluster* c = find_cluster(cfg_, *spec.cluster);
         if (!c) {
-            return EngineError{"unknown cluster: " + *spec.cluster};
+            return EngineError{"unknown cluster: " + *spec.cluster,
+                                ErrorCode::Config, *spec.cluster, false};
         }
         targets.push_back(c);
     } else {
@@ -299,7 +317,8 @@ ClusterEngine::doctor(const DoctorSpec& spec) {
     }
     if (targets.empty()) {
         return EngineError{"no clusters configured — add a [[clusters]] block "
-                            "to ~/.tash/cluster/config.toml"};
+                            "to ~/.tash/cluster/config.toml",
+                            ErrorCode::Config, std::nullopt, false};
     }
 
     DoctorReport rep;
@@ -311,38 +330,32 @@ ClusterEngine::doctor(const DoctorSpec& spec) {
         // 1. SSH reach — "true" is a no-op; exit 0 means we got through.
         const auto reach = ssh_.run(c->name, {"true"}, std::chrono::seconds{5});
         if (reach.exit_code != 0) {
-            blk.checks.push_back(run_check(
-                DoctorCheck::FAIL,
+            blk.checks.push_back(DoctorCheck::fail(
                 "SSH reach: " + c->ssh_host,
                 "`ssh " + c->ssh_host + " true` failed (exit "
                     + std::to_string(reach.exit_code) +
                     "). Try `cluster connect " + c->name +
                     "` or check ~/.ssh/config."));
             // Skip follow-up checks (both need a working ssh).
-            blk.checks.push_back(run_check(
-                DoctorCheck::WARN,
+            blk.checks.push_back(DoctorCheck::warn(
                 "sbatch on " + c->ssh_host, "skipped (ssh unreachable)"));
-            blk.checks.push_back(run_check(
-                DoctorCheck::WARN,
+            blk.checks.push_back(DoctorCheck::warn(
                 "tmux on "   + c->ssh_host, "skipped (ssh unreachable)"));
             rep.clusters.push_back(std::move(blk));
             continue;
         }
-        blk.checks.push_back(run_check(
-            DoctorCheck::OK,
+        blk.checks.push_back(DoctorCheck::ok(
             "SSH reach: " + c->ssh_host,
             "ssh works (password+Duo may still prompt once per session)"));
 
         // 2. sbatch presence via `which sbatch`.
         const auto sb = ssh_.run(c->name, {"which", "sbatch"}, std::chrono::seconds{5});
         if (sb.exit_code == 0 && looks_like_path(sb.out)) {
-            blk.checks.push_back(run_check(
-                DoctorCheck::OK,
+            blk.checks.push_back(DoctorCheck::ok(
                 "sbatch on " + c->ssh_host,
                 sb.out.substr(0, sb.out.find('\n'))));
         } else {
-            blk.checks.push_back(run_check(
-                DoctorCheck::WARN,
+            blk.checks.push_back(DoctorCheck::warn(
                 "sbatch on " + c->ssh_host,
                 "`which sbatch` came up empty; is SLURM in PATH on the login node?"));
         }
@@ -350,13 +363,11 @@ ClusterEngine::doctor(const DoctorSpec& spec) {
         // 3. tmux presence via `which tmux`.
         const auto tm = ssh_.run(c->name, {"which", "tmux"}, std::chrono::seconds{5});
         if (tm.exit_code == 0 && looks_like_path(tm.out)) {
-            blk.checks.push_back(run_check(
-                DoctorCheck::OK,
+            blk.checks.push_back(DoctorCheck::ok(
                 "tmux on " + c->ssh_host,
                 tm.out.substr(0, tm.out.find('\n'))));
         } else {
-            blk.checks.push_back(run_check(
-                DoctorCheck::WARN,
+            blk.checks.push_back(DoctorCheck::warn(
                 "tmux on " + c->ssh_host,
                 "`which tmux` came up empty; install tmux on the cluster to use "
                 "cluster launch / attach."));
@@ -729,10 +740,12 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
     // 1. Resolve resource.
     const Resource* res = find_resource(cfg_, spec.resource);
     if (!res) {
-        return EngineError{"unknown resource: " + spec.resource};
+        return EngineError{"unknown resource: " + spec.resource,
+                            ErrorCode::Config, std::nullopt, false};
     }
     if (res->routes.empty()) {
-        return EngineError{"resource '" + spec.resource + "' has no routes declared"};
+        return EngineError{"resource '" + spec.resource + "' has no routes declared",
+                            ErrorCode::Config, std::nullopt, false};
     }
     auto lk = reg_.lock();
 
@@ -762,9 +775,11 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
     const std::string submitted_at = iso8601_utc_now();
     SubmitResult sr = slurm_.sbatch(sub, ssh_);
     if (sr.jobid.empty()) {
-        return EngineError{"sbatch rejected: " +
-                            (sr.raw_stdout.empty() ? std::string("<empty response>")
-                                                    : sr.raw_stdout)};
+        return EngineError{
+            "sbatch rejected: " +
+                (sr.raw_stdout.empty() ? std::string("<empty response>")
+                                        : sr.raw_stdout),
+            ErrorCode::Slurm, chosen->cluster, /*retryable=*/false};
     }
 
     // 5. Poll squeue until R or wait-timeout.
@@ -784,12 +799,14 @@ ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
         const auto jobs = slurm_.squeue(chosen->cluster, ssh_);
         if (!jobs) {
             if (++consecutive_probe_failures >= max_consecutive_probe_failures) {
-                return EngineError{"squeue failed " +
-                    std::to_string(consecutive_probe_failures) +
-                    " times in a row on " + chosen->cluster +
-                    " while polling job " + sr.jobid +
-                    "; registry has the allocation as Pending — retry with `cluster sync " +
-                    chosen->cluster + "` once ssh is back"};
+                return EngineError{
+                    "squeue failed " +
+                        std::to_string(consecutive_probe_failures) +
+                        " times in a row on " + chosen->cluster +
+                        " while polling job " + sr.jobid +
+                        "; registry has the allocation as Pending — retry with `cluster sync " +
+                        chosen->cluster + "` once ssh is back",
+                    ErrorCode::Ssh, chosen->cluster, /*retryable=*/true};
             }
             clock_.sleep_for(std::chrono::milliseconds(250));
             continue;
