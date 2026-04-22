@@ -1,26 +1,10 @@
-// TASH_CLUSTER_DEMO=1 runtime wiring.
-//
-// When tash starts with TASH_CLUSTER_DEMO=1 in the environment,
-// startup.cpp calls install_demo_engine(), which constructs a
-// ClusterEngine backed by minimal in-memory impls of all the seams:
-//
-//   - DemoSshClient  — every run() succeeds with empty stdout
-//   - DemoSlurmOps   — sinfo reports plenty of idle a100 nodes,
-//                       sbatch hands out monotonic jobids, squeue
-//                       reflects current state, scancel removes
-//   - DemoTmuxOps    — every op succeeds; windows are always alive
-//   - DemoNotifier   — prints to stderr so the demo user can see
-//                       notifications happened
-//   - DemoPrompt     — answers 'k' (keep waiting) for every prompt
-//   - DemoClock      — fake clock whose sleep_for advances the stored
-//                       time instantly (no real sleep)
-//
-// Config is a single-cluster "demo-cluster" with one "a100" resource
-// and a "demo-claude" preset that runs `echo 'hello from demo'`.
-//
-// This exists for two reasons: (1) a new user can kick the tires with
-// zero credentials and zero cluster access, (2) the integration tests
-// can drive the whole build against a predictable backend.
+// TASH_CLUSTER_DEMO=1 runtime wiring — composes a ClusterEngine with
+// in-memory Demo* impls of every seam (sbatch hands out monotonic
+// jobids, tmux always "succeeds", notifier prints to stderr, etc.).
+// Lets new users kick the tires with zero credentials and lets
+// integration tests drive the whole build against a predictable
+// backend. Config ships a single "demo-cluster" with one "a100"
+// resource.
 
 #ifndef TASH_CLUSTER_DEMO_MODE_H
 #define TASH_CLUSTER_DEMO_MODE_H

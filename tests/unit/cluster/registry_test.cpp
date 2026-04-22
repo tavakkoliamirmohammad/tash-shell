@@ -148,7 +148,6 @@ TEST_F(RegistryTest, ComplexStateSurvivesSaveLoadRoundTrip) {
     a1.node         = "notch5";
     a1.submitted_at = "2026-04-18T10:00:00Z";
     a1.started_at   = "2026-04-18T10:00:05Z";
-    a1.end_by       = "2026-04-18T14:00:05Z";
     a1.resource     = "a100";
     r.add_allocation(a1);
 
@@ -177,7 +176,6 @@ TEST_F(RegistryTest, ComplexStateSurvivesSaveLoadRoundTrip) {
     EXPECT_EQ(a.resource,     "a100");
     EXPECT_EQ(a.submitted_at, "2026-04-18T10:00:00Z");
     EXPECT_EQ(a.started_at,   "2026-04-18T10:00:05Z");
-    EXPECT_EQ(a.end_by,       "2026-04-18T14:00:05Z");
     EXPECT_EQ(a.state,        AllocationState::Running);
 
     ASSERT_EQ(a.workspaces.size(), 1u);
@@ -285,7 +283,6 @@ TEST_F(RegistryTest, SchemaV1LoadIdentityPass) {
                 "node": "n1",
                 "submitted_at": "2026-04-18T00:00:00Z",
                 "started_at": "2026-04-18T00:00:01Z",
-                "end_by": "2026-04-18T04:00:00Z",
                 "state": "pending",
                 "workspaces": [
                     {

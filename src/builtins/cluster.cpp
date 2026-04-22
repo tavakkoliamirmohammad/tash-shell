@@ -1,14 +1,7 @@
-// `cluster` builtin — thin wrapper around tash::cluster::dispatch_cluster().
-//
-// The argv parser + engine dispatch live in src/cluster/builtin_dispatch.cpp
-// so they can be unit-tested directly without plumbing ShellState or
-// intercepting real stdout/stderr. This shim just:
-//
-//   1. Pulls the active ClusterEngine (set by startup / demo mode).
-//   2. Feeds dispatch_cluster its argv + std::ostringstream capture.
-//   3. Forwards captured output to tash's write_stdout / write_stderr.
-//
-// If no engine is installed, the user gets a one-line explanation.
+// `cluster` builtin — thin forwarder to tash::cluster::dispatch_cluster.
+// Pulls the active engine (set by startup), captures the dispatcher's
+// stdout/stderr, and forwards through tash's write_* helpers. If no
+// engine is installed the user gets a one-line remediation hint.
 
 #include "tash/builtins.h"
 #include "tash/core/signals.h"

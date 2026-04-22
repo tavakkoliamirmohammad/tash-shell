@@ -144,7 +144,6 @@ json allocation_to_json(const Allocation& a) {
     j["node"]         = a.node;
     j["submitted_at"] = a.submitted_at;
     j["started_at"]   = a.started_at;
-    j["end_by"]       = a.end_by;
     j["state"]        = to_s(a.state);
     json arr = json::array();
     for (const auto& w : a.workspaces) arr.push_back(workspace_to_json(w));
@@ -161,7 +160,6 @@ Allocation allocation_from_json(const json& j) {
     a.node         = j.value("node",         std::string{});
     a.submitted_at = j.value("submitted_at", std::string{});
     a.started_at   = j.value("started_at",   std::string{});
-    a.end_by       = j.value("end_by",       std::string{});
     if (j.contains("state"))
         a.state = alloc_from_s(j["state"].get<std::string>());
     if (j.contains("workspaces") && j["workspaces"].is_array()) {

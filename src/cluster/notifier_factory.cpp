@@ -1,13 +1,7 @@
-// Platform-specific INotifier impls + factory.
-//
-// macOS shells out to `osascript` — a line of AppleScript that pops a
-// Banner / Notification Centre entry.
-// Linux shells out to `notify-send` (from libnotify-bin), which is
-// what every modern desktop environment listens to.
-//
-// Both impls are built on every platform so integration tests can
-// drive them cross-host. The factory just picks the one that matches
-// the current build's target triple.
+// Per-platform INotifier: osascript on macOS, notify-send on Linux,
+// NoOp elsewhere. Both real impls compile on every platform so tests
+// can drive them cross-host; make_notifier() picks the one matching
+// the target triple.
 
 #include "tash/cluster/notifier_factory.h"
 

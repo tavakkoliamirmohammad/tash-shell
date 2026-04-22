@@ -254,6 +254,35 @@ TEST(SshTailWatcherFactory, EmptyHostOrDirYieldsNullOptOut) {
     EXPECT_EQ(w2, nullptr);
 }
 
+// Regression: the remote bash command was never asserted on in a unit
+// test. An earlier revision shipped with the wrong glob level
+// (`<dir>/*.event` one-level instead of `<dir>/*/*.event` two-level)
+// and silently watched nothing. A one-line regex match would have
+// caught it instantly.
+TEST(BuildSshTailRemoteCmd, EmbedsMkdirPollLoopAndTwoLevelGlob) {
+    const auto cmd = build_ssh_tail_remote_cmd("$HOME/.tash-cluster/events");
+
+    // Mkdir step for the event dir.
+    EXPECT_NE(cmd.find("mkdir -p"),                              std::string::npos) << cmd;
+    EXPECT_NE(cmd.find("$HOME/.tash-cluster/events"),             std::string::npos) << cmd;
+
+    // Poll-until-ready loop (doesn't exec tail until files exist).
+    EXPECT_NE(cmd.find("while"),                                  std::string::npos) << cmd;
+    EXPECT_NE(cmd.find("sleep 2"),                                std::string::npos) << cmd;
+
+    // Two-level glob — the actual event-file layout. The bug revision
+    // had `"/*.event"` only. `"/*/*.event"` must appear; `"/*.event"`
+    // as the ONLY glob must NOT.
+    EXPECT_NE(cmd.find("/*/*.event"),                             std::string::npos) << cmd;
+
+    // tail invocation with the flags the watcher needs.
+    EXPECT_NE(cmd.find("exec tail -qF -n +1"),                    std::string::npos) << cmd;
+
+    // Wrapped in `exec` so the bash loop is replaced by tail once the
+    // files exist — otherwise the poll loop would shadow the stream.
+    EXPECT_NE(cmd.find("exec tail"),                              std::string::npos) << cmd;
+}
+
 TEST(SshTailWatcherFactory, ReturnsNonNullWhenResolversProvideValues) {
     DummyNotifier n;
     auto factory = make_ssh_tail_watcher_factory(

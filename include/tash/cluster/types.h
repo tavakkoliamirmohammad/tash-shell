@@ -1,31 +1,9 @@
-// Core value types for the cluster subsystem.
-//
-// Everything here is a plain aggregate — no behavior, no virtual, no private.
-// They model three distinct concerns and are deliberately separable:
-//
-//   1. Configuration model   (loaded from ~/.tash/cluster/config.toml)
-//        Cluster, Route, Resource, Preset, Defaults, Config
-//
-//   2. Runtime registry model (persisted to ~/.tash/cluster/registry.json)
-//        Allocation, Workspace, Instance  (+ AllocationState, InstanceState)
-//
-//   3. Seam value types       (input/output of ISshClient, ISlurmOps, ITmuxOps)
-//        RemoteTarget, SshResult, SubmitSpec, SubmitResult, JobState,
-//        PartitionState, SessionInfo
-//
-// Plus the three command-input specs that ClusterEngine's public methods take:
-//   UpSpec, LaunchSpec, AttachSpec.
-//
-// Design notes:
-//   - Wire-level timestamps / durations stay as std::string (ISO-8601 or
-//     "HH:MM:SS") so TOML + JSON round-trips are trivial. Upper layers
-//     convert to std::chrono when they need to compute.
-//   - Truly-optional fields use std::optional to distinguish "absent" from
-//     "empty string".
-//   - Enums are used only where the value space is small and well-defined
-//     (ResourceKind, AllocationState, InstanceState). Everything else —
-//     SLURM job state codes, partition up/down, gres specs — stays as a
-//     string because SLURM's vocabulary is open-ended.
+// Core value types for the cluster subsystem — plain aggregates split
+// into three sections: config (loaded from TOML), runtime registry
+// (persisted to JSON), and seam I/O (passed through ISshClient /
+// ISlurmOps / ITmuxOps). Timestamps and SLURM vocabulary stay as
+// strings so wire round-trips are trivial; enums appear only where
+// the value space is small and closed.
 
 #ifndef TASH_CLUSTER_TYPES_H
 #define TASH_CLUSTER_TYPES_H
@@ -132,7 +110,10 @@ struct Allocation {
     std::string node;                            // compute node hostname
     std::string submitted_at;                    // ISO-8601
     std::string started_at;                      // ISO-8601; empty if still pending
-    std::string end_by;                          // ISO-8601; empty if unknown
+    // (historical note: an `end_by` ISO-8601 field lived here but was
+    // never populated anywhere — dropping the persisted-but-dead
+    // field is simpler than building a SLURM time-string parser for
+    // a field only used in one preview line.)
     AllocationState state = AllocationState::Pending;
     std::vector<Workspace> workspaces;
 };

@@ -129,3 +129,30 @@ TEST(PipedLineSource, ReadsLinesEmittedOverTime) {
     EXPECT_EQ(src.next_line().value_or(""), "c");
     EXPECT_FALSE(src.next_line().has_value());
 }
+
+// Regression (commit 1864fd2): the child's stdin must be redirected
+// to /dev/null. Previously the child inherited tash's stdin, so a
+// ReadFromStdin consumer (e.g. bash inside ssh) would silently eat
+// the user's keystrokes and confuse the REPL. This test runs a child
+// that (a) reads its stdin and (b) reports what it saw; if stdin is
+// /dev/null the read returns EOF immediately → the child emits
+// "stdin-is-closed". If the bug ever regresses and stdin is the
+// terminal / parent's stdin, the `read` would block and we'd hit the
+// 2-second timeout instead.
+TEST(PipedLineSource, ChildStdinIsRedirectedToDevNull) {
+    // dd if=/dev/stdin bs=1 count=1 2>/dev/null returns immediately
+    // with empty output if stdin is /dev/null (because read(2) returns
+    // 0). We assert the child emits "stdin-is-closed" afterward.
+    PipedLineSource src(sh(
+        "if [ -z \"$(dd bs=1 count=1 2>/dev/null)\" ]; then "
+        "  printf 'stdin-is-closed\\n'; "
+        "else "
+        "  printf 'stdin-got-data\\n'; "
+        "fi"));
+
+    const auto line = src.next_line();
+    ASSERT_TRUE(line.has_value())
+        << "child blocked on stdin — stdin wasn't redirected to /dev/null";
+    EXPECT_EQ(*line, "stdin-is-closed")
+        << "child read data from stdin (bug regressed: child inherits parent stdin)";
+}

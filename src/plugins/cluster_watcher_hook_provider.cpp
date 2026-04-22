@@ -139,6 +139,32 @@ void ClusterWatcherHookProvider::stop_and_join_all() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// build_ssh_tail_remote_cmd — pure string builder so unit tests can
+// assert on the shape without spawning ssh.
+// ══════════════════════════════════════════════════════════════════════════════
+
+std::string build_ssh_tail_remote_cmd(const std::string& event_dir) {
+    // Run a small bash loop on the remote that:
+    //   1. Ensures the event dir exists (idempotent mkdir).
+    //   2. Polls every 2s for any <ws>/<inst>.event file.
+    //   3. Once at least one exists, execs `tail -qF` on the matched
+    //      set. -qF -n +1 = suppress per-file banners, re-open on
+    //      rotate/truncate/recreate, emit existing content from line 1.
+    //
+    // The two-level glob (<dir>/<workspace>/<instance>.event) is what
+    // tash actually writes — earlier revisions watched <dir>/*.event
+    // (one level) and silently matched nothing.
+    return std::string{} +
+        "mkdir -p -- \"" + event_dir + "\" 2>/dev/null; "
+        "while :; do "
+        "  if ls \"" + event_dir + "\"/*/*.event >/dev/null 2>&1; then "
+        "    exec tail -qF -n +1 \"" + event_dir + "\"/*/*.event 2>/dev/null; "
+        "  fi; "
+        "  sleep 2; "
+        "done";
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // default_watcher_factory — NoOpWatcher for tests + notifications-off
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -186,32 +212,9 @@ WatcherFactory make_ssh_tail_watcher_factory(
         const std::string event_dir  = dir  ? dir(a)  : std::string{};
         if (ssh_host.empty() || event_dir.empty()) return nullptr;
 
-        // Run a small bash loop on the remote that:
-        //   1. Ensures the event dir exists (idempotent mkdir).
-        //   2. Polls every 2s for any <ws>/<inst>.event file.
-        //   3. Once at least one exists, execs `tail -qF` on the
-        //      matched set. -qF -n +1 has its usual meaning:
-        //        -q suppresses per-file banners,
-        //        -F re-opens on rotate/truncate/recreate,
-        //        -n +1 emits existing content from line 1.
-        //
-        // The two-level glob (<dir>/<workspace>/<instance>.event) is
-        // what tash actually writes — earlier versions watched
-        // <dir>/*.event (one level) and matched nothing.
-        //
-        // stderr is discarded so tail's pre-file-created noise doesn't
-        // bubble back to the user's terminal every 2s.
-        const std::string remote = std::string{} +
-            "mkdir -p -- \"" + event_dir + "\" 2>/dev/null; "
-            "while :; do "
-            "  if ls \"" + event_dir + "\"/*/*.event >/dev/null 2>&1; then "
-            "    exec tail -qF -n +1 \"" + event_dir + "\"/*/*.event 2>/dev/null; "
-            "  fi; "
-            "  sleep 2; "
-            "done";
         std::vector<std::string> argv = {
             "ssh", ssh_host,
-            "bash", "-c", remote,
+            "bash", "-c", build_ssh_tail_remote_cmd(event_dir),
         };
         auto proc = std::make_shared<PipedLineSource>(std::move(argv));
         auto src  = PipedLineSource::as_line_source(proc);

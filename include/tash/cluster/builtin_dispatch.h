@@ -4,11 +4,9 @@
 // directly against a test-constructed ClusterEngine, without having to
 // plumb a full ShellState or write to real stdout/stderr.
 //
-// Plan drift: the original plan proposed adding a ClusterEngine slot to
-// ShellState. That crosses a lot of module boundaries for little gain;
-// instead we set / get the active engine via a module-local getter and
-// keep ShellState untouched. builtin_cluster() in src/builtins/cluster.cpp
-// pulls from active_engine() and forwards to dispatch_cluster().
+// The active engine is set once at startup (by real_mode.cpp or
+// demo_mode.cpp) and retrieved here via a module-local pointer rather
+// than threading through ShellState.
 
 #ifndef TASH_CLUSTER_BUILTIN_DISPATCH_H
 #define TASH_CLUSTER_BUILTIN_DISPATCH_H
@@ -23,8 +21,8 @@ namespace tash::cluster {
 
 // Dispatch the `cluster` builtin against an engine.
 //   argv[0] is the builtin name ("cluster").
-//   argv[1] is the subcommand (up / launch / attach / list / down /
-//           kill / sync / probe / import / help).
+//   argv[1] is the subcommand (connect / disconnect / up / launch /
+//           attach / list / down / kill / sync / prune / doctor / help).
 // Writes output to `out` / `err`; returns POSIX-style exit code.
 int dispatch_cluster(const std::vector<std::string>& argv,
                       ClusterEngine& engine,

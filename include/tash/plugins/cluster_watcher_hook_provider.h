@@ -78,6 +78,14 @@ WatcherFactory make_ssh_tail_watcher_factory(
     std::function<std::string(const Allocation&)> event_dir_for,
     INotifier& notifier);
 
+// Pure-string helper: the remote bash script that
+// make_ssh_tail_watcher_factory embeds into `ssh <host> bash -c
+// '<this>'`. Extracted so unit tests can assert on its shape without
+// actually spawning ssh — prevents regressions like the one-level
+// vs two-level glob bug that shipped in an earlier revision and
+// silently watched nothing.
+std::string build_ssh_tail_remote_cmd(const std::string& event_dir);
+
 class ClusterWatcherHookProvider : public IHookProvider {
 public:
     ClusterWatcherHookProvider(Registry& reg, WatcherFactory factory);

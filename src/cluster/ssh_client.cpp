@@ -327,8 +327,11 @@ std::string sh_quote(const std::string& s) {
 // system() blocks SIGINT/SIGQUIT in the parent while the child runs,
 // so Ctrl-C during the password prompt reaches ssh (cancels auth)
 // instead of killing tash.
-int spawn_inherit(const std::vector<std::string>& argv,
-                   std::chrono::milliseconds /*timeout_ms*/) {
+// No timeout supported: system() blocks until the child exits. The
+// connect/disconnect paths are inherently interactive (password + Duo),
+// so a caller-side timeout would have to kill the auth prompt anyway,
+// which system() can't do. Keep the signature simple.
+int spawn_inherit(const std::vector<std::string>& argv) {
     if (argv.empty()) return -1;
     std::string cmd;
     for (std::size_t i = 0; i < argv.size(); ++i) {
@@ -377,7 +380,7 @@ public:
     // captured pipe eats the prompts and ssh stalls until we kill it.
     void connect(const std::string& cluster) override {
         SshFlags f{sockets_, resolve_(cluster), /*batch*/false};
-        (void)spawn_inherit(build_connect_argv(f), std::chrono::minutes{2});
+        (void)spawn_inherit(build_connect_argv(f));
     }
 
     void disconnect(const std::string& cluster) override {

@@ -9,7 +9,7 @@
 //
 // Both return ConfigLoadResult = std::variant<Config, ConfigError>.
 //
-// Error format matches tash's parser-error convention (commit 55faeba):
+// Error format matches tash's parser-error convention:
 //   tash: cluster: <path>:<line>:<col>: <message>
 // Lines and columns are 1-based, mirroring toml++'s source regions.
 //

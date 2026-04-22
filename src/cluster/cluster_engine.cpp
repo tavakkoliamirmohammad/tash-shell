@@ -297,6 +297,10 @@ ClusterEngine::doctor(const DoctorSpec& spec) {
     } else {
         for (const auto& c : cfg_.clusters) targets.push_back(&c);
     }
+    if (targets.empty()) {
+        return EngineError{"no clusters configured — add a [[clusters]] block "
+                            "to ~/.tash/cluster/config.toml"};
+    }
 
     DoctorReport rep;
 

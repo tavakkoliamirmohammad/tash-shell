@@ -32,8 +32,10 @@ void print_err(std::ostream& err, std::string_view msg) {
 }
 
 // Fetch --flag value: if argv[i] matches any of `names`, advance i and
-// return the next token. Sets found=true on match. Missing value -> nullopt
-// with error().
+// return the next token. Sets found=true on match. Missing value, or a
+// value that looks like another flag ("cluster up -r --help"), -> nullopt
+// with error() — the latter rescues the user from silently assigning
+// "--help" to `resource` and skipping the help handler.
 std::optional<std::string> eat_value(std::vector<std::string>& argv,
                                        std::size_t& i,
                                        std::initializer_list<std::string_view> names,
@@ -46,7 +48,13 @@ std::optional<std::string> eat_value(std::vector<std::string>& argv,
                 print_err(err, std::string(name) + " requires a value");
                 return std::nullopt;
             }
-            std::string v = argv[i + 1];
+            const std::string& next = argv[i + 1];
+            if (!next.empty() && next[0] == '-') {
+                print_err(err, std::string(name) + " requires a value, got '" +
+                                next + "' (looks like another flag)");
+                return std::nullopt;
+            }
+            std::string v = next;
             argv[i] = "";
             argv[i + 1] = "";
             ++i;
@@ -222,7 +230,6 @@ int cmd_up(std::vector<std::string> rest, ClusterEngine& eng,
     if (auto* a = std::get_if<Allocation>(&r)) {
         out << "allocated " << a->node << " on " << a->cluster
             << " (jobid " << a->jobid << ")";
-        if (!a->end_by.empty()) out << " — ends by " << a->end_by;
         out << "\n";
         return 0;
     }
@@ -522,6 +529,14 @@ int cmd_disconnect(std::vector<std::string> rest, ClusterEngine& eng,
         return 1;
     }
     const std::string& name = pos[0];
+    // Mirror cmd_connect — reject unknown cluster names before calling
+    // into the ssh client, so the user gets a clear "not in config.toml"
+    // message instead of a silent no-op on a typo.
+    if (!find_cluster(eng.config(), name)) {
+        print_err(err, "cluster disconnect: unknown cluster '" + name +
+                          "' (not in config.toml)");
+        return 1;
+    }
     eng.disconnect(name);
     out << "disconnected " << name << "\n";
     return 0;
