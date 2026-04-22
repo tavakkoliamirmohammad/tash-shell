@@ -133,5 +133,5 @@ SSH_STDERR="sbatch: error: account denied"
     const auto* err = std::get_if<EngineError>(&r);
     ASSERT_NE(err, nullptr);
     EXPECT_NE(err->message.find("sbatch"), std::string::npos) << err->message;
-    EXPECT_EQ(reg.allocations.size(), 0u);
+    EXPECT_EQ(reg.allocations().size(), 0u);
 }

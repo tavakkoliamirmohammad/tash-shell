@@ -9,6 +9,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -212,7 +213,7 @@ Registry Registry::load(const std::filesystem::path& path) {
     r.schema_version = j.value("schema_version", 1);
     if (j.contains("allocations") && j["allocations"].is_array()) {
         for (const auto& aj : j["allocations"]) {
-            r.allocations.push_back(allocation_from_json(aj));
+            r.allocations_.push_back(allocation_from_json(aj));
         }
     }
     return r;
@@ -227,7 +228,7 @@ void Registry::save(const std::filesystem::path& path) const {
     json j;
     j["schema_version"] = schema_version;
     json arr = json::array();
-    for (const auto& a : allocations) arr.push_back(allocation_to_json(a));
+    for (const auto& a : allocations_) arr.push_back(allocation_to_json(a));
     j["allocations"] = arr;
 
     auto tmp = path;
@@ -267,26 +268,38 @@ void Registry::save(const std::filesystem::path& path) const {
 
 void Registry::add_allocation(Allocation a) {
     std::lock_guard<std::recursive_mutex> lk(*mu_);
-    allocations.push_back(std::move(a));
+    allocations_.push_back(std::move(a));
 }
 
 bool Registry::remove_allocation(std::string_view id) {
     std::lock_guard<std::recursive_mutex> lk(*mu_);
-    for (auto it = allocations.begin(); it != allocations.end(); ++it) {
-        if (it->id == id) { allocations.erase(it); return true; }
+    for (auto it = allocations_.begin(); it != allocations_.end(); ++it) {
+        if (it->id == id) { allocations_.erase(it); return true; }
     }
     return false;
 }
 
+int Registry::remove_ended_allocations() {
+    std::lock_guard<std::recursive_mutex> lk(*mu_);
+    const auto before = allocations_.size();
+    allocations_.erase(
+        std::remove_if(allocations_.begin(), allocations_.end(),
+                        [](const Allocation& a) {
+                            return a.state == AllocationState::Ended;
+                        }),
+        allocations_.end());
+    return static_cast<int>(before - allocations_.size());
+}
+
 Allocation* Registry::find_allocation(std::string_view id) {
     std::lock_guard<std::recursive_mutex> lk(*mu_);
-    for (auto& a : allocations) if (a.id == id) return &a;
+    for (auto& a : allocations_) if (a.id == id) return &a;
     return nullptr;
 }
 
 const Allocation* Registry::find_allocation(std::string_view id) const {
     std::lock_guard<std::recursive_mutex> lk(*mu_);
-    for (const auto& a : allocations) if (a.id == id) return &a;
+    for (const auto& a : allocations_) if (a.id == id) return &a;
     return nullptr;
 }
 
@@ -344,7 +357,7 @@ bool Registry::remove_instance(std::string_view alloc_id,
 int Registry::reconcile(std::string_view cluster, const std::vector<JobState>& snapshot) {
     std::lock_guard<std::recursive_mutex> lk(*mu_);
     int transitioned = 0;
-    for (auto& a : allocations) {
+    for (auto& a : allocations_) {
         if (a.cluster != cluster)            continue;
         if (a.state   == AllocationState::Ended) continue;
 

@@ -130,14 +130,20 @@ struct RealMode {
             }
         });
 
-        // ssh-tail watcher wiring — opt-in for v1 until glob/no-file
-        // handling is more robust. When TASH_CLUSTER_WATCH=1 is set,
-        // spawn the real watcher; otherwise use the NoOp factory so
-        // stale/ended allocations in the registry can't hang tash's
-        // REPL on startup by spawning doomed `ssh tail -F` threads.
+        // ssh-tail watcher wiring. Default ON — earlier commits
+        // (`watcher ssh-tail now polls until files exist + matches
+        // right level`, `PipedLineSource redirects child stdin to
+        // /dev/null`, `StreamWatcher::stop unblocks the read fd`)
+        // fixed the fragility that originally motivated an opt-in
+        // gate. Users can still disable with TASH_CLUSTER_WATCH=0
+        // (e.g. on CI containers without outbound ssh).
         const bool watch =
-            []() { const char* v = std::getenv("TASH_CLUSTER_WATCH");
-                     return v && std::string(v) == "1"; }();
+            []() {
+                const char* v = std::getenv("TASH_CLUSTER_WATCH");
+                if (!v || !*v) return true;                 // unset → default on
+                const std::string s(v);
+                return !(s == "0" || s == "false" || s == "no" || s == "off");
+            }();
         if (watch) {
             auto cluster_resolver = [this](const Allocation& a) -> std::string {
                 if (const Cluster* cl = find_cluster(cfg, a.cluster))
@@ -152,9 +158,17 @@ struct RealMode {
                 make_ssh_tail_watcher_factory(std::move(cluster_resolver),
                                                 std::move(event_dir_resolver),
                                                 *notify));
+            tash::io::debug("cluster: notifications watcher enabled "
+                             "(ssh tail -F per Running allocation)");
         } else {
             watcher_hook = std::make_unique<ClusterWatcherHookProvider>(
                 reg, default_watcher_factory());
+            // info, not debug — users who explicitly disabled the
+            // watcher probably want a visible confirmation that tash
+            // respected it.
+            tash::io::info("cluster: notifications watcher disabled "
+                            "(TASH_CLUSTER_WATCH=0); stop-hook events will not reach "
+                            "your desktop");
         }
 
         ShellState state{};

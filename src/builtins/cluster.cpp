@@ -23,7 +23,8 @@ int builtin_cluster(const std::vector<std::string> &argv, ShellState &) {
     auto* eng = tash::cluster::active_engine();
     if (!eng) {
         write_stderr("tash: cluster: no cluster engine installed "
-                     "(start with TASH_CLUSTER_DEMO=1, or wait for M2 real-seam wiring)\n");
+                     "(create ~/.tash/cluster/config.toml for the real engine, "
+                     "or set TASH_CLUSTER_DEMO=1 for the in-memory demo)\n");
         return 1;
     }
     std::ostringstream out, err;

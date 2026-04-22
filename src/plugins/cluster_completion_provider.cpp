@@ -124,7 +124,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
     if (prev == "--workspace") {
         std::vector<Completion> out;
         auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
-        if (eng) for (const auto& a : eng->registry().allocations)
+        if (eng) for (const auto& a : eng->registry().allocations())
             for (const auto& w : a.workspaces) {
                 bool dup = false;
                 for (const auto& c : out) if (c.text == w.name) { dup = true; break; }
@@ -137,7 +137,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
     if (prev == "--alloc") {
         std::vector<Completion> out;
         auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
-        if (eng) for (const auto& a : eng->registry().allocations)
+        if (eng) for (const auto& a : eng->registry().allocations())
             out.push_back(make(a.id,
                 a.resource.empty() ? "allocation" : a.resource,
                 Completion::ARGUMENT));
@@ -157,7 +157,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
     if (sub == "attach" || sub == "kill") {
         std::vector<Completion> out;
         auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
-        if (eng) for (const auto& a : eng->registry().allocations)
+        if (eng) for (const auto& a : eng->registry().allocations())
             for (const auto& w : a.workspaces)
                 for (const auto& i : w.instances)
                     out.push_back(make(w.name + "/" + i.tmux_window,
@@ -168,7 +168,7 @@ std::vector<Completion> ClusterCompletionProvider::complete(
     if (sub == "down") {
         std::vector<Completion> out;
         auto _reglk = eng ? eng->registry().lock() : std::unique_lock<std::recursive_mutex>();
-        if (eng) for (const auto& a : eng->registry().allocations)
+        if (eng) for (const auto& a : eng->registry().allocations())
             out.push_back(make(a.id,
                 a.resource.empty() ? "allocation" : a.resource,
                 Completion::ARGUMENT));

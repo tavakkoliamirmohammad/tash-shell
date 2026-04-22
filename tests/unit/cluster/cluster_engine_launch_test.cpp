@@ -320,8 +320,8 @@ TEST(ClusterEngineLaunch, NewSessionFailureLeavesRegistryIntact) {
     ASSERT_NE(err, nullptr);
     EXPECT_NE(err->message.find("new-session"), std::string::npos) << err->message;
 
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    EXPECT_TRUE(h.reg.allocations[0].workspaces.empty());
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    EXPECT_TRUE(h.reg.allocations()[0].workspaces.empty());
     EXPECT_EQ(h.tmux.new_window_calls.size(), 0u);
 }
 
@@ -342,8 +342,8 @@ TEST(ClusterEngineLaunch, NewWindowFailureRollsBackFreshWorkspace) {
     ASSERT_NE(err, nullptr);
     EXPECT_NE(err->message.find("new-window"), std::string::npos) << err->message;
 
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    EXPECT_TRUE(h.reg.allocations[0].workspaces.empty());
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    EXPECT_TRUE(h.reg.allocations()[0].workspaces.empty());
 }
 
 // Regression: when launch into an existing workspace fails at
@@ -370,7 +370,7 @@ TEST(ClusterEngineLaunch, NewWindowFailureDoesNotTouchExistingWorkspace) {
     ASSERT_NE(std::get_if<EngineError>(&r), nullptr);
 
     // Workspace still there, instances still empty.
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    ASSERT_EQ(h.reg.allocations[0].workspaces.size(), 1u);
-    EXPECT_TRUE(h.reg.allocations[0].workspaces[0].instances.empty());
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    ASSERT_EQ(h.reg.allocations()[0].workspaces.size(), 1u);
+    EXPECT_TRUE(h.reg.allocations()[0].workspaces[0].instances.empty());
 }

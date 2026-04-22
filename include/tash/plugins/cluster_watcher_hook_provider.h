@@ -10,9 +10,10 @@
 //
 // The watcher is an injected dependency (a factory) rather than a
 // concrete class so unit tests can verify lifecycle without needing
-// real SSH. The production factory returns a minimal implementation
-// today; M3.3 / M3.4 replace it with the real tail-F + event-decode
-// loop.
+// real SSH. Two factories ship: default_watcher_factory (a NoOp used
+// when notifications are disabled or for tests) and
+// make_ssh_tail_watcher_factory (the production implementation that
+// spawns `ssh <cluster> tail -F …` via PipedLineSource + StreamWatcher).
 //
 // Thread safety: the provider is single-threaded from tash's point of
 // view — on_startup / on_exit / on_*_command are all called serially
@@ -92,8 +93,7 @@ public:
     // (so a hung watcher can't block tash shutdown forever).
     void on_exit(ShellState& state) override;
 
-    // Currently no-ops; reserved for M3.4 silence-heuristic bookkeeping
-    // (on_after_command tracks the last user-visible prompt timestamp).
+    // Unused in v1.
     void on_config_reload(ShellState&)                                         override {}
     void on_before_command(const std::string&, ShellState&)                    override {}
     void on_after_command (const std::string&, int, const std::string&, ShellState&) override {}

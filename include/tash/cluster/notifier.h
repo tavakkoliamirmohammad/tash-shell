@@ -1,7 +1,6 @@
-// Notification seam. Real platform impls land in M3:
-//   - src/cluster/notifier_mac.cpp    (osascript)
-//   - src/cluster/notifier_linux.cpp  (notify-send)
-// Test fake in tests/unit/cluster/fakes/fake_notifier.h records calls.
+// Notification seam. Real impls (osascript on macOS, notify-send on
+// Linux) live in src/cluster/notifier_factory.cpp. Test fake in
+// tests/unit/cluster/fakes/fake_notifier.h records calls.
 
 #ifndef TASH_CLUSTER_NOTIFIER_H
 #define TASH_CLUSTER_NOTIFIER_H

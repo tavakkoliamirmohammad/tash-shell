@@ -26,18 +26,7 @@ Everything below happens inside that tash.
 
 Clean slate.
 
-### 2. Probe the available resources
-
-```
-❯ cluster probe -r a100
-resource a100:
-  demo-cluster/demo-partition  up  4 idle, 4 matching
-```
-
-The demo config ships one cluster, one resource (`a100`), one route
-with 4 idle A100s.
-
-### 3. Submit an allocation
+### 2. Submit an allocation
 
 ```
 ❯ cluster up -r a100 -t 1h
@@ -52,7 +41,7 @@ now shows your allocation:
 demo-cluster:10000  a100  demo-n10000  running
 ```
 
-### 4. Launch an instance into a workspace
+### 3. Launch an instance into a workspace
 
 ```
 ❯ cluster launch --workspace myproject --cmd "echo hello from demo"
@@ -77,7 +66,7 @@ demo-cluster:10000  a100  demo-n10000  running
     [1]  running  1
 ```
 
-### 5. Use the built-in preset
+### 4. Use the built-in preset
 
 Demo mode also ships a `demo-claude` preset (`echo 'hello from demo'`)
 so you can exercise the preset-resolution path:
@@ -87,7 +76,7 @@ so you can exercise the preset-resolution path:
 launched instance 1 (window '1') — state=running
 ```
 
-### 6. Attach (no-op in demo)
+### 5. Attach (no-op in demo)
 
 ```
 ❯ cluster attach myproject/1
@@ -99,7 +88,7 @@ attach-session -t <session>:<window>` — your terminal is handed to
 the remote tmux. In demo mode that would replace the tash process
 with something pointless, so the demo impl just logs and returns.
 
-### 7. Kill one instance
+### 6. Kill one instance
 
 ```
 ❯ cluster kill myproject/1 -y
@@ -108,7 +97,7 @@ killed myproject/1
 
 (The `-y` skips the confirmation prompt; see `cluster kill --help`.)
 
-### 8. Release the allocation
+### 7. Release the allocation
 
 ```
 ❯ cluster down demo-cluster:10000 -y

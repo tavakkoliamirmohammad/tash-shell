@@ -38,5 +38,5 @@ SSH_STDERR="sbatch: error: invalid qos specified"
     EXPECT_NE(rc, 0);
     EXPECT_NE(err.str().find("tash: cluster:"),          std::string::npos) << err.str();
     EXPECT_NE(err.str().find("invalid qos"),              std::string::npos);
-    EXPECT_EQ(reg.allocations.size(), 0u);
+    EXPECT_EQ(reg.allocations().size(), 0u);
 }

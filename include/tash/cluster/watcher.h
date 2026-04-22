@@ -1,9 +1,10 @@
 // Watcher event decoding + dedup + state-transition logic.
 //
-// The full watcher lifecycle (spawning per-allocation tail-over-ssh
-// threads, reconnect on disconnect, cleanup on tash exit) lands in M3
-// as a hook provider. This header holds only the pure logic that those
-// threads call per event line.
+// This header holds only the pure logic. The watcher lifecycle
+// (spawning per-allocation tail-over-ssh threads, reconnect on
+// disconnect, cleanup on tash exit) lives in the companion hook
+// provider: include/tash/plugins/cluster_watcher_hook_provider.h
+// and src/plugins/cluster_watcher_hook_provider.cpp.
 //
 // Event source of truth is the packaged stop-hook script
 // (data/cluster/stop-hooks/claude-stop-hook.sh) and peer hooks. Each

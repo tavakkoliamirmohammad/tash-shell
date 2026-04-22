@@ -117,9 +117,9 @@ TEST(ClusterEngineKill, TmuxRefusesKillLeavesInstanceIntact) {
     EXPECT_NE(err->message.find("refused"), std::string::npos) << err->message;
 
     // Instance still present — the next retry will find it.
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    ASSERT_EQ(h.reg.allocations[0].workspaces.size(), 1u);
-    ASSERT_EQ(h.reg.allocations[0].workspaces[0].instances.size(), 1u);
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    ASSERT_EQ(h.reg.allocations()[0].workspaces.size(), 1u);
+    ASSERT_EQ(h.reg.allocations()[0].workspaces[0].instances.size(), 1u);
 }
 
 // Regression: an ssh-level probe failure during kill verification must
@@ -147,5 +147,5 @@ TEST(ClusterEngineKill, LivenessUnknownAfterKillLeavesInstanceIntact) {
         << err->message;
 
     // Instance MUST still be in the registry.
-    ASSERT_EQ(h.reg.allocations[0].workspaces[0].instances.size(), 1u);
+    ASSERT_EQ(h.reg.allocations()[0].workspaces[0].instances.size(), 1u);
 }

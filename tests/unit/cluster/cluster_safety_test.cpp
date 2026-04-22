@@ -101,7 +101,7 @@ TEST(ClusterSafety, DownAbortsWhenUserDeclines) {
                                        eng, out, err);
     EXPECT_NE(rc, 0);
     EXPECT_EQ(h.slurm.scancel_calls.size(), 0u);
-    EXPECT_EQ(h.reg.allocations.size(), 1u);
+    EXPECT_EQ(h.reg.allocations().size(), 1u);
     EXPECT_NE(err.str().find("cancelled"), std::string::npos) << err.str();
 }
 

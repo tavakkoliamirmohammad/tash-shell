@@ -116,7 +116,7 @@ ClusterEngine::ClusterEngine(const Config& cfg,
 ClusterResult<std::vector<Allocation>> ClusterEngine::list(const ListSpec& spec) {
     auto lk = reg_.lock();
     std::vector<Allocation> out;
-    for (const auto& a : reg_.allocations) {
+    for (const auto& a : reg_.mutable_allocations()) {
         if (spec.cluster && a.cluster != *spec.cluster) continue;
         out.push_back(a);
     }
@@ -157,7 +157,7 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
     auto lk = reg_.lock();
     struct Match { Allocation* a; Workspace* w; std::size_t idx; };
     std::vector<Match> matches;
-    for (auto& a : reg_.allocations) {
+    for (auto& a : reg_.mutable_allocations()) {
         if (spec.alloc_id && a.id != *spec.alloc_id) continue;
         for (auto& w : a.workspaces) {
             if (w.name != spec.workspace) continue;
@@ -227,13 +227,8 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
 
 ClusterResult<ClusterEngine::PruneReport> ClusterEngine::prune() {
     auto lk = reg_.lock();
-    const auto before = reg_.allocations.size();
-    reg_.allocations.erase(
-        std::remove_if(reg_.allocations.begin(), reg_.allocations.end(),
-            [](const Allocation& a) { return a.state == AllocationState::Ended; }),
-        reg_.allocations.end());
     PruneReport rep;
-    rep.removed = static_cast<int>(before - reg_.allocations.size());
+    rep.removed = reg_.remove_ended_allocations();
     if (save_ && rep.removed > 0) save_();
     return rep;
 }
@@ -243,7 +238,7 @@ ClusterResult<ClusterEngine::SyncReport> ClusterEngine::sync(const SyncSpec& spe
     // Build the set of clusters to probe: each distinct cluster in the
     // registry, optionally filtered to just spec.cluster.
     std::vector<std::string> clusters;
-    for (const auto& a : reg_.allocations) {
+    for (const auto& a : reg_.mutable_allocations()) {
         if (spec.cluster && a.cluster != *spec.cluster) continue;
         if (std::find(clusters.begin(), clusters.end(), a.cluster) == clusters.end()) {
             clusters.push_back(a.cluster);
@@ -390,7 +385,7 @@ AllocPick pick_allocation(Registry& reg,
         return {a, {}};
     }
     std::vector<Allocation*> running;
-    for (auto& a : reg.allocations) {
+    for (auto& a : reg.mutable_allocations()) {
         if (a.state == AllocationState::Running) running.push_back(&a);
     }
     if (running.empty()) return {nullptr, "no running allocation to " + std::string(verb)};
@@ -414,9 +409,9 @@ std::string next_instance_id(const Workspace& ws) {
 }
 
 // Build the tmux window command: if env_vars are non-empty, prepend
-// `env KEY='VAL' ...` so the real tmux_ops (M2) can pass-through, or
-// send-keys-style exec picks them up. Values are single-quoted; embedded
-// single quotes get the usual '"'"' escape treatment.
+// `env KEY='VAL' ...` so tmux_ops can pass-through, or a send-keys-
+// style exec picks them up. Values are single-quoted; embedded single
+// quotes get the usual '"'"' escape treatment.
 std::string build_window_cmd(const std::string& cmd,
                                const std::map<std::string, std::string>& env) {
     if (env.empty()) return cmd;
@@ -651,7 +646,7 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
     // Collect every (allocation, workspace, instance) that matches.
     struct Match { Allocation* a; Workspace* w; Instance* i; };
     std::vector<Match> matches;
-    for (auto& a : reg_.allocations) {
+    for (auto& a : reg_.mutable_allocations()) {
         if (spec.alloc_id && a.id != *spec.alloc_id) continue;
         for (auto& w : a.workspaces) {
             if (w.name != spec.workspace) continue;
@@ -677,7 +672,7 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
         // Distinguish missing-workspace from missing-instance for a
         // clearer error message.
         bool any_workspace = false;
-        for (auto& a : reg_.allocations) {
+        for (auto& a : reg_.mutable_allocations()) {
             for (auto& w : a.workspaces) {
                 if (w.name == spec.workspace) { any_workspace = true; break; }
             }

@@ -58,7 +58,7 @@ protected:
 TEST_F(RegistryTest, LoadFromNonexistentFileIsEmpty) {
     Registry r = Registry::load(path);
     EXPECT_EQ(r.schema_version, 1);
-    EXPECT_EQ(r.allocations.size(), 0u);
+    EXPECT_EQ(r.allocations().size(), 0u);
 }
 
 TEST_F(RegistryTest, SaveThenLoadEmptyRoundTrip) {
@@ -67,7 +67,7 @@ TEST_F(RegistryTest, SaveThenLoadEmptyRoundTrip) {
     EXPECT_TRUE(std::filesystem::exists(path));
     Registry r2 = Registry::load(path);
     EXPECT_EQ(r2.schema_version, 1);
-    EXPECT_EQ(r2.allocations.size(), 0u);
+    EXPECT_EQ(r2.allocations().size(), 0u);
 }
 
 // ── 2. allocation add/remove/find  ──────────────────────────────────
@@ -75,7 +75,7 @@ TEST_F(RegistryTest, SaveThenLoadEmptyRoundTrip) {
 TEST_F(RegistryTest, AddAndFindAllocation) {
     Registry r;
     r.add_allocation(make_alloc("c1", "42"));
-    ASSERT_EQ(r.allocations.size(), 1u);
+    ASSERT_EQ(r.allocations().size(), 1u);
     auto* a = r.find_allocation("c1:42");
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->jobid, "42");
@@ -87,8 +87,8 @@ TEST_F(RegistryTest, RemoveAllocationReturnsTrueOnlyWhenPresent) {
     r.add_allocation(make_alloc("c1", "42"));
     r.add_allocation(make_alloc("c2", "99"));
     EXPECT_TRUE(r.remove_allocation("c1:42"));
-    EXPECT_EQ(r.allocations.size(), 1u);
-    EXPECT_EQ(r.allocations[0].id, "c2:99");
+    EXPECT_EQ(r.allocations().size(), 1u);
+    EXPECT_EQ(r.allocations()[0].id, "c2:99");
     EXPECT_FALSE(r.remove_allocation("missing:0"));
 }
 
@@ -170,8 +170,8 @@ TEST_F(RegistryTest, ComplexStateSurvivesSaveLoadRoundTrip) {
     r.save(path);
     Registry r2 = Registry::load(path);
 
-    ASSERT_EQ(r2.allocations.size(), 1u);
-    const auto& a = r2.allocations[0];
+    ASSERT_EQ(r2.allocations().size(), 1u);
+    const auto& a = r2.allocations()[0];
     EXPECT_EQ(a.cluster,      "utah-n");
     EXPECT_EQ(a.node,         "notch5");
     EXPECT_EQ(a.resource,     "a100");
@@ -242,7 +242,7 @@ TEST_F(RegistryTest, ReconcileIdempotentOnEnded) {
 TEST_F(RegistryTest, CorruptFileRenamedToBakAndLoadsEmpty) {
     std::ofstream(path) << "this is not json {{{{{";
     Registry r = Registry::load(path);
-    EXPECT_EQ(r.allocations.size(), 0u);
+    EXPECT_EQ(r.allocations().size(), 0u);
 
     bool found_bak = false;
     for (const auto& e : std::filesystem::directory_iterator(dir)) {
@@ -304,11 +304,11 @@ TEST_F(RegistryTest, SchemaV1LoadIdentityPass) {
     std::ofstream(path) << src;
 
     Registry r = Registry::load(path);
-    ASSERT_EQ(r.allocations.size(), 1u);
+    ASSERT_EQ(r.allocations().size(), 1u);
     EXPECT_EQ(r.schema_version, 1);
-    EXPECT_EQ(r.allocations[0].state, AllocationState::Pending);
+    EXPECT_EQ(r.allocations()[0].state, AllocationState::Pending);
 
-    const auto& inst = r.allocations[0].workspaces[0].instances;
+    const auto& inst = r.allocations()[0].workspaces[0].instances;
     ASSERT_EQ(inst.size(), 2u);
     EXPECT_FALSE(inst[0].name.has_value());
     EXPECT_FALSE(inst[0].pid.has_value());
@@ -395,6 +395,6 @@ TEST_F(RegistryTest, ConcurrentAddsAndReadsAreSerialized) {
 
     // Exactly writers * per_writer allocations — no lost writes.
     auto lk = r.lock();   // take the external lock to safely inspect
-    EXPECT_EQ(r.allocations.size(),
+    EXPECT_EQ(r.allocations().size(),
               static_cast<std::size_t>(writers * per_writer));
 }

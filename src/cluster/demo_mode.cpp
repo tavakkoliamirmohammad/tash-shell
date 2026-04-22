@@ -171,9 +171,8 @@ struct DemoMode {
           ssh(), slurm(), tmux(), notify(), prompt(), clock(),
           engine(cfg, reg, ssh, slurm, tmux, notify, prompt, clock),
           watcher_hook(reg, default_watcher_factory()) {
-        // Prove the hook-provider lifecycle end-to-end in demo mode.
-        // Factory is NoOp today (placeholder until the real ssh tail -F
-        // source lands in M3.3/M3.4); the call below just wires the
+        // Demo mode uses the NoOp watcher by design — there's no real
+        // remote to tail. The call below still exercises the
         // startup/shutdown machinery so demo state mirrors production.
         ShellState state{};
         watcher_hook.on_startup(state);

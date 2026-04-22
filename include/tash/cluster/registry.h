@@ -35,7 +35,6 @@ namespace tash::cluster {
 
 class Registry {
 public:
-    std::vector<Allocation> allocations;
     int schema_version = 1;
 
     // ── Serialization ──────────────────────────────────────────
@@ -48,6 +47,23 @@ public:
 
     Allocation*       find_allocation(std::string_view id);
     const Allocation* find_allocation(std::string_view id) const;
+
+    // Read-only access to the allocation list. External callers (tests,
+    // completion providers) MUST go through this accessor — direct
+    // push_back / erase on the underlying vector would bypass every
+    // invariant enforced by add_allocation / remove_allocation.
+    const std::vector<Allocation>& allocations() const { return allocations_; }
+
+    // Mutable access for the engine's compound find-and-mutate flows
+    // (kill, attach, launch rollback). Callers MUST hold the Registry
+    // lock for the duration of any mutation. The ugly name is
+    // deliberate — mutations belong in the CRUD methods above unless
+    // you have a clear reason to bypass them.
+    std::vector<Allocation>& mutable_allocations() { return allocations_; }
+
+    // Remove every allocation whose state is Ended. Returns the count
+    // removed. Used by `cluster prune`.
+    int remove_ended_allocations();
 
     // ── Workspace CRUD (scoped to an allocation id) ────────────
     bool add_workspace   (std::string_view alloc_id, Workspace ws);
@@ -111,6 +127,8 @@ public:
     ~Registry();
 
 private:
+    std::vector<Allocation> allocations_;
+
     // Intra-process mutex. `mutable` so `const` members (find_allocation
     // const-overload, save) can still lock. Wrapped in unique_ptr so
     // Registry stays movable (required by `load()` which returns by value).

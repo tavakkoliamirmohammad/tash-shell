@@ -33,7 +33,7 @@ ssh_exit_scancel=0
     const auto d = eng.down(ds);
     ASSERT_NE(std::get_if<Allocation>(&d), nullptr);
 
-    EXPECT_EQ(reg.allocations.size(), 0u);
+    EXPECT_EQ(reg.allocations().size(), 0u);
     const auto log = read_log();
     EXPECT_NE(log.find("scancel"), std::string::npos) << log;
     EXPECT_NE(log.find("30001"),   std::string::npos);

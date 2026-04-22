@@ -1,10 +1,12 @@
 // ClusterWatcherHookProvider — spawns one IWatcher thread per Running
 // allocation at startup; signals + joins every thread at exit.
 //
-// The production IWatcher is a thin NoOpWatcher for now; M3.3 / M3.4
-// replace the factory with the real `ssh tail -F` + event-decode
-// loop. The lifecycle machinery here is stable and covered by unit
-// tests that drive the provider with FakeWatchers.
+// Two factories ship from this TU: default_watcher_factory returns a
+// NoOpWatcher (used when notifications are disabled or by tests that
+// only want to exercise the lifecycle machinery); and
+// make_ssh_tail_watcher_factory returns a StreamWatcher backed by a
+// PipedLineSource running `ssh <host> bash -c '<tail -F>'` on the
+// cluster login node.
 
 #include "tash/plugins/cluster_watcher_hook_provider.h"
 
@@ -36,7 +38,7 @@ ClusterWatcherHookProvider::~ClusterWatcherHookProvider() {
 
 void ClusterWatcherHookProvider::on_startup(ShellState& /*state*/) {
     if (!reg_ || !factory_) return;
-    for (const auto& a : reg_->allocations) {
+    for (const auto& a : reg_->allocations()) {
         if (a.state != AllocationState::Running) continue;
 
         auto sp = factory_(a, *reg_);
@@ -137,7 +139,7 @@ void ClusterWatcherHookProvider::stop_and_join_all() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// default_watcher_factory — NoOpWatcher placeholder (M3.3 replaces)
+// default_watcher_factory — NoOpWatcher for tests + notifications-off
 // ══════════════════════════════════════════════════════════════════════════════
 
 namespace {

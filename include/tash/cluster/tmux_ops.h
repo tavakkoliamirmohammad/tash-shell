@@ -1,9 +1,9 @@
 // tmux orchestration seam. Composes `ssh <host> tmux <subcmd>` via an
 // ISshClient for the non-exec methods; exec_attach spawns ssh directly
-// (no ControlMaster fan-out — attach replaces the current process image
-// so the TTY is handed over to tmux/claude).
+// (no ControlMaster fan-out — attach forks ssh so the TTY is handed
+// over to tmux/claude and tash survives the detach).
 //
-// Real impl in src/cluster/tmux_ops.cpp (lands in M2); test fake in
+// Real impl in src/cluster/tmux_ops.cpp; test fake in
 // tests/unit/cluster/fakes/fake_tmux_ops.h.
 
 #ifndef TASH_CLUSTER_TMUX_OPS_H

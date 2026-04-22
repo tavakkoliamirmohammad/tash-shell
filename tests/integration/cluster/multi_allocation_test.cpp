@@ -52,7 +52,7 @@ ssh_exit_squeue=0
     ASSERT_NE(std::get_if<Allocation>(&r2), nullptr)
         << std::get<EngineError>(r2).message;
 
-    ASSERT_EQ(reg.allocations.size(), 2u);
-    EXPECT_EQ(reg.allocations[0].jobid, "6001");
-    EXPECT_EQ(reg.allocations[1].jobid, "6002");
+    ASSERT_EQ(reg.allocations().size(), 2u);
+    EXPECT_EQ(reg.allocations()[0].jobid, "6001");
+    EXPECT_EQ(reg.allocations()[1].jobid, "6002");
 }

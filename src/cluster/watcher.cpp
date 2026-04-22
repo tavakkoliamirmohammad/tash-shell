@@ -91,7 +91,7 @@ namespace {
 // cluster on success (for notification body).
 Instance* find_instance(Registry& reg, const Event& e,
                           std::string& cluster_out) {
-    for (auto& a : reg.allocations) {
+    for (auto& a : reg.mutable_allocations()) {
         for (auto& w : a.workspaces) {
             if (w.name != e.workspace) continue;
             for (auto& i : w.instances) {

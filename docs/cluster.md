@@ -23,7 +23,6 @@ Jump to:
 - [Typical workflow](#typical-workflow)
 - [Commands reference](#commands-reference)
 - [Notifications](#notifications)
-- [Logs](#logs)
 - [Demo mode (no cluster required)](#demo-mode-no-cluster-required)
 - [Troubleshooting](#troubleshooting)
 
@@ -221,7 +220,6 @@ cancelled allocation utah-notchpeak:1234567
 | Command | What it does |
 |---|---|
 | `cluster doctor [<cluster>]` | Diagnose SSH reach + `sbatch` / `tmux` presence per cluster. |
-| `cluster probe -r <resource>` | Show each route's idle node count + GRES match for a resource. |
 | `cluster connect <cluster>` | Warm the SSH master in a clean foreground context (so the password / Duo prompt doesn't interleave a queued `sbatch`). |
 | `cluster disconnect <cluster>` | Tear down the SSH master. |
 | `cluster up -r <resource> [-t <time>] [--via <cluster>] [--cpus N] [--mem M] [--name <label>]` | Submit a SLURM allocation. Polls `squeue` until Running; prompts `[c]ancel / [k]eep / [d]etach` if wait exceeds `--wait-timeout` (default 5m). |
@@ -230,8 +228,8 @@ cancelled allocation utah-notchpeak:1234567
 | `cluster list [<cluster>] [--json]` | Show known allocations + their workspaces + instances. |
 | `cluster down <alloc-id> [-y]` | scancel + remove from registry. `-y` / `--yes` skips the confirmation prompt. |
 | `cluster kill <workspace>/<instance> [-y] [--alloc <id>]` | tmux kill-window + remove the instance. |
-| `cluster sync [<cluster>]` | Reconcile registry against `squeue`; mark missing jobs `ended`. |
-| `cluster import <jobid> --via <cluster> [--resource <name>]` | Adopt a job you submitted via bare `sbatch` so tash can manage it. |
+| `cluster sync [<cluster>]` | Reconcile registry against `squeue`; add unknown jobs, mark missing jobs `ended`. Reports unreachable clusters instead of silently skipping them. |
+| `cluster prune` | Remove Ended allocations from the registry. |
 | `cluster help [<subcommand>]` | Short help. Also `cluster <sub> --help`. |
 
 ## Notifications
@@ -279,27 +277,13 @@ Three paths, from fastest to most complete:
    remote environment. The hook runs when Claude Code stops and
    writes a JSON event to `$HOME/.tash-cluster/events/<ws>/<inst>.event`.
 
-3. **`ssh tail -F` watcher.** The `make_ssh_tail_watcher_factory`
-   API constructs a production watcher that tails the event dir over
-   ssh and routes each event through `apply_event` → `INotifier`.
-   The scaffolding is ready; in v1 demo mode installs a `NoOpWatcher`
-   placeholder factory, and users who want live background
-   notifications can wire the real factory in their own startup
-   glue. Running `cluster logs <workspace>` prints the recent event
-   contents any time without needing the background watcher.
-
-## Logs
-
-`cluster logs <workspace>` fetches the recent stop-hook event files
-over ssh and prints them locally — useful for auditing what Claude
-has been doing without attaching to tmux.
-
-```bash
-cluster logs refactor-bloom               # all instances, last 100 lines each
-cluster logs refactor-bloom --instance 1  # one instance
-cluster logs refactor-bloom -n 500        # longer tail
-cluster logs refactor-bloom --alloc utah-notchpeak:12345
-```
+3. **`ssh tail -F` watcher.** The real engine runs one
+   `ssh <cluster> bash -c 'tail -qF ~/.tash-cluster/events/*/*.event'`
+   per Running allocation (gated by `TASH_CLUSTER_WATCH`, default on).
+   Each event flows through `apply_event` → `INotifier` so you get a
+   desktop notification + bell without needing to poll. Disable with
+   `TASH_CLUSTER_WATCH=0` on CI or containers that can't hold
+   outbound ssh sessions.
 
 Events originate from the bundled `claude-stop-hook.sh` (or a custom
 script at `preset.stop_hook = "/abs/path"`). Each event is a one-line
@@ -308,6 +292,11 @@ JSON record:
 ```json
 {"ts":"2026-04-20T17:03:22Z","instance":"refactor-bloom/1","kind":"stopped","detail":"awaiting input"}
 ```
+
+Raw event files live at `$HOME/.tash-cluster/events/<ws>/<inst>.event`
+on the cluster; you can always run
+`ssh <cluster> cat ~/.tash-cluster/events/<ws>/*.event`
+to inspect them directly.
 
 ## Demo mode (no cluster required)
 
@@ -347,8 +336,9 @@ the prompt isn't mixed with other command output.
 Your job is queued behind others; `squeue --me` on the cluster will
 show the position. Wait, or `d` (detach) at the next timeout prompt —
 tash records the pending allocation and you can `cluster attach` once
-it starts. `cluster probe -r <resource>` tells you which route has
-idle capacity if you want to try `--via` instead.
+it starts. For idle-capacity info across routes, `ssh <cluster> sinfo
+-p <partition> -o '%P|%t|%D|%G'` mirrors what `cluster up`'s internal
+probe sees.
 
 **`cluster launch` says `instance exited immediately`.**
 Your preset command crashed within 2s of starting. The tmux window is
@@ -372,9 +362,12 @@ allocation that's no longer running. You can force it with `cluster
 sync`.
 
 **Something else is weird.**
-`cluster logs` shows the watcher's log (reconnect attempts, events
-received, etc.). The registry is human-readable JSON; inspect it at
-`~/.tash/cluster/registry.json` if you suspect state divergence.
+Start tash with `TASH_LOG_LEVEL=debug` to see the watcher's
+reconnect attempts, the sbatch / squeue / tmux argv it's sending,
+and every event it decodes. The registry is human-readable JSON;
+inspect it at `~/.tash/cluster/registry.json` if you suspect state
+divergence. Raw stop-hook events live on the cluster at
+`~/.tash-cluster/events/<workspace>/<instance>.event`.
 
 ## See also
 

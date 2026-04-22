@@ -96,8 +96,8 @@ TEST(ClusterEngineUp, AllRoutesIdleFirstDeclaredWins) {
     EXPECT_EQ(h.slurm.sbatch_calls[0].spec.account,   "acc1");
 
     // Persisted to registry
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    EXPECT_EQ(h.reg.allocations[0].id, "c1:1001");
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    EXPECT_EQ(h.reg.allocations()[0].id, "c1:1001");
 }
 
 // ── 2. First route busy, second idle → second picked ───────────────
@@ -149,7 +149,7 @@ TEST(ClusterEngineUp, SbatchRejectedLeavesRegistryEmpty) {
     ASSERT_NE(err, nullptr);
     EXPECT_NE(err->message.find("sbatch"), std::string::npos) << err->message;
 
-    EXPECT_EQ(h.reg.allocations.size(), 0u);
+    EXPECT_EQ(h.reg.allocations().size(), 0u);
     EXPECT_EQ(h.slurm.squeue_calls.size(), 0u);   // never polled
 }
 
@@ -194,7 +194,7 @@ TEST(ClusterEngineUp, WaitTimeoutCancelScancelsAndReturnsError) {
 
     ASSERT_EQ(h.slurm.scancel_calls.size(), 1u);
     EXPECT_EQ(h.slurm.scancel_calls[0].jobid, "6006");
-    EXPECT_EQ(h.reg.allocations.size(), 0u);
+    EXPECT_EQ(h.reg.allocations().size(), 0u);
 }
 
 // ── 6b. wait-timeout → user chooses 'd' → pending allocation returned ───
@@ -214,8 +214,8 @@ TEST(ClusterEngineUp, WaitTimeoutDetachReturnsPendingAllocation) {
     ASSERT_NE(alloc, nullptr);
     EXPECT_EQ(alloc->state, AllocationState::Pending);
     EXPECT_EQ(alloc->jobid, "7007");
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    EXPECT_EQ(h.reg.allocations[0].state, AllocationState::Pending);
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    EXPECT_EQ(h.reg.allocations()[0].state, AllocationState::Pending);
     EXPECT_EQ(h.slurm.scancel_calls.size(), 0u);
 }
 

@@ -44,8 +44,8 @@ TEST(ClusterEngineDown, BasicDownScancelsAndPurges) {
     EXPECT_EQ(h.slurm.scancel_calls[0].jobid, "100");
 
     // Registry purged the one allocation; other survives.
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    EXPECT_EQ(h.reg.allocations[0].id, "c1:200");
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    EXPECT_EQ(h.reg.allocations()[0].id, "c1:200");
 }
 
 TEST(ClusterEngineDown, UnknownAllocIdErrors) {
@@ -66,7 +66,7 @@ TEST(ClusterEngineDown, AlreadyEndedAllocationSkipsScancel) {
     auto r = h.engine().down(ds);
     ASSERT_NE(std::get_if<Allocation>(&r), nullptr);
     EXPECT_EQ(h.slurm.scancel_calls.size(), 0u);       // no-op on SLURM
-    EXPECT_EQ(h.reg.allocations.size(), 0u);            // still purged locally
+    EXPECT_EQ(h.reg.allocations().size(), 0u);            // still purged locally
 }
 
 TEST(ClusterEngineDown, EmptyAllocIdRejected) {
@@ -93,7 +93,7 @@ TEST(ClusterEngineDown, ScancelFailureLeavesRegistryIntact) {
     ASSERT_NE(err, nullptr);
     EXPECT_NE(err->message.find("scancel"), std::string::npos) << err->message;
 
-    ASSERT_EQ(h.reg.allocations.size(), 1u);
-    EXPECT_EQ(h.reg.allocations[0].id, "c1:100");
-    EXPECT_EQ(h.reg.allocations[0].state, AllocationState::Running);
+    ASSERT_EQ(h.reg.allocations().size(), 1u);
+    EXPECT_EQ(h.reg.allocations()[0].id, "c1:100");
+    EXPECT_EQ(h.reg.allocations()[0].state, AllocationState::Running);
 }
