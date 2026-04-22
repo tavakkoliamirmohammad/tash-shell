@@ -46,9 +46,13 @@ class StdinPrompt : public IPrompt {
 public:
     char choice(const std::string& message,
                 const std::string& /*choices*/) override {
-        std::fprintf(stderr, "tash: cluster: %s — auto-detaching; "
-                             "check `cluster list` to monitor\n",
-                             message.c_str());
+        // Non-interactive by design: reading std::cin inside a tash
+        // builtin fights with replxx's raw-mode terminal state and
+        // hangs silently. Surface the auto-detach decision via the
+        // centralised diagnostic pipeline so severity + coloring
+        // match the rest of tash's output.
+        tash::io::info("cluster: " + message +
+                        " — auto-detaching; check `cluster list` to monitor");
         return '\0';
     }
 };
@@ -118,7 +122,11 @@ struct RealMode {
             try {
                 reg_ptr->save(rp);
             } catch (const std::exception& e) {
-                tash::io::debug(std::string("cluster: registry save failed: ") + e.what());
+                // Filesystem errors here (disk full, permission denied,
+                // read-only mount) silently losing allocations is the
+                // #1 "why is my state wrong" trap. Surface it.
+                tash::io::error(std::string("cluster: registry save failed: ") +
+                                 e.what());
             }
         });
 
@@ -164,7 +172,11 @@ struct RealMode {
         try {
             reg.save(registry_path);
         } catch (const std::exception& e) {
-            tash::io::debug(std::string("cluster: registry save failed: ") + e.what());
+            // Surface via io::error — a silent save failure on exit
+            // loses every allocation/workspace/instance created this
+            // session, and the user wouldn't learn until next startup.
+            tash::io::error(std::string("cluster: registry save failed on exit: ") +
+                             e.what());
         }
     }
 };
@@ -187,7 +199,10 @@ bool install_real_engine() {
 
     auto result = ConfigLoader::load(config_path);
     if (auto* err = std::get_if<ConfigError>(&result)) {
-        std::cerr << err->format() << "\n";
+        // User-facing startup diagnostic — route through io::error so
+        // it respects the log-level and TTY-coloring rules the rest
+        // of tash uses. Direct std::cerr was a CLAUDE.md violation.
+        tash::io::error("cluster: " + err->format());
         return false;
     }
 

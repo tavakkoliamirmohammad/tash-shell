@@ -252,6 +252,24 @@ TEST_F(RegistryTest, CorruptFileRenamedToBakAndLoadsEmpty) {
     EXPECT_TRUE(found_bak);
 }
 
+// Regression: save() used to silently swallow filesystem errors into
+// std::error_code, and the real_mode wrapper's try/catch around it
+// could never actually fire — the ofstream's failbit + the rename's
+// error_code were both discarded. Disk-full or permission-denied
+// scenarios then lost every allocation mutation made this session.
+TEST_F(RegistryTest, SaveToUnwritableDirectoryThrows) {
+    Registry r;
+    r.add_allocation(make_alloc("c1", "100"));
+
+    // A path whose parent directory doesn't exist — rename() will
+    // fail, save() must surface it instead of quietly cleaning up.
+    const auto bad_path = dir / "no-such-subdir" / "registry.json";
+    EXPECT_THROW({ r.save(bad_path); }, std::runtime_error);
+    // The original registry file (if any) at the intended path
+    // MUST NOT exist as a truncated/empty file.
+    EXPECT_FALSE(std::filesystem::exists(bad_path));
+}
+
 // ── 10. schema v1 identity pass  ────────────────────────────────────
 
 TEST_F(RegistryTest, SchemaV1LoadIdentityPass) {

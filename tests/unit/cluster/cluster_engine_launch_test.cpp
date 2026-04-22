@@ -200,6 +200,34 @@ TEST(ClusterEngineLaunch, WindowExitsImmediatelyMarksExitedAndNotifies) {
     EXPECT_EQ(a->workspaces[0].instances[0].state, InstanceState::Exited);
 }
 
+// Regression: Unknown liveness (ssh probe failed) must NOT be treated
+// the same as Dead. An ssh hiccup immediately after a successful
+// new-window used to trigger the "exited immediately" notification
+// and mark the instance Exited, even though the command was fine.
+TEST(ClusterEngineLaunch, WindowLivenessUnknownLeavesInstanceRunningAndSilent) {
+    Harness h;
+    h.reg.add_allocation(running_alloc("c1", "1001", "n1"));
+
+    // Probe will return Unknown (transient ssh failure) — NOT mark_dead.
+    h.tmux.mark_unknown("tash-c1-1001-ws", "1");
+
+    LaunchSpec ls;
+    ls.workspace = "ws";
+    ls.cmd       = "claude";
+
+    auto r = h.engine().launch(ls);
+    auto* inst = std::get_if<Instance>(&r);
+    ASSERT_NE(inst, nullptr);
+    EXPECT_EQ(inst->state, InstanceState::Running)
+        << "Unknown liveness must not downgrade instance state to Exited";
+    EXPECT_EQ(h.notify.desktop_calls.size(), 0u)
+        << "Unknown liveness must not fire a false 'exited immediately' notification";
+
+    auto* a = h.reg.find_allocation("c1:1001");
+    ASSERT_NE(a, nullptr);
+    EXPECT_EQ(a->workspaces[0].instances[0].state, InstanceState::Running);
+}
+
 // ── 6. Ambiguous allocation → error ────────────────────────────────
 
 TEST(ClusterEngineLaunch, AmbiguousAllocationErrors) {

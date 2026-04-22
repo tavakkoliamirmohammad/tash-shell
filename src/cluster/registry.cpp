@@ -14,6 +14,7 @@
 #include <exception>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 
@@ -234,13 +235,29 @@ void Registry::save(const std::filesystem::path& path) const {
     {
         std::ofstream f(tmp);
         f << j.dump(2);
+        // Flush-before-close so we can distinguish "write failed"
+        // from "rename failed" — a disk-full ostream silently enters
+        // fail() and a subsequent rename happily swaps in a truncated
+        // or empty tmp file.
+        f.flush();
+        if (!f.good()) {
+            std::error_code ec;
+            std::filesystem::remove(tmp, ec);
+            throw std::runtime_error(
+                "registry write failed (check free space / permissions on " +
+                tmp.string() + ")");
+        }
     }
 
     std::error_code ec;
     std::filesystem::rename(tmp, path, ec);
     if (ec) {
-        // Best-effort cleanup; caller's registry will be out of sync.
-        std::filesystem::remove(tmp, ec);
+        std::error_code cleanup_ec;
+        std::filesystem::remove(tmp, cleanup_ec);
+        throw std::runtime_error(
+            "registry rename failed (" + ec.message() +
+            ") on " + path.string() +
+            "; previous registry is intact at that path");
     }
 }
 

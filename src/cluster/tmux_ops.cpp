@@ -9,6 +9,7 @@
 
 #include "tash/cluster/tmux_ops.h"
 #include "tash/cluster/tmux_compose.h"
+#include "tash/util/io.h"
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -41,14 +42,14 @@ public:
         const bool dup_ok = r.err.find("duplicate session") != std::string::npos ||
                              r.out.find("duplicate session") != std::string::npos;
         if (!dup_ok) {
-            // Emit the actual remote stderr to help the caller's user
-            // diagnose cluster-side issues (missing srun flag, missing
-            // directory, missing tmux, etc.). write to tash's real stderr.
-            std::fprintf(stderr,
-                "tash: cluster: tmux new-session stderr: %s\n", r.err.c_str());
+            // Surface the actual remote stderr/stdout so the caller
+            // can diagnose cluster-side issues (missing srun flag,
+            // missing directory, missing tmux). Routed through the
+            // centralised io::error pipeline (CLAUDE.md: no direct
+            // stderr writes from plugin/subsystem code).
+            tash::io::error("cluster: tmux new-session stderr: " + r.err);
             if (!r.out.empty())
-                std::fprintf(stderr,
-                    "tash: cluster: tmux new-session stdout: %s\n", r.out.c_str());
+                tash::io::error("cluster: tmux new-session stdout: " + r.out);
         }
         return dup_ok;
     }
@@ -60,11 +61,9 @@ public:
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
         const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{60});
         if (r.exit_code == 0) return true;
-        std::fprintf(stderr,
-            "tash: cluster: tmux new-window stderr: %s\n", r.err.c_str());
+        tash::io::error("cluster: tmux new-window stderr: " + r.err);
         if (!r.out.empty())
-            std::fprintf(stderr,
-                "tash: cluster: tmux new-window stdout: %s\n", r.out.c_str());
+            tash::io::error("cluster: tmux new-window stdout: " + r.out);
         return false;
     }
 
@@ -83,17 +82,23 @@ public:
         (void)ssh.run(t.cluster, {payload}, std::chrono::seconds{30});
     }
 
-    bool is_window_alive(const RemoteTarget& t, const std::string& session,
-                           const std::string& window, ISshClient& ssh) override {
+    Liveness is_window_alive(const RemoteTarget& t, const std::string& session,
+                               const std::string& window, ISshClient& ssh) override {
         const auto inner   = tmux_compose::tmux_is_alive(session, window);
         const auto payload = tmux_compose::compose_remote_cmd(t, inner);
         const auto r = ssh.run(t.cluster, {payload}, std::chrono::seconds{30});
-        if (r.exit_code != 0) return false;
-        // Non-empty pid output => alive.
-        for (char c : r.out) {
-            if (c >= '0' && c <= '9') return true;
+        if (r.exit_code != 0) {
+            // Ambiguous: the window might be gone, OR ssh itself
+            // failed (network, Duo expired, cluster unreachable). Tell
+            // the caller we don't know so they don't mistake a glitch
+            // for a process exit.
+            return Liveness::Unknown;
         }
-        return false;
+        // Probe succeeded: non-empty pid output means the pane is live.
+        for (char c : r.out) {
+            if (c >= '0' && c <= '9') return Liveness::Alive;
+        }
+        return Liveness::Dead;
     }
 
     void exec_attach(const RemoteTarget& t, const std::string& session,

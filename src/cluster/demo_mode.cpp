@@ -12,6 +12,7 @@
 #include "tash/cluster/types.h"
 #include "tash/plugins/cluster_watcher_hook_provider.h"
 #include "tash/shell.h"
+#include "tash/util/io.h"
 
 #include <chrono>
 #include <cstdint>
@@ -110,15 +111,16 @@ public:
         alive_.erase(session + "/" + window);
     }
 
-    bool is_window_alive(const RemoteTarget&, const std::string& session,
-                           const std::string& window, ISshClient&) override {
-        return alive_.count(session + "/" + window) > 0;
+    Liveness is_window_alive(const RemoteTarget&, const std::string& session,
+                                const std::string& window, ISshClient&) override {
+        return alive_.count(session + "/" + window) > 0
+            ? Liveness::Alive : Liveness::Dead;
     }
 
     void exec_attach(const RemoteTarget&, const std::string&,
                       const std::string&) override {
         // Real impl would replace the process image; demo just logs.
-        std::cerr << "[demo cluster] exec_attach (noop)\n";
+        tash::io::info("[demo cluster] exec_attach (noop)");
     }
 
 private:
@@ -129,7 +131,7 @@ private:
 class DemoNotifier : public INotifier {
 public:
     void desktop(const std::string& title, const std::string& body) override {
-        std::cerr << "[demo notify] " << title << ": " << body << "\n";
+        tash::io::info("[demo notify] " + title + ": " + body);
     }
     void bell() override {}
 };

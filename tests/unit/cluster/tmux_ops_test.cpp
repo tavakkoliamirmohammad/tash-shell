@@ -266,13 +266,25 @@ TEST(TmuxOpsReal, ListSessionsRoundtrips) {
 TEST(TmuxOpsReal, IsWindowAliveExitCodeMapping) {
     auto t = make_tmux_ops();
     FakeSshClient ssh;
-    // First call: exit 0 + a pid -> alive
+
+    // exit 0 + a pid in stdout -> Alive
     SshResult alive; alive.exit_code = 0; alive.out = "12345\n";
     ssh.queue_run(alive);
-    EXPECT_TRUE(t->is_window_alive(RemoteTarget{"utah", "n1"}, "sess", "w", ssh));
+    EXPECT_EQ(t->is_window_alive(RemoteTarget{"utah", "n1"}, "sess", "w", ssh),
+              Liveness::Alive);
 
-    // Second call: exit 1 -> not alive
-    SshResult dead; dead.exit_code = 1;
+    // exit 0 + empty stdout -> Dead (tmux list-windows found no matching window)
+    SshResult dead; dead.exit_code = 0; dead.out = "";
     ssh.queue_run(dead);
-    EXPECT_FALSE(t->is_window_alive(RemoteTarget{"utah", "n1"}, "sess", "w", ssh));
+    EXPECT_EQ(t->is_window_alive(RemoteTarget{"utah", "n1"}, "sess", "w", ssh),
+              Liveness::Dead);
+
+    // exit != 0 -> Unknown (ssh / tmux command itself failed; we must NOT
+    // interpret that as "window dead" — callers would incorrectly drop
+    // live instances from the registry or fire false "exited immediately"
+    // notifications).
+    SshResult unknown; unknown.exit_code = 1;
+    ssh.queue_run(unknown);
+    EXPECT_EQ(t->is_window_alive(RemoteTarget{"utah", "n1"}, "sess", "w", ssh),
+              Liveness::Unknown);
 }

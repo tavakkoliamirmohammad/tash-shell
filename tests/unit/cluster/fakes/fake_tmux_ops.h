@@ -48,9 +48,17 @@ public:
     // mark_dead() to simulate a command that exited immediately.
     std::unordered_set<std::string> dead_windows;
 
+    // Windows whose liveness probe fails (e.g. transient ssh error).
+    // Tests use mark_unknown() to exercise the tri-state Unknown path.
+    // Takes precedence over dead_windows for the same key.
+    std::unordered_set<std::string> unknown_windows;
+
     void queue_list_sessions(std::vector<SessionInfo> s) { list_sessions_queue.push_back(std::move(s)); }
     void mark_dead(const std::string& session, const std::string& window) {
         dead_windows.insert(session + "/" + window);
+    }
+    void mark_unknown(const std::string& session, const std::string& window) {
+        unknown_windows.insert(session + "/" + window);
     }
 
     // Default: both creation calls succeed. Tests that want to
@@ -92,10 +100,13 @@ public:
         }
     }
 
-    bool is_window_alive(const RemoteTarget& t, const std::string& s,
-                           const std::string& w, ISshClient&) override {
+    Liveness is_window_alive(const RemoteTarget& t, const std::string& s,
+                                const std::string& w, ISshClient&) override {
         is_window_alive_calls.push_back({t, s, w});
-        return dead_windows.find(s + "/" + w) == dead_windows.end();
+        const auto key = s + "/" + w;
+        if (unknown_windows.count(key)) return Liveness::Unknown;
+        if (dead_windows.count(key))    return Liveness::Dead;
+        return Liveness::Alive;
     }
 
     void exec_attach(const RemoteTarget& t, const std::string& s,

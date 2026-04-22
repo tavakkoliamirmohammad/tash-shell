@@ -18,6 +18,15 @@
 
 namespace tash::cluster {
 
+// Outcome of a tmux liveness probe. Distinguishes "window is really
+// dead" from "we couldn't ask" so callers don't mistake a transient
+// ssh blip for a process exit.
+enum class Liveness {
+    Alive,    // Window exists and its pane pid is running.
+    Dead,     // Probe succeeded; window is gone or pane pid is not alive.
+    Unknown,  // Probe itself failed (ssh down, permission, etc.).
+};
+
 class ITmuxOps {
 public:
     virtual ~ITmuxOps() = default;
@@ -50,14 +59,15 @@ public:
                               const std::string& window,
                               ISshClient& ssh) = 0;
 
-    // Returns true if the window exists AND its pid is alive. Used by
-    // launch() after `new_window` to detect commands that exit almost
-    // immediately (typo in --cmd, bad preset, etc.). Real impl uses
-    // `tmux list-windows -F '#{pane_pid}'` + kill(0, pid).
-    virtual bool is_window_alive(const RemoteTarget& target,
-                                   const std::string& session,
-                                   const std::string& window,
-                                   ISshClient& ssh) = 0;
+    // Tri-state liveness probe used by launch() (to detect commands
+    // that exit immediately) and kill() (to confirm a kill took). The
+    // caller MUST treat `Unknown` as "don't change state" — a transient
+    // ssh failure historically caused false-Exited notifications on
+    // launch and false-success on kill.
+    virtual Liveness is_window_alive(const RemoteTarget& target,
+                                       const std::string& session,
+                                       const std::string& window,
+                                       ISshClient& ssh) = 0;
 
     // exec-style: replaces the current process image with ssh -t <host>
     // tmux attach-session -t <session>. Returns only on spawn failure.

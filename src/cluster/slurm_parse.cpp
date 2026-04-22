@@ -150,20 +150,26 @@ static std::string shq(const std::string& s) {
 }
 
 std::vector<std::string> build_sbatch_argv(const SubmitSpec& s) {
+    // Every user-controlled value gets shell-quoted because the real
+    // transport (ssh) joins argv with spaces and the remote shell then
+    // re-parses. An unquoted partition like "gpu long" would become two
+    // tokens on the remote end; an unquoted qos with `$` or backticks
+    // would expand or execute. Config.toml is trusted input but we
+    // shouldn't trust that assumption any harder than we have to.
     std::vector<std::string> a = {"sbatch", "--parsable"};
-    if (!s.account.empty())   a.push_back("--account="        + s.account);
-    if (!s.partition.empty()) a.push_back("--partition="      + s.partition);
-    if (!s.qos.empty())       a.push_back("--qos="            + s.qos);
-    if (!s.gres.empty())      a.push_back("--gres="           + s.gres);
-    if (!s.time.empty())      a.push_back("--time="           + s.time);
-    if (s.cpus > 0)           a.push_back("--cpus-per-task="  + std::to_string(s.cpus));
-    if (!s.mem.empty())       a.push_back("--mem="            + s.mem);
-    if (!s.job_name.empty())  a.push_back("--job-name="       + s.job_name);
+    if (!s.account.empty())   a.push_back("--account="       + shq(s.account));
+    if (!s.partition.empty()) a.push_back("--partition="     + shq(s.partition));
+    if (!s.qos.empty())       a.push_back("--qos="           + shq(s.qos));
+    if (!s.gres.empty())      a.push_back("--gres="          + shq(s.gres));
+    if (!s.time.empty())      a.push_back("--time="          + shq(s.time));
+    if (s.cpus > 0)           a.push_back("--cpus-per-task=" + std::to_string(s.cpus));
+    if (!s.mem.empty())       a.push_back("--mem="           + shq(s.mem));
+    if (!s.job_name.empty())  a.push_back("--job-name="      + shq(s.job_name));
     // --wrap=<body> body often contains spaces ("sleep infinity").
-    // ssh's "join with spaces, re-parse on remote" workflow requires
-    // the body be shell-quoted or it becomes separate positional args
-    // and sbatch refuses with "Script arguments not permitted".
-    if (!s.wrap.empty())      a.push_back("--wrap="           + shq(s.wrap));
+    // Quoted for the same reason as every other value above — plus
+    // sbatch itself refuses unquoted bodies with spaces as "Script
+    // arguments not permitted".
+    if (!s.wrap.empty())      a.push_back("--wrap="          + shq(s.wrap));
     return a;
 }
 

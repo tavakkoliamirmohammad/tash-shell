@@ -156,19 +156,52 @@ TEST(BuildSbatchArgv, IncludesEveryFieldWhenSet) {
 
     const auto argv = build_sbatch_argv(s);
     const std::string joined = [&]{ std::string j; for (const auto& a : argv) { j += a; j += ' '; } return j; }();
-    EXPECT_NE(joined.find("sbatch"),                   std::string::npos);
-    EXPECT_NE(joined.find("--parsable"),               std::string::npos);
-    EXPECT_NE(joined.find("--account=acc"),            std::string::npos);
-    EXPECT_NE(joined.find("--partition=p"),            std::string::npos);
-    EXPECT_NE(joined.find("--qos=q"),                  std::string::npos);
-    EXPECT_NE(joined.find("--gres=gpu:a100:1"),        std::string::npos);
-    EXPECT_NE(joined.find("--time=01:00:00"),          std::string::npos);
-    EXPECT_NE(joined.find("--cpus-per-task=8"),        std::string::npos);
-    EXPECT_NE(joined.find("--mem=64G"),                std::string::npos);
-    EXPECT_NE(joined.find("--job-name=tash-a100"),     std::string::npos);
-    // --wrap value is single-quoted so the remote shell re-parse
-    // keeps "sleep infinity" as one argv element on sbatch.
-    EXPECT_NE(joined.find("--wrap='sleep infinity'"), std::string::npos) << joined;
+    EXPECT_NE(joined.find("sbatch"),                       std::string::npos);
+    EXPECT_NE(joined.find("--parsable"),                   std::string::npos);
+    // Every config-controlled string value is single-quoted so the ssh
+    // re-parse on the remote can't split/expand it. cpus is an int,
+    // so --cpus-per-task=8 stays unquoted.
+    EXPECT_NE(joined.find("--account='acc'"),              std::string::npos);
+    EXPECT_NE(joined.find("--partition='p'"),              std::string::npos);
+    EXPECT_NE(joined.find("--qos='q'"),                    std::string::npos);
+    EXPECT_NE(joined.find("--gres='gpu:a100:1'"),          std::string::npos);
+    EXPECT_NE(joined.find("--time='01:00:00'"),            std::string::npos);
+    EXPECT_NE(joined.find("--cpus-per-task=8"),            std::string::npos);
+    EXPECT_NE(joined.find("--mem='64G'"),                  std::string::npos);
+    EXPECT_NE(joined.find("--job-name='tash-a100'"),       std::string::npos);
+    EXPECT_NE(joined.find("--wrap='sleep infinity'"),      std::string::npos) << joined;
+}
+
+// Regression: config-controlled values with whitespace, `$`, or
+// backticks were previously concatenated raw into the sbatch argv.
+// ssh joins argv with spaces and the remote shell re-parses, so an
+// unquoted partition "gpu long" becomes two tokens and the job fails
+// (or worse, a `$(...)` expands on the login node).
+TEST(BuildSbatchArgv, ShellQuotesUserControlledFieldsWithMetacharacters) {
+    SubmitSpec s;
+    s.cluster   = "c1";
+    s.partition = "gpu long";          // space
+    s.qos       = "weird$qos";         // dollar
+    s.gres      = "gpu:a100:1";        // colons are fine quoted or not
+    s.time      = "01:00:00";
+    s.job_name  = "tash's a100";       // single-quote exercises shq escape
+    s.wrap      = "echo $HOME; true";  // semicolon + $
+
+    const auto argv = build_sbatch_argv(s);
+    const std::string joined = [&]{ std::string j; for (const auto& a : argv) { j += a; j += ' '; } return j; }();
+
+    // Every metacharacter MUST be inside single quotes. The single
+    // quote in job_name is escaped as '\''; after the sh re-parse the
+    // remote receives the original literal.
+    EXPECT_NE(joined.find("--partition='gpu long'"),           std::string::npos) << joined;
+    EXPECT_NE(joined.find("--qos='weird$qos'"),                std::string::npos) << joined;
+    EXPECT_NE(joined.find("--job-name='tash'\\''s a100'"),     std::string::npos) << joined;
+    EXPECT_NE(joined.find("--wrap='echo $HOME; true'"),        std::string::npos) << joined;
+
+    // And the raw unquoted forms MUST NOT appear anywhere (that would
+    // mean the remote shell could expand / split them).
+    EXPECT_EQ(joined.find("--partition=gpu long"),             std::string::npos);
+    EXPECT_EQ(joined.find("--qos=weird$qos "),                 std::string::npos);
 }
 
 TEST(BuildSbatchArgv, OmitsEmptyFields) {

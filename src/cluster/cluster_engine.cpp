@@ -204,8 +204,18 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
     // Confirm the kill took effect before mutating registry. If tmux
     // refused (permission, stale pid, session gone), leave the instance
     // so the user can retry or inspect rather than silently forgetting.
-    if (tmux_.is_window_alive(target, m.w->tmux_session, killed.tmux_window, ssh_)) {
-        return EngineError{"tmux refused kill-window for " + spec.workspace +
+    //
+    // Unknown (probe failed — ssh down) is treated the same as Alive:
+    // we don't know the kill succeeded, so we must NOT drop the
+    // instance from the registry. Previously an ssh glitch looked like
+    // "window dead" and quietly orphaned a live tmux window.
+    const auto liveness = tmux_.is_window_alive(
+        target, m.w->tmux_session, killed.tmux_window, ssh_);
+    if (liveness != Liveness::Dead) {
+        const char* why = (liveness == Liveness::Unknown)
+            ? "unable to confirm kill (ssh probe failed)"
+            : "tmux refused kill-window";
+        return EngineError{std::string{why} + " for " + spec.workspace +
                             "/" + spec.instance +
                             "; instance left in registry"};
     }
@@ -609,12 +619,15 @@ ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
                             "; instance not created"};
     }
 
-    // 6. Liveness check after a short settle window. An Exited outcome
-    // is observed reality (the command died right after launch) — we
-    // surface it to the user and still record the instance so the
-    // notification + registry reflect what actually happened.
+    // 6. Liveness check after a short settle window. Only mark the
+    // instance Exited when the probe CONFIRMS the window is dead —
+    // a transient ssh failure (Liveness::Unknown) must NOT fire the
+    // "exited immediately" notification; that historically caused
+    // false-positives any time ssh hiccupped right after launch.
     clock_.sleep_for(std::chrono::seconds(2));
-    if (!tmux_.is_window_alive(target, session_name, inst.tmux_window, ssh_)) {
+    const auto liveness = tmux_.is_window_alive(
+        target, session_name, inst.tmux_window, ssh_);
+    if (liveness == Liveness::Dead) {
         inst.state = InstanceState::Exited;
         notify_.desktop(
             "Instance exited immediately",
