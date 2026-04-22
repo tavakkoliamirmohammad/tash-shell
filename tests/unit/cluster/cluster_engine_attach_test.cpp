@@ -125,6 +125,56 @@ TEST(ClusterEngineAttach, MissingWorkspaceErrors) {
     EXPECT_EQ(h.tmux.exec_attach_calls.size(), 0u);
 }
 
+// did-you-mean: a case-only typo (repo-A vs repo-a) and a one-char
+// typo should both produce a suggestion in the error message. This
+// is the exact failure that started the debugging chain.
+TEST(ClusterEngineAttach, MissingWorkspaceSuggestsClosestMatch) {
+    Harness h;
+    h.reg.add_allocation(alloc_with_instances("c1", "1001", "n1", "repo-a", {"1"}));
+    h.reg.add_allocation(alloc_with_instances("c1", "2002", "n2", "repo-b", {"1"}));
+
+    // Case-only miss.
+    {
+        AttachSpec as; as.workspace = "repo-A"; as.instance = "1";
+        auto r = h.engine().attach(as);
+        auto* err = std::get_if<EngineError>(&r);
+        ASSERT_NE(err, nullptr);
+        EXPECT_NE(err->message.find("did you mean"), std::string::npos)
+            << "no suggestion shown for case-only miss: " << err->message;
+        EXPECT_NE(err->message.find("'repo-a'"),     std::string::npos)
+            << err->message;
+    }
+    // Missing-dash miss (edit distance 1).
+    {
+        AttachSpec as; as.workspace = "repoa"; as.instance = "1";
+        auto r = h.engine().attach(as);
+        auto* err = std::get_if<EngineError>(&r);
+        ASSERT_NE(err, nullptr);
+        EXPECT_NE(err->message.find("'repo-a'"), std::string::npos) << err->message;
+    }
+}
+
+// Fast-fail: attaching to an Ended allocation's instance must point
+// the user at prune, NOT try to exec_attach into a dead tmux session.
+// This was the second failure mode in the debugging chain (correct
+// case, but the alloc ended 2 days ago → ssh + tmux "can't find window").
+TEST(ClusterEngineAttach, EndedAllocationFastFailsBeforeExecAttach) {
+    Harness h;
+    Allocation a = alloc_with_instances("c1", "1001", "n1", "repoA", {"1"});
+    a.state = AllocationState::Ended;
+    h.reg.add_allocation(a);
+
+    AttachSpec as; as.workspace = "repoA"; as.instance = "1";
+    auto r = h.engine().attach(as);
+    auto* err = std::get_if<EngineError>(&r);
+    ASSERT_NE(err, nullptr);
+    EXPECT_NE(err->message.find("has ended"), std::string::npos) << err->message;
+    EXPECT_NE(err->message.find("cluster prune"), std::string::npos) << err->message;
+    EXPECT_EQ(h.tmux.exec_attach_calls.size(), 0u)
+        << "exec_attach must NOT be invoked against an Ended allocation — "
+            "the tmux server on the compute node is dead";
+}
+
 // ── 4. Missing instance → error ────────────────────────────────────
 
 TEST(ClusterEngineAttach, MissingInstanceErrors) {

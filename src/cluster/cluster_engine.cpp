@@ -39,6 +39,77 @@ void RealClock::sleep_for(std::chrono::milliseconds d) {
 
 namespace {
 
+// Damerau-Levenshtein with case-folding — simple, good enough for
+// "did-you-mean" on workspace names (users misspell `repo-a` as
+// `repo-A` or `repoa`). O(n*m) in string length, which is fine for
+// the handful of workspaces a registry holds.
+std::size_t dl_distance_ci(std::string_view a, std::string_view b) {
+    auto lower = [](char c) -> char {
+        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+    };
+    const std::size_t n = a.size(), m = b.size();
+    if (n == 0) return m;
+    if (m == 0) return n;
+    std::vector<std::vector<std::size_t>> d(n + 1, std::vector<std::size_t>(m + 1));
+    for (std::size_t i = 0; i <= n; ++i) d[i][0] = i;
+    for (std::size_t j = 0; j <= m; ++j) d[0][j] = j;
+    for (std::size_t i = 1; i <= n; ++i) {
+        for (std::size_t j = 1; j <= m; ++j) {
+            const std::size_t cost = lower(a[i - 1]) == lower(b[j - 1]) ? 0 : 1;
+            d[i][j] = std::min({d[i - 1][j] + 1,
+                                  d[i][j - 1] + 1,
+                                  d[i - 1][j - 1] + cost});
+            if (i > 1 && j > 1 &&
+                lower(a[i - 1]) == lower(b[j - 2]) &&
+                lower(a[i - 2]) == lower(b[j - 1])) {
+                d[i][j] = std::min(d[i][j], d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    return d[n][m];
+}
+
+// Return up to 3 workspace names from the registry whose edit distance
+// to `query` is ≤ 2. Useful for rendering "did you mean 'X'?" on a
+// missing-workspace error.
+std::vector<std::string> nearest_workspaces(const Registry& reg,
+                                               std::string_view query) {
+    struct Scored { std::size_t d; std::string name; };
+    std::vector<Scored> scored;
+    for (const auto& a : reg.allocations()) {
+        for (const auto& w : a.workspaces) {
+            const auto d = dl_distance_ci(query, w.name);
+            if (d <= 2) scored.push_back({d, w.name});
+        }
+    }
+    std::sort(scored.begin(), scored.end(),
+              [](const Scored& x, const Scored& y) {
+                  if (x.d != y.d) return x.d < y.d;
+                  return x.name < y.name;
+              });
+    // Dedup (multiple allocs may have the same workspace name).
+    std::vector<std::string> out;
+    for (auto& s : scored) {
+        if (std::find(out.begin(), out.end(), s.name) == out.end()) {
+            out.push_back(std::move(s.name));
+            if (out.size() == 3u) break;
+        }
+    }
+    return out;
+}
+
+std::string format_did_you_mean(const std::vector<std::string>& suggestions) {
+    if (suggestions.empty()) return {};
+    if (suggestions.size() == 1u) return " (did you mean '" + suggestions[0] + "'?)";
+    std::string s = " (did you mean: ";
+    for (std::size_t i = 0; i < suggestions.size(); ++i) {
+        if (i) s += ", ";
+        s += "'" + suggestions[i] + "'";
+    }
+    s += "?)";
+    return s;
+}
+
 // UTC-ISO-8601 of std::chrono::system_clock::now(); informational, not used
 // for any logic (the engine's timeout decisions go through IClock).
 std::string iso8601_utc_now() {
@@ -174,8 +245,25 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
     }
 
     if (matches.empty()) {
+        // Check whether the workspace exists at all — if not, offer a
+        // did-you-mean suggestion based on the registered workspace
+        // names (cheap to compute for a small registry).
+        bool any_workspace = false;
+        for (auto& a : reg_.mutable_allocations()) {
+            for (auto& w : a.workspaces) {
+                if (w.name == spec.workspace) { any_workspace = true; break; }
+            }
+            if (any_workspace) break;
+        }
+        if (!any_workspace) {
+            return EngineError{
+                "no workspace named '" + spec.workspace + "'" +
+                    format_did_you_mean(nearest_workspaces(reg_, spec.workspace)),
+                ErrorCode::NotFound, std::nullopt, false};
+        }
         return EngineError{"no instance '" + spec.instance +
-                            "' in workspace '" + spec.workspace + "'"};
+                            "' in workspace '" + spec.workspace + "'",
+                            ErrorCode::NotFound, std::nullopt, false};
     }
     if (matches.size() > 1u) {
         // Auto-disambiguate by preferring Running allocations. An
@@ -195,11 +283,21 @@ ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
                 msg += matches[i].a->id;
             }
             msg += "); pass --alloc to pick one";
-            return EngineError{std::move(msg)};
+            return EngineError{std::move(msg), ErrorCode::Conflict, std::nullopt, false};
         }
     }
 
     auto& m = matches.front();
+
+    // Fast-fail on Ended allocation: the tmux server is dead, so the
+    // kill is a no-op. The user should prune the registry.
+    if (m.a->state == AllocationState::Ended) {
+        return EngineError{
+            "allocation " + m.a->id + " has ended; nothing to kill. "
+                "Run `cluster prune` to drop the stale instance from the registry.",
+            ErrorCode::NotFound, m.a->cluster, false};
+    }
+
     Instance killed = m.w->instances[m.idx];
 
     const RemoteTarget target{m.a->cluster, m.a->node, m.a->jobid};
@@ -694,10 +792,14 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
             if (any_workspace) break;
         }
         if (!any_workspace) {
-            return EngineError{"no workspace named '" + spec.workspace + "'"};
+            return EngineError{
+                "no workspace named '" + spec.workspace + "'" +
+                    format_did_you_mean(nearest_workspaces(reg_, spec.workspace)),
+                ErrorCode::NotFound, std::nullopt, false};
         }
         return EngineError{"no instance '" + spec.instance +
-                            "' in workspace '" + spec.workspace + "'"};
+                            "' in workspace '" + spec.workspace + "'",
+                            ErrorCode::NotFound, std::nullopt, false};
     }
 
     if (matches.size() > 1u) {
@@ -718,12 +820,26 @@ ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
             msg += matches[i].a->id;
         }
         msg += "); pass --alloc to pick one";
-        return EngineError{std::move(msg)};
+        return EngineError{std::move(msg), ErrorCode::Conflict, std::nullopt, false};
         }
     }
 
     // Exactly one — dispatch.
     const auto& m = matches.front();
+
+    // Fast-fail on Ended allocation: the tmux server on the compute
+    // node died when the SLURM job ended, so ssh + tmux attach would
+    // succeed in connecting to the login node and then fail with
+    // "can't find window" — a confusing error buried in a dead ssh
+    // session. Point the user at prune instead.
+    if (m.a->state == AllocationState::Ended) {
+        return EngineError{
+            "allocation " + m.a->id + " has ended; nothing to attach to. "
+                "Run `cluster prune` to clean the registry, then `cluster up` "
+                "for a new allocation.",
+            ErrorCode::NotFound, m.a->cluster, false};
+    }
+
     const RemoteTarget target{m.a->cluster, m.a->node, m.a->jobid};
     // exec_attach replaces this process image. Persist the registry
     // *now* so the running allocation / workspace / instance state

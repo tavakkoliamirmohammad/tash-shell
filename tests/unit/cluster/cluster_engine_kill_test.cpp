@@ -122,6 +122,26 @@ TEST(ClusterEngineKill, TmuxRefusesKillLeavesInstanceIntact) {
     ASSERT_EQ(h.reg.allocations()[0].workspaces[0].instances.size(), 1u);
 }
 
+// Fast-fail on Ended allocation: tmux server on the compute node is
+// dead, so a kill-window call is pointless. Return an error pointing
+// at prune rather than silently no-op'ing or fabricating success.
+TEST(ClusterEngineKill, EndedAllocationFastFailsBeforeKillWindow) {
+    Harness h;
+    Allocation a = alloc_with_ws_inst("c1", "100", "n1", "repoA", {"1"});
+    a.state = AllocationState::Ended;
+    h.reg.add_allocation(a);
+
+    KillSpec ks; ks.workspace = "repoA"; ks.instance = "1";
+    auto r = h.engine().kill(ks);
+    auto* err = std::get_if<EngineError>(&r);
+    ASSERT_NE(err, nullptr);
+    EXPECT_NE(err->message.find("has ended"),     std::string::npos) << err->message;
+    EXPECT_NE(err->message.find("cluster prune"), std::string::npos) << err->message;
+    EXPECT_EQ(h.tmux.kill_window_calls.size(), 0u)
+        << "kill_window must not be invoked against an Ended allocation";
+    ASSERT_EQ(h.reg.allocations()[0].workspaces[0].instances.size(), 1u);
+}
+
 // Regression: an ssh-level probe failure during kill verification must
 // NOT be treated as "kill succeeded". Previously is_window_alive
 // returning false (due to ssh failure, not a dead window) caused the

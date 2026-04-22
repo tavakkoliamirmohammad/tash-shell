@@ -128,6 +128,46 @@ TEST(ClusterEngineSync, ProbeFailureDoesNotFlipRunningAllocationsToEnded) {
     EXPECT_EQ(h.reg.find_allocation("c1:200")->state, AllocationState::Running);
 }
 
+// When reconcile flips an allocation to Ended, its Running / Idle
+// instances must cascade to Exited. Without this, `cluster list` shows
+// `running` instance rows nested under an `ended` allocation — a
+// logically impossible snapshot that reliably confuses users.
+TEST(ClusterEngineSync, ReconcileCascadesInstanceStateToExited) {
+    Harness h;
+    Allocation a = alloc("c1", "500");
+    // One workspace with two instances in different states. Stopped
+    // carries observed signal (stop-hook event) → must be preserved.
+    Workspace w;
+    w.name = "ws"; w.tmux_session = "s";
+    Instance i1; i1.id = "1"; i1.tmux_window = "1"; i1.state = InstanceState::Running;
+    Instance i2; i2.id = "2"; i2.tmux_window = "2"; i2.state = InstanceState::Idle;
+    Instance i3; i3.id = "3"; i3.tmux_window = "3"; i3.state = InstanceState::Stopped;
+    w.instances = {i1, i2, i3};
+    a.workspaces.push_back(w);
+    h.reg.add_allocation(a);
+
+    // squeue says nothing — the job is gone.
+    h.slurm.queue_squeue({});
+
+    auto r = h.engine().sync({});
+    auto* s = std::get_if<ClusterEngine::SyncReport>(&r);
+    ASSERT_NE(s, nullptr);
+    EXPECT_EQ(s->transitions, 1);
+
+    const auto* aa = h.reg.find_allocation("c1:500");
+    ASSERT_NE(aa, nullptr);
+    EXPECT_EQ(aa->state, AllocationState::Ended);
+    ASSERT_EQ(aa->workspaces.size(), 1u);
+    const auto& ins = aa->workspaces[0].instances;
+    ASSERT_EQ(ins.size(), 3u);
+
+    // Running + Idle cascade to Exited.
+    EXPECT_EQ(ins[0].state, InstanceState::Exited);
+    EXPECT_EQ(ins[1].state, InstanceState::Exited);
+    // Stopped carries real signal — must be preserved untouched.
+    EXPECT_EQ(ins[2].state, InstanceState::Stopped);
+}
+
 // Partial failure across two clusters: c1 probe succeeds and transitions
 // ghosts normally, c2 probe fails and leaves its allocations alone.
 TEST(ClusterEngineSync, PartialProbeFailureReconcilesOnlyReachableClusters) {

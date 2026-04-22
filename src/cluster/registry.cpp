@@ -366,6 +366,23 @@ int Registry::reconcile(std::string_view cluster, const std::vector<JobState>& s
         if (!present) {
             a.state = AllocationState::Ended;
             ++transitioned;
+
+            // Cascade: when the allocation ends, the tmux server on
+            // the compute node dies with the SLURM job, so any
+            // Running / Idle instance is also gone. Keep terminal
+            // states (Stopped / Exited / Crashed) as they carry real
+            // observed signal; only overwrite the live ones. Without
+            // this, `cluster list` would show `running` instances
+            // nested under an `ended` allocation — a logically
+            // impossible snapshot that just confuses users.
+            for (auto& w : a.workspaces) {
+                for (auto& inst : w.instances) {
+                    if (inst.state == InstanceState::Running ||
+                        inst.state == InstanceState::Idle) {
+                        inst.state = InstanceState::Exited;
+                    }
+                }
+            }
         }
     }
     return transitioned;
