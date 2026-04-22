@@ -50,6 +50,7 @@ A feature-rich Unix shell written in C++ with syntax highlighting, autosuggestio
 | **AI** | `@ai <anything>` — multi-provider (Gemini/OpenAI/Ollama), streaming output, conversation memory, `@ai config`; **`?` suffix** routes natural-language queries (`find all python files?`); **automatic error recovery** — AI explains failed commands and suggests a one-keypress fix |
 | **Clipboard** | `copy`/`paste` builtins via OSC 52, works over SSH and inside tmux; pbcopy/xclip/wl-copy fallbacks; multi-line paste confirmation |
 | **Sessions** | `tash --persist <name>` / `--attach` / `--sessions` / `--kill` — save/restore cwd, aliases, and env vars |
+| **Cluster** | `cluster up / launch / attach / list / down / kill / sync / probe / doctor / import` — SLURM-backed remote launcher for HPC. OpenSSH `ControlMaster` multiplexing (one password+MFA prompt per day, not per command), tmux-persistent instances on compute nodes, resource-type-centric config (`-r a100`), multi-cluster from one tash shell, desktop notifications when an instance needs attention (Claude Stop hook + tmux silence fallback). `TASH_CLUSTER_DEMO=1` runs the full flow offline. See [docs/cluster.md](docs/cluster.md). |
 | **Config** | `~/.tashrc` loaded on startup, XDG-aware paths (`~/.tash/`, `$XDG_CONFIG_HOME`), **git-based config sync** across machines (`tash sync init/remote/push/pull/diff`) |
 | **Plugin system** | `ICompletionProvider`, `IPromptProvider`, `IHistoryProvider`, `IHookProvider` — priority-based registry dispatches to all registered providers |
 | **Safety** | **Destructive-command detection** (`rm -rf /`, `git push --force`, `dd`, `mkfs`, `chmod -R 777`…), Ctrl+D protection (double-press), bracketed paste, SIGINT handling |
@@ -241,6 +242,46 @@ The AI remembers context within a session — ask follow-up questions naturally:
 ❯ @ai clear     # reset conversation when done
 ```
 
+### Cluster (SLURM-backed remote launcher)
+
+Run Claude Code, training jobs, Jupyter, or any long-running command on
+an HPC cluster from your laptop's tash shell. One OpenSSH
+`ControlMaster` per cluster multiplexes all commands (so password +
+Duo happens once per day, not per operation). tmux on the compute node
+keeps instances alive through network drops + laptop sleep.
+
+```
+❯ cluster doctor
+utah-notchpeak:
+  [ok  ] SSH reach: utah-notchpeak — ssh works …
+  [ok  ] sbatch on utah-notchpeak — /usr/bin/sbatch
+  [ok  ] tmux on utah-notchpeak   — /usr/bin/tmux
+
+❯ cluster up -r a100 -t 4h
+allocated notch123 on utah-notchpeak (jobid 1234567)
+
+❯ cluster launch --workspace myrepo --preset claude
+launched instance 1 (window '1') — state=running
+
+❯ cluster list
+utah-notchpeak:1234567  a100  notch123  running
+  myrepo  1 instances
+    [1]  running  1
+
+❯ cluster attach myrepo/1          # → your terminal is now Claude on notch123
+                                     (Ctrl-b d to detach back to tash)
+```
+
+Try it with no cluster:
+
+```
+❯ TASH_CLUSTER_DEMO=1 tash
+❯ cluster up -r a100 && cluster list
+```
+
+Full docs: [docs/cluster.md](docs/cluster.md) (config, workflow, troubleshooting),
+[docs/cluster-demo.md](docs/cluster-demo.md) (demo walkthrough).
+
 ## Keyboard Shortcuts
 
 | Key | Action |
@@ -290,6 +331,7 @@ The AI remembers context within a session — ask follow-up questions naturally:
 | `config [get\|set\|sync...]` | Manage config and git-based config sync across machines. |
 | `@ai <question>` | AI-powered assistant — ask anything in natural language. |
 | `<question>?` | Trailing `?` routes a natural-language query to the AI (e.g., `find all python files larger than 1MB?`). |
+| `cluster <subcommand>` | SLURM-backed remote launcher — `up`/`launch`/`attach`/`list`/`down`/`kill`/`sync`/`probe`/`doctor`/`import`. See [docs/cluster.md](docs/cluster.md). |
 
 ## Configuration
 

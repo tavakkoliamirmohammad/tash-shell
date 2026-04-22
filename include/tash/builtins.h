@@ -59,4 +59,8 @@ int builtin_theme(const std::vector<std::string> &argv, ShellState &state);
 // Signal/exit trap builtin.
 int builtin_trap(const std::vector<std::string> &argv, ShellState &state);
 
+// ── src/builtins/cluster.cpp ───────────────────────────────────
+// SLURM-backed remote launcher: up, launch, attach, list, down, …
+int builtin_cluster(const std::vector<std::string> &argv, ShellState &state);
+
 #endif // TASH_BUILTINS_H

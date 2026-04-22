@@ -9,6 +9,7 @@
 //   meta.cpp    — exit, which/type, source/., explain, help
 //   config.cpp  — config, session, theme
 //   trap.cpp    — trap
+//   cluster.cpp — cluster (SLURM-backed remote launcher)
 //
 // Single source of truth is get_builtins_info() — the name→fn map
 // returned by get_builtins() is derived from it at first call, so
@@ -69,6 +70,9 @@ const vector<BuiltinInfo>& get_builtins_info() {
 
         // trap.cpp
         {"trap",     builtin_trap,     "trap [cmd] [signals...]",     "Register a command to run on signal receipt"},
+
+        // cluster.cpp
+        {"cluster",  builtin_cluster,  "cluster <subcommand>",        "Launch and manage long-running jobs on SLURM clusters"},
     };
     return table;
 }

@@ -1,0 +1,3 @@
+notchpeak-gpu|idle|3|gpu:a100:2
+notchpeak-gpu|alloc|5|gpu:a100:2
+notchpeak-gpu|mix|2|gpu:a100:2

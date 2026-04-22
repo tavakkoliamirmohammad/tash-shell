@@ -272,3 +272,314 @@ tash_register_plugin(
     TEST_PREFIX "unit/sqlite/"
     TEST_STANDALONE
 )
+
+# ── Cluster subsystem (M0-scaffolded; built out in M1+) ────────
+# A smoke test to prove the cluster unit-test target is wired up
+# before any real engine/config/registry code lands. Later tasks
+# add sibling tash_register_plugin() entries for config, registry,
+# cluster_engine_*, watcher, etc.
+tash_register_plugin(
+    NAME cluster_smoke
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/smoke_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_config
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/config.cpp
+    TEST_SOURCES tests/unit/cluster/config_test.cpp
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/configs"
+)
+
+tash_register_plugin(
+    NAME cluster_registry
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/registry.cpp
+    TEST_SOURCES tests/unit/cluster/registry_test.cpp
+    TEST_INCLUDES ${nlohmann_json_SOURCE_DIR}/include
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_presets
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/presets.cpp
+    TEST_SOURCES tests/unit/cluster/presets_test.cpp
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_STOP_HOOKS_DIR="${CMAKE_SOURCE_DIR}/data/cluster/stop-hooks"
+)
+
+# ── Cluster seam fakes (header-only test doubles; shared by later
+#    ClusterEngine / watcher tests) ────────────────────────────────
+tash_register_plugin(
+    NAME cluster_fakes
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/fakes/fakes_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_engine
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/cluster_engine.cpp
+    TEST_SOURCES tests/unit/cluster/cluster_engine_up_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_engine_launch
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_launch_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_engine_attach
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_attach_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_engine_list
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_list_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_down
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_down_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_kill
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_kill_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_engine_sync
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_sync_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_watcher
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/watcher.cpp
+    TEST_SOURCES tests/unit/cluster/watcher_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster ${nlohmann_json_SOURCE_DIR}/include
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_builtin_dispatch
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/builtin_dispatch.cpp
+    TEST_SOURCES tests/unit/cluster/cluster_builtin_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_demo_mode
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/demo_mode.cpp
+    TEST_SOURCES tests/unit/cluster/demo_mode_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_real_mode
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/real_mode.cpp
+)
+
+tash_register_plugin(
+    NAME cluster_slurm_parse
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/slurm_parse.cpp
+    TEST_SOURCES tests/unit/cluster/slurm_ops_parser_test.cpp
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_RECORDINGS_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/recordings"
+)
+
+tash_register_plugin(
+    NAME cluster_slurm_ops
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/slurm_ops.cpp
+)
+
+tash_register_plugin(
+    NAME cluster_ssh_client
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/ssh_client.cpp
+    TEST_SOURCES tests/unit/cluster/ssh_client_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_tmux_ops
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/tmux_compose.cpp src/cluster/tmux_ops.cpp
+    TEST_SOURCES tests/unit/cluster/tmux_ops_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+    TEST_DEFS TASH_CLUSTER_RECORDINGS_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/recordings"
+)
+
+# Tier-2 integration: real SshClient / SlurmOps / TmuxOps driving
+# tests/fakes/bin/ stubs on PATH. Every test file under
+# tests/integration/cluster/ goes through the same fixture glue and
+# needs the same TASH_CLUSTER_STUB_BIN_DIR define.
+set(TASH_CLUSTER_INTEGRATION_DEFS
+    TASH_CLUSTER_STUB_BIN_DIR="${CMAKE_SOURCE_DIR}/tests/fakes/bin")
+
+tash_register_plugin(
+    NAME cluster_integration_stubs
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/stub_smoke_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_up_down_roundtrip
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/up_down_roundtrip_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_launch_attach
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/launch_attach_detach_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_multi_ws
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/multi_workspace_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_multi_alloc
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/multi_allocation_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_reconcile
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/registry_reconcile_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_cli_errors
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/cli_help_and_errors_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+tash_register_plugin(
+    NAME cluster_integration_demo_mode
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/integration/cluster/demo_mode_smoke_test.cpp
+    TEST_PREFIX "integration/cluster/"
+)
+tash_register_plugin(
+    NAME cluster_notifier_factory
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/notifier_factory.cpp
+    TEST_SOURCES tests/integration/cluster/notifier_integration_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/integration/cluster
+    TEST_PREFIX "integration/cluster/"
+    TEST_DEFS ${TASH_CLUSTER_INTEGRATION_DEFS}
+)
+
+tash_register_plugin(
+    NAME cluster_watcher_hook_provider
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/plugins/cluster_watcher_hook_provider.cpp
+    TEST_SOURCES tests/unit/cluster/watcher_hook_provider_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_stream_watcher
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/stream_watcher.cpp
+    TEST_SOURCES tests/integration/cluster/notification_end_to_end_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "integration/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_piped_line_source
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/cluster/piped_line_source.cpp
+    TEST_SOURCES tests/unit/cluster/piped_line_source_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_watcher_fallback
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/watcher_fallback_test.cpp
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_completion
+    REQUIRES TASH_CLUSTER_ENABLED
+    SOURCES src/plugins/cluster_completion_provider.cpp
+    TEST_SOURCES tests/unit/cluster/cluster_completion_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_safety
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_safety_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_engine_doctor
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_engine_doctor_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)
+
+tash_register_plugin(
+    NAME cluster_help
+    REQUIRES TASH_CLUSTER_ENABLED
+    TEST_SOURCES tests/unit/cluster/cluster_help_test.cpp
+    TEST_INCLUDES ${CMAKE_SOURCE_DIR}/tests/unit/cluster
+    TEST_PREFIX "unit/cluster/"
+)

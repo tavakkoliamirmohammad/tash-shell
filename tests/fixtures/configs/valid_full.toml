@@ -1,0 +1,50 @@
+# Full-fat config exercising every declarable field across every section.
+# Loaded from disk by Config.CapturesEveryFieldOfFullExample.
+
+[defaults]
+workspace_base     = "/scratch/user"
+default_preset     = "claude"
+control_persist    = "4h"
+notify_silence_sec = 300
+
+[[clusters]]
+name        = "utah-notchpeak"
+ssh_host    = "utah-n"
+description = "University of Utah — Notchpeak"
+
+[[clusters]]
+name     = "utah-kingspeak"
+ssh_host = "utah-k"
+
+[[resources]]
+name         = "a100"
+kind         = "gpu"
+description  = "NVIDIA A100 40GB"
+default_time = "2:00:00"
+default_cpus = 8
+default_mem  = "32G"
+routes = [
+  { cluster = "utah-notchpeak", account = "acc-n", partition = "p-n", qos = "q-n", gres = "gpu:a100:1" },
+  { cluster = "utah-kingspeak", account = "acc-k", partition = "p-k", qos = "q-k", gres = "gpu:a100:1" },
+]
+
+[[resources]]
+name         = "cpu-big"
+kind         = "cpu"
+description  = "Fat CPU node"
+default_time = "8:00:00"
+default_cpus = 32
+default_mem  = "256G"
+routes = [
+  { cluster = "utah-notchpeak", account = "cpu-acc", partition = "cpu-p", qos = "cpu-q" },
+]
+
+[[presets]]
+name      = "claude"
+command   = "claude"
+env_file  = "/etc/tash/env.sh"
+stop_hook = "builtin:claude"
+
+[[presets]]
+name    = "trainer"
+command = "python train.py"

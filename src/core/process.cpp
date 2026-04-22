@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unordered_set>
 #include <vector>
 
@@ -174,6 +175,19 @@ int foreground_process(const vector<string> &argv,
     for (const string &a : argv) c_args.push_back(a.c_str());
     c_args.push_back(nullptr);
 
+    // Skip stderr capture for interactive commands (ssh, vim, tmux, etc.).
+    // Piping their stderr through a capture fd changes isatty(2) checks
+    // and can break terminal-driving code paths. Most visible symptom:
+    // ssh's password read returns empty before the user can type,
+    // because the readpassphrase fallback path gets confused by a
+    // non-tty stderr.
+    const bool skip_stderr_capture =
+        !argv.empty() && is_interactive_cmd(argv[0]);
+    if (captured_stderr && skip_stderr_capture) {
+        captured_stderr->clear();
+        captured_stderr = nullptr;
+    }
+
     int stderr_pipe[2] = {-1, -1};
     if (captured_stderr) {
         captured_stderr->clear();
@@ -194,6 +208,17 @@ int foreground_process(const vector<string> &argv,
             intercept_stdout = false;
         }
     }
+
+    // Drain any leftover bytes in the tty's input queue before fork.
+    // Replxx edits lines in raw mode and restores cooked mode before
+    // returning the command, but kernel-level input-queue residue
+    // (stray \n, paste-buffer tail, stacked keystrokes) survives that
+    // round-trip. Interactive children that immediately read from
+    // /dev/tty — classic example: ssh's password prompt — then eat
+    // that residue as a phantom first "empty password" submission,
+    // fail auth once, and prompt again. tcflush(TCIFLUSH) drops
+    // the pending input so the child sees a clean queue.
+    if (::isatty(STDIN_FILENO)) ::tcflush(STDIN_FILENO, TCIFLUSH);
 
     int status;
     pid_t pid = fork();

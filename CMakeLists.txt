@@ -40,6 +40,7 @@ set(SHELL_SOURCES
     src/builtins/meta.cpp
     src/builtins/config.cpp
     src/builtins/trap.cpp
+    src/builtins/cluster.cpp
     src/ui/prompt.cpp
     src/ui/highlight.cpp
     src/ui/completion.cpp
@@ -62,6 +63,9 @@ set(SHELL_SOURCES
 # plugin means appending one tash_register_plugin(...) call at the bottom
 # of that file, which avoids per-PR merge conflicts.
 include(${CMAKE_SOURCE_DIR}/cmake/plugins.cmake)
+# Cluster subsystem (TASH_CLUSTER option, toml++). Must come before
+# plugin_list.cmake so its REQUIRES TASH_CLUSTER_ENABLED gate works.
+include(${CMAKE_SOURCE_DIR}/cmake/cluster.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/plugin_list.cmake)
 
 # ── Generate man page with version ────────────────────────────
@@ -96,6 +100,13 @@ if(TASH_SQLITE_ENABLED)
     target_compile_definitions(tash.out PRIVATE TASH_SQLITE_ENABLED)
     target_include_directories(tash.out PRIVATE ${SQLite3_INCLUDE_DIRS})
     target_link_libraries(tash.out PRIVATE ${SQLite3_LIBRARIES})
+endif()
+
+if(TASH_CLUSTER_ENABLED)
+    target_compile_definitions(tash.out PRIVATE
+        TASH_CLUSTER_ENABLED
+        TASH_CLUSTER_STOP_HOOKS_DIR="${CMAKE_SOURCE_DIR}/data/cluster/stop-hooks")
+    target_include_directories(tash.out PRIVATE ${tomlplusplus_SOURCE_DIR}/include)
 endif()
 
 include(cmake/tests.cmake)

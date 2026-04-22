@@ -1,0 +1,21 @@
+# Smallest possible fully-valid cluster config.
+# Covers: defaults, one cluster, one resource + one route, one preset.
+
+[defaults]
+workspace_base = "/tmp/ws"
+default_preset = "claude"
+
+[[clusters]]
+name     = "c1"
+ssh_host = "c1.example"
+
+[[resources]]
+name = "a100"
+kind = "gpu"
+routes = [
+  { cluster = "c1", account = "acc", partition = "p", qos = "q", gres = "gpu:a100:1" },
+]
+
+[[presets]]
+name    = "claude"
+command = "claude"

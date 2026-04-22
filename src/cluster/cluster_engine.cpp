@@ -1,0 +1,986 @@
+// ClusterEngine — orchestration for `cluster <cmd>` verbs. See
+// include/tash/cluster/cluster_engine.h for the contract.
+//
+// Keep I/O out of this file: all spawning, sleeping, prompting, and
+// persistence goes through injected seams (ISshClient, ISlurmOps,
+// ITmuxOps, INotifier, IPrompt, IClock) or the Registry.
+
+#include "tash/cluster/cluster_engine.h"
+#include "tash/cluster/presets.h"
+
+#include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <fstream>
+#include <map>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <vector>
+
+namespace tash::cluster {
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RealClock
+// ══════════════════════════════════════════════════════════════════════════════
+
+std::chrono::steady_clock::time_point RealClock::now() {
+    return std::chrono::steady_clock::now();
+}
+void RealClock::sleep_for(std::chrono::milliseconds d) {
+    std::this_thread::sleep_for(d);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Helpers (anonymous)
+// ══════════════════════════════════════════════════════════════════════════════
+
+namespace {
+
+// Damerau-Levenshtein with case-folding — simple, good enough for
+// "did-you-mean" on workspace names (users misspell `repo-a` as
+// `repo-A` or `repoa`). O(n*m) in string length, which is fine for
+// the handful of workspaces a registry holds.
+std::size_t dl_distance_ci(std::string_view a, std::string_view b) {
+    auto lower = [](char c) -> char {
+        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+    };
+    const std::size_t n = a.size(), m = b.size();
+    if (n == 0) return m;
+    if (m == 0) return n;
+    std::vector<std::vector<std::size_t>> d(n + 1, std::vector<std::size_t>(m + 1));
+    for (std::size_t i = 0; i <= n; ++i) d[i][0] = i;
+    for (std::size_t j = 0; j <= m; ++j) d[0][j] = j;
+    for (std::size_t i = 1; i <= n; ++i) {
+        for (std::size_t j = 1; j <= m; ++j) {
+            const std::size_t cost = lower(a[i - 1]) == lower(b[j - 1]) ? 0 : 1;
+            d[i][j] = std::min({d[i - 1][j] + 1,
+                                  d[i][j - 1] + 1,
+                                  d[i - 1][j - 1] + cost});
+            if (i > 1 && j > 1 &&
+                lower(a[i - 1]) == lower(b[j - 2]) &&
+                lower(a[i - 2]) == lower(b[j - 1])) {
+                d[i][j] = std::min(d[i][j], d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    return d[n][m];
+}
+
+// Return up to 3 workspace names from the registry whose edit distance
+// to `query` is ≤ 2. Useful for rendering "did you mean 'X'?" on a
+// missing-workspace error.
+std::vector<std::string> nearest_workspaces(const Registry& reg,
+                                               std::string_view query) {
+    struct Scored { std::size_t d; std::string name; };
+    std::vector<Scored> scored;
+    for (const auto& a : reg.allocations()) {
+        for (const auto& w : a.workspaces) {
+            const auto d = dl_distance_ci(query, w.name);
+            if (d <= 2) scored.push_back({d, w.name});
+        }
+    }
+    std::sort(scored.begin(), scored.end(),
+              [](const Scored& x, const Scored& y) {
+                  if (x.d != y.d) return x.d < y.d;
+                  return x.name < y.name;
+              });
+    // Dedup (multiple allocs may have the same workspace name).
+    std::vector<std::string> out;
+    for (auto& s : scored) {
+        if (std::find(out.begin(), out.end(), s.name) == out.end()) {
+            out.push_back(std::move(s.name));
+            if (out.size() == 3u) break;
+        }
+    }
+    return out;
+}
+
+std::string format_did_you_mean(const std::vector<std::string>& suggestions) {
+    if (suggestions.empty()) return {};
+    if (suggestions.size() == 1u) return " (did you mean '" + suggestions[0] + "'?)";
+    std::string s = " (did you mean: ";
+    for (std::size_t i = 0; i < suggestions.size(); ++i) {
+        if (i) s += ", ";
+        s += "'" + suggestions[i] + "'";
+    }
+    s += "?)";
+    return s;
+}
+
+// UTC-ISO-8601 of std::chrono::system_clock::now(); informational, not used
+// for any logic (the engine's timeout decisions go through IClock).
+std::string iso8601_utc_now() {
+    const auto tp = std::chrono::system_clock::now();
+    const auto tt = std::chrono::system_clock::to_time_t(tp);
+    std::tm tm{};
+    gmtime_r(&tt, &tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    return buf;
+}
+
+// Build a SubmitSpec from the resource + route + per-call overrides.
+SubmitSpec build_submit_spec(const Resource& res, const Route& route, const UpSpec& spec) {
+    SubmitSpec s;
+    s.cluster   = route.cluster;
+    s.account   = route.account;
+    s.partition = route.partition;
+    s.qos       = route.qos;
+    s.gres      = route.gres;
+    s.time      = spec.time.empty()  ? res.default_time : spec.time;
+    s.cpus      = spec.cpus.has_value() ? *spec.cpus   : res.default_cpus;
+    s.mem       = spec.mem.empty()   ? res.default_mem : spec.mem;
+    s.job_name  = spec.name.value_or("tash-" + res.name);
+    // Placeholder work for the allocation — real instances run in tmux
+    // sessions independently. `sleep infinity` keeps the allocation alive
+    // until scancel or time limit.
+    s.wrap = "sleep infinity";
+    return s;
+}
+
+// A route qualifies if sinfo reports at least one idle node whose
+// idle_gres list contains the route's gres. CPU-only routes (gres empty)
+// qualify whenever any idle node exists.
+//
+// Returns false on sinfo probe failure (nullopt) — the caller falls
+// through to the next candidate or (if all probes fail) to the first
+// declared candidate. Probe failures are distinguished from genuine
+// "no idle capacity" by the nullopt/empty-vector split but the up-path
+// currently only needs the boolean qualifier.
+bool route_has_idle(ISlurmOps& slurm, ISshClient& ssh, const Route& r) {
+    const auto states = slurm.sinfo(r.cluster, r.partition, ssh);
+    if (!states) return false;            // probe failed — treat as not idle
+    for (const auto& ps : *states) {
+        if (ps.idle_nodes <= 0) continue;
+        if (r.gres.empty()) return true;
+        for (const auto& g : ps.idle_gres) {
+            if (g == r.gres) return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ClusterEngine
+// ══════════════════════════════════════════════════════════════════════════════
+
+ClusterEngine::ClusterEngine(const Config& cfg,
+                               Registry&    reg,
+                               ISshClient&  ssh,
+                               ISlurmOps&   slurm,
+                               ITmuxOps&    tmux,
+                               INotifier&   notify,
+                               IPrompt&     prompt,
+                               IClock&      clock)
+    : cfg_(cfg), reg_(reg), ssh_(ssh), slurm_(slurm), tmux_(tmux),
+      notify_(notify), prompt_(prompt), clock_(clock) {}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// list / down / kill / sync
+// ══════════════════════════════════════════════════════════════════════════════
+
+ClusterResult<std::vector<Allocation>> ClusterEngine::list(const ListSpec& spec) {
+    auto lk = reg_.lock();
+    std::vector<Allocation> out;
+    for (const auto& a : reg_.mutable_allocations()) {
+        if (spec.cluster && a.cluster != *spec.cluster) continue;
+        out.push_back(a);
+    }
+    return out;
+}
+
+ClusterResult<Allocation> ClusterEngine::down(const DownSpec& spec) {
+    if (spec.alloc_id.empty()) {
+        return EngineError{"--alloc-id is required for `cluster down`"};
+    }
+    auto lk = reg_.lock();
+    auto* a = reg_.find_allocation(spec.alloc_id);
+    if (!a) {
+        return EngineError{
+            "no allocation with id: " + spec.alloc_id,
+            ErrorCode::NotFound, std::nullopt, /*retryable=*/false};
+    }
+
+    Allocation snapshot = *a;      // copy before removal
+    if (a->state != AllocationState::Ended) {
+        if (!slurm_.scancel(a->cluster, a->jobid, ssh_)) {
+            // Don't desync: the job may still be alive on the cluster.
+            // Leave the allocation in place so the user can retry / inspect.
+            return EngineError{
+                "scancel refused job " + a->jobid + " on " + a->cluster +
+                    "; allocation left in registry",
+                ErrorCode::Slurm, a->cluster, /*retryable=*/true};
+        }
+    }
+    snapshot.state = AllocationState::Ended;
+    reg_.remove_allocation(spec.alloc_id);
+    if (save_) save_();
+    return snapshot;
+}
+
+ClusterResult<Instance> ClusterEngine::kill(const KillSpec& spec) {
+    if (spec.workspace.empty() || spec.instance.empty()) {
+        return EngineError{"--workspace and --instance are required for `cluster kill`"};
+    }
+
+    auto lk = reg_.lock();
+    struct Match { Allocation* a; Workspace* w; std::size_t idx; };
+    std::vector<Match> matches;
+    for (auto& a : reg_.mutable_allocations()) {
+        if (spec.alloc_id && a.id != *spec.alloc_id) continue;
+        for (auto& w : a.workspaces) {
+            if (w.name != spec.workspace) continue;
+            for (std::size_t i = 0; i < w.instances.size(); ++i) {
+                const auto& inst = w.instances[i];
+                const bool id_match   = (inst.id == spec.instance);
+                const bool name_match = inst.name.has_value() && *inst.name == spec.instance;
+                if (id_match || name_match) matches.push_back({&a, &w, i});
+            }
+        }
+    }
+
+    if (matches.empty()) {
+        // Check whether the workspace exists at all — if not, offer a
+        // did-you-mean suggestion based on the registered workspace
+        // names (cheap to compute for a small registry).
+        bool any_workspace = false;
+        for (auto& a : reg_.mutable_allocations()) {
+            for (auto& w : a.workspaces) {
+                if (w.name == spec.workspace) { any_workspace = true; break; }
+            }
+            if (any_workspace) break;
+        }
+        if (!any_workspace) {
+            return EngineError{
+                "no workspace named '" + spec.workspace + "'" +
+                    format_did_you_mean(nearest_workspaces(reg_, spec.workspace)),
+                ErrorCode::NotFound, std::nullopt, false};
+        }
+        return EngineError{"no instance '" + spec.instance +
+                            "' in workspace '" + spec.workspace + "'",
+                            ErrorCode::NotFound, std::nullopt, false};
+    }
+    if (matches.size() > 1u) {
+        // Auto-disambiguate by preferring Running allocations. An
+        // ended-or-stale copy in an old allocation shouldn't force
+        // the user to type --alloc when there's exactly one live
+        // allocation with this workspace/instance.
+        std::vector<Match> live;
+        for (auto& m : matches)
+            if (m.a->state == AllocationState::Running) live.push_back(m);
+        if (live.size() == 1u) {
+            matches = std::move(live);
+        } else {
+            std::string msg = "ambiguous: '" + spec.workspace + "/" + spec.instance +
+                               "' present in multiple allocations (";
+            for (std::size_t i = 0; i < matches.size(); ++i) {
+                if (i) msg += ", ";
+                msg += matches[i].a->id;
+            }
+            msg += "); pass --alloc to pick one";
+            return EngineError{std::move(msg), ErrorCode::Conflict, std::nullopt, false};
+        }
+    }
+
+    auto& m = matches.front();
+
+    // Fast-fail on Ended allocation: the tmux server is dead, so the
+    // kill is a no-op. The user should prune the registry.
+    if (m.a->state == AllocationState::Ended) {
+        return EngineError{
+            "allocation " + m.a->id + " has ended; nothing to kill. "
+                "Run `cluster prune` to drop the stale instance from the registry.",
+            ErrorCode::NotFound, m.a->cluster, false};
+    }
+
+    Instance killed = m.w->instances[m.idx];
+
+    const RemoteTarget target{m.a->cluster, m.a->node, m.a->jobid};
+    tmux_.kill_window(target, m.w->tmux_session, killed.tmux_window, ssh_);
+    // Confirm the kill took effect before mutating registry. If tmux
+    // refused (permission, stale pid, session gone), leave the instance
+    // so the user can retry or inspect rather than silently forgetting.
+    //
+    // Unknown (probe failed — ssh down) is treated the same as Alive:
+    // we don't know the kill succeeded, so we must NOT drop the
+    // instance from the registry. Previously an ssh glitch looked like
+    // "window dead" and quietly orphaned a live tmux window.
+    const auto liveness = tmux_.is_window_alive(
+        target, m.w->tmux_session, killed.tmux_window, ssh_);
+    if (liveness != Liveness::Dead) {
+        const char* why = (liveness == Liveness::Unknown)
+            ? "unable to confirm kill (ssh probe failed)"
+            : "tmux refused kill-window";
+        return EngineError{std::string{why} + " for " + spec.workspace +
+                            "/" + spec.instance +
+                            "; instance left in registry"};
+    }
+
+    m.w->instances.erase(m.w->instances.begin() + static_cast<std::ptrdiff_t>(m.idx));
+    if (save_) save_();
+    return killed;
+}
+
+ClusterResult<ClusterEngine::PruneReport> ClusterEngine::prune() {
+    auto lk = reg_.lock();
+    PruneReport rep;
+    rep.removed = reg_.remove_ended_allocations();
+    if (save_ && rep.removed > 0) save_();
+    return rep;
+}
+
+ClusterResult<ClusterEngine::SyncReport> ClusterEngine::sync(const SyncSpec& spec) {
+    auto lk = reg_.lock();
+    // Build the set of clusters to probe: each distinct cluster in the
+    // registry, optionally filtered to just spec.cluster.
+    std::vector<std::string> clusters;
+    for (const auto& a : reg_.mutable_allocations()) {
+        if (spec.cluster && a.cluster != *spec.cluster) continue;
+        if (std::find(clusters.begin(), clusters.end(), a.cluster) == clusters.end()) {
+            clusters.push_back(a.cluster);
+        }
+    }
+
+    SyncReport rep;
+    for (const auto& c : clusters) {
+        const auto snap = slurm_.squeue(c, ssh_);
+        if (!snap) {
+            // squeue failed (ssh down, Duo expired, remote error). DO
+            // NOT reconcile — the old behaviour of treating nullopt as
+            // "no jobs present" silently flipped every Running alloc on
+            // this cluster to Ended.
+            ++rep.probe_failures;
+            rep.failed_clusters.push_back(c);
+            continue;
+        }
+        rep.transitions += reg_.reconcile(c, *snap);
+        ++rep.clusters_probed;
+    }
+    if (save_ && rep.transitions > 0) save_();
+    return rep;
+}
+
+// ── doctor ─────────────────────────────────────────────────────────
+
+namespace {
+
+// Non-whitespace output from `which <bin>` is our proxy for "binary exists".
+bool looks_like_path(const std::string& s) {
+    for (char c : s) if (c != ' ' && c != '\n' && c != '\r' && c != '\t') return true;
+    return false;
+}
+
+}  // namespace
+
+// Named factories: WARN/FAIL require a non-empty message (empty string
+// would be a usability bug — a doctor FAIL with no explanation). OK
+// may carry an optional note (e.g. the resolved path of a tool).
+ClusterEngine::DoctorCheck
+ClusterEngine::DoctorCheck::ok(std::string name, std::string note) {
+    ClusterEngine::DoctorCheck c;
+    c.level = OK; c.name = std::move(name); c.message = std::move(note);
+    return c;
+}
+ClusterEngine::DoctorCheck
+ClusterEngine::DoctorCheck::warn(std::string name, std::string msg) {
+    ClusterEngine::DoctorCheck c;
+    c.level = WARN; c.name = std::move(name); c.message = std::move(msg);
+    return c;
+}
+ClusterEngine::DoctorCheck
+ClusterEngine::DoctorCheck::fail(std::string name, std::string msg) {
+    ClusterEngine::DoctorCheck c;
+    c.level = FAIL; c.name = std::move(name); c.message = std::move(msg);
+    return c;
+}
+
+ClusterResult<ClusterEngine::DoctorReport>
+ClusterEngine::doctor(const DoctorSpec& spec) {
+    // Pick the clusters to probe.
+    std::vector<const Cluster*> targets;
+    if (spec.cluster) {
+        const Cluster* c = find_cluster(cfg_, *spec.cluster);
+        if (!c) {
+            return EngineError{"unknown cluster: " + *spec.cluster,
+                                ErrorCode::Config, *spec.cluster, false};
+        }
+        targets.push_back(c);
+    } else {
+        for (const auto& c : cfg_.clusters) targets.push_back(&c);
+    }
+    if (targets.empty()) {
+        return EngineError{"no clusters configured — add a [[clusters]] block "
+                            "to ~/.tash/cluster/config.toml",
+                            ErrorCode::Config, std::nullopt, false};
+    }
+
+    DoctorReport rep;
+
+    for (const auto* c : targets) {
+        DoctorReport::ClusterBlock blk;
+        blk.cluster = c->name;
+
+        // 1. SSH reach — "true" is a no-op; exit 0 means we got through.
+        const auto reach = ssh_.run(c->name, {"true"}, std::chrono::seconds{5});
+        if (reach.exit_code != 0) {
+            blk.checks.push_back(DoctorCheck::fail(
+                "SSH reach: " + c->ssh_host,
+                "`ssh " + c->ssh_host + " true` failed (exit "
+                    + std::to_string(reach.exit_code) +
+                    "). Try `cluster connect " + c->name +
+                    "` or check ~/.ssh/config."));
+            // Skip follow-up checks (both need a working ssh).
+            blk.checks.push_back(DoctorCheck::warn(
+                "sbatch on " + c->ssh_host, "skipped (ssh unreachable)"));
+            blk.checks.push_back(DoctorCheck::warn(
+                "tmux on "   + c->ssh_host, "skipped (ssh unreachable)"));
+            rep.clusters.push_back(std::move(blk));
+            continue;
+        }
+        blk.checks.push_back(DoctorCheck::ok(
+            "SSH reach: " + c->ssh_host,
+            "ssh works (password+Duo may still prompt once per session)"));
+
+        // 2. sbatch presence via `which sbatch`.
+        const auto sb = ssh_.run(c->name, {"which", "sbatch"}, std::chrono::seconds{5});
+        if (sb.exit_code == 0 && looks_like_path(sb.out)) {
+            blk.checks.push_back(DoctorCheck::ok(
+                "sbatch on " + c->ssh_host,
+                sb.out.substr(0, sb.out.find('\n'))));
+        } else {
+            blk.checks.push_back(DoctorCheck::warn(
+                "sbatch on " + c->ssh_host,
+                "`which sbatch` came up empty; is SLURM in PATH on the login node?"));
+        }
+
+        // 3. tmux presence via `which tmux`.
+        const auto tm = ssh_.run(c->name, {"which", "tmux"}, std::chrono::seconds{5});
+        if (tm.exit_code == 0 && looks_like_path(tm.out)) {
+            blk.checks.push_back(DoctorCheck::ok(
+                "tmux on " + c->ssh_host,
+                tm.out.substr(0, tm.out.find('\n'))));
+        } else {
+            blk.checks.push_back(DoctorCheck::warn(
+                "tmux on " + c->ssh_host,
+                "`which tmux` came up empty; install tmux on the cluster to use "
+                "cluster launch / attach."));
+        }
+
+        rep.clusters.push_back(std::move(blk));
+    }
+
+    return rep;
+}
+
+// ── launch helpers ─────────────────────────────────────────────
+
+namespace {
+
+// Resolve the allocation to launch into / attach to:
+//   - If alloc_id is provided, look it up; error if missing.
+//   - Else collect every Running allocation: 0 -> "no running allocation"
+//     1 -> use it; >1 -> ambiguity error listing the candidates.
+struct AllocPick {
+    Allocation* alloc;
+    std::string error;
+};
+AllocPick pick_allocation(Registry& reg,
+                            const std::optional<std::string>& alloc_id,
+                            std::string_view verb) {
+    if (alloc_id) {
+        auto* a = reg.find_allocation(*alloc_id);
+        if (!a) return {nullptr, "no allocation with id: " + *alloc_id};
+        return {a, {}};
+    }
+    std::vector<Allocation*> running;
+    for (auto& a : reg.mutable_allocations()) {
+        if (a.state == AllocationState::Running) running.push_back(&a);
+    }
+    if (running.empty()) return {nullptr, "no running allocation to " + std::string(verb)};
+    if (running.size() == 1u) return {running[0], {}};
+    std::string msg = "ambiguous: multiple running allocations (";
+    for (std::size_t i = 0; i < running.size(); ++i) {
+        if (i) msg += ", ";
+        msg += running[i]->id;
+    }
+    msg += "); pass --alloc to pick one";
+    return {nullptr, std::move(msg)};
+}
+
+// Find or compute the next instance id ("1", "2", …) for a workspace.
+std::string next_instance_id(const Workspace& ws) {
+    int max_n = 0;
+    for (const auto& i : ws.instances) {
+        try { max_n = std::max(max_n, std::stoi(i.id)); } catch (...) {}
+    }
+    return std::to_string(max_n + 1);
+}
+
+// Build the tmux window command: if env_vars are non-empty, prepend
+// `env KEY='VAL' ...` so tmux_ops can pass-through, or a send-keys-
+// style exec picks them up. Values are single-quoted; embedded single
+// quotes get the usual '"'"' escape treatment.
+std::string build_window_cmd(const std::string& cmd,
+                               const std::map<std::string, std::string>& env) {
+    if (env.empty()) return cmd;
+    std::string out = "env";
+    for (const auto& [k, v] : env) {
+        std::string q;
+        q.reserve(v.size() + 2);
+        q += '\'';
+        for (char c : v) {
+            if (c == '\'') q += "'\"'\"'"; else q += c;
+        }
+        q += '\'';
+        out += ' ';
+        out += k;
+        out += '=';
+        out += q;
+    }
+    out += ' ';
+    out += cmd;
+    return out;
+}
+
+// Single-quote a string for inclusion in a shell command on the
+// login node; matches the convention in slurm_parse::shq.
+std::string sq(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    out.push_back('\'');
+    for (char c : s) {
+        if (c == '\'') out += "'\\''";
+        else           out.push_back(c);
+    }
+    out.push_back('\'');
+    return out;
+}
+
+// Wrap a shell command so it executes inside the SLURM allocation
+// via `srun --jobid --overlap`. Used so that the tmux session can
+// live on the login node (outside slurm's cgroup cleanup) while the
+// workload itself runs on the compute node where sbatch allocated
+// resources. When the target isn't a SLURM allocation (no jobid),
+// returns cmd verbatim.
+//
+// `bash -l -c` (login shell) sources the user's ~/.bash_profile /
+// ~/.profile so PATH additions (typical for `claude` / `npm`-
+// installed binaries under ~/.local/bin or ~/.npm-global/bin) are
+// available. Without -l, srun's fresh bash has only a minimal PATH
+// and commands like `claude` aren't found on most HPC setups.
+std::string wrap_for_compute(const std::string& jobid, const std::string& cmd) {
+    if (jobid.empty()) return cmd;
+    // --pty allocates a pseudo-tty for the step's stdio. Required for
+    // interactive programs (Claude, bash, less, vim, etc.) — without
+    // it srun wires stdin/stdout/stderr to slurmctld's step output
+    // capture, which most TUIs detect as non-tty and bail on.
+    // Implies --unbuffered, which we want anyway for live output.
+    return "srun --jobid=" + jobid + " --overlap --pty bash -l -c " + sq(cmd);
+}
+
+}  // namespace
+
+// ── launch ─────────────────────────────────────────────────────────
+
+ClusterResult<Instance> ClusterEngine::launch(const LaunchSpec& spec) {
+    if (spec.workspace.empty()) {
+        return EngineError{"--workspace is required"};
+    }
+    auto lk = reg_.lock();
+    // If both --cmd and --preset are set, --cmd wins silently. This
+    // matches the plan's "ad-hoc --cmd bypasses preset" wording.
+
+    // 1. Pick the allocation.
+    auto pick = pick_allocation(reg_, spec.alloc_id, "launch into");
+    if (!pick.alloc) return EngineError{pick.error};
+    Allocation& alloc = *pick.alloc;
+
+    // 2. Resolve the command (preset or ad-hoc).
+    std::string cmd;
+    std::map<std::string, std::string> env_vars;
+    std::string stop_hook_path;     // local path to hook script; empty → none
+    if (spec.cmd) {
+        cmd = *spec.cmd;
+    } else {
+        const std::string preset_name =
+            spec.preset.value_or(cfg_.defaults.default_preset);
+        const Preset* p = find_preset(cfg_, preset_name);
+        if (!p) return EngineError{"unknown preset: " + preset_name};
+        auto rr = resolve_preset(*p);
+        if (auto* err = std::get_if<PresetResolveError>(&rr)) {
+            return EngineError{err->message};
+        }
+        const auto& rp = std::get<ResolvedPreset>(rr);
+        cmd             = rp.command;
+        env_vars        = rp.env_vars;
+        stop_hook_path  = rp.stop_hook_path;
+    }
+
+    // 3. Find or create the workspace.
+    Workspace* ws = nullptr;
+    for (auto& w : alloc.workspaces) {
+        if (w.name == spec.workspace) { ws = &w; break; }
+    }
+
+    const RemoteTarget target{alloc.cluster, alloc.node, alloc.jobid};
+    const std::string cwd = spec.cwd.empty()
+        ? cfg_.defaults.workspace_base + "/" + spec.workspace
+        : spec.cwd;
+    const std::string session_name =
+        "tash-" + alloc.cluster + "-" + alloc.jobid + "-" + spec.workspace;
+
+    const bool workspace_was_new = (ws == nullptr);
+    if (!ws) {
+        // Don't mutate registry until the remote create succeeds.
+        if (!tmux_.new_session(target, session_name, cwd, ssh_)) {
+            return EngineError{"tmux new-session failed on " + alloc.cluster +
+                                "; workspace '" + spec.workspace +
+                                "' not created"};
+        }
+        Workspace new_ws;
+        new_ws.name         = spec.workspace;
+        new_ws.cwd          = cwd;
+        new_ws.tmux_session = session_name;
+        alloc.workspaces.push_back(std::move(new_ws));
+        ws = &alloc.workspaces.back();
+    }
+
+    // 4. Allocate instance id / window name.
+    Instance inst;
+    inst.id          = next_instance_id(*ws);
+    if (spec.name) {
+        inst.name        = *spec.name;
+        inst.tmux_window = *spec.name;
+    } else {
+        inst.tmux_window = inst.id;
+    }
+    inst.state = InstanceState::Running;
+
+    // 4b. Install the stop-hook script on the compute node if the
+    // preset specifies one. This makes events-over-tail-F work without
+    // any out-of-band setup. The remote path lives under the user's
+    // home: `~/.tash-cluster/stop-hooks/<basename>`. We also set
+    // TASH_CLUSTER_* env vars so Claude's hook knows which
+    // workspace/instance/event-dir to use.
+    if (!stop_hook_path.empty()) {
+        std::ifstream hf(stop_hook_path);
+        if (!hf.is_open()) {
+            return EngineError{"stop_hook file not readable: " + stop_hook_path};
+        }
+        std::ostringstream hbuf;
+        hbuf << hf.rdbuf();
+        const std::string hook_content = hbuf.str();
+
+        const auto slash = stop_hook_path.find_last_of('/');
+        const std::string basename = (slash == std::string::npos)
+            ? stop_hook_path : stop_hook_path.substr(slash + 1);
+        const std::string remote_hook = "$HOME/.tash-cluster/stop-hooks/" + basename;
+
+        // We need the literal expansion of $HOME on the remote side, so
+        // we install via `sh -c` (build_install_file_argv already wraps
+        // with sh -c). But we must pre-expand $HOME into the argv we
+        // send — ISshClient doesn't know what the remote's $HOME is.
+        // Workaround: use a sentinel path that resolves on-remote:
+        // write a one-shot "sh -c" that cd's to $HOME first.
+        //
+        // For simplicity + cross-platform reliability, anchor at
+        // `~/.tash-cluster/stop-hooks/<basename>` and let the remote
+        // shell expand ~. install_remote_file's sh -c does that.
+        const std::string hook_target =
+            "$HOME/.tash-cluster/stop-hooks/" + basename;
+        if (!install_remote_file(ssh_, alloc.cluster, hook_content, hook_target)) {
+            return EngineError{"failed to install stop-hook on " + alloc.cluster +
+                                " (path: " + hook_target + ")"};
+        }
+
+        // Teach the window command about workspace + instance + event
+        // dir so Claude's hook finds them at `$TASH_CLUSTER_EVENT_DIR`.
+        env_vars["TASH_CLUSTER_WORKSPACE"]  = spec.workspace;
+        env_vars["TASH_CLUSTER_INSTANCE"]   = inst.name.value_or(inst.id);
+        env_vars["TASH_CLUSTER_EVENT_DIR"]  = "$HOME/.tash-cluster/events";
+        env_vars["TASH_CLUSTER_STOP_HOOK"]  = hook_target;
+    }
+
+    // 5. Spawn the window. On ssh / tmux hard failure, roll back any
+    // workspace we created in step 3 so the registry never records a
+    // half-built workspace with no instances.
+    //
+    // The tmux server lives on the login node, so the raw cmd here
+    // would run on login. Wrap in `srun --jobid --overlap` so the
+    // user's workload actually executes on the allocated compute
+    // node (and is killed by scancel with the allocation).
+    const std::string window_cmd_raw = build_window_cmd(cmd, env_vars);
+    const std::string window_cmd = wrap_for_compute(alloc.jobid, window_cmd_raw);
+    if (!tmux_.new_window(target, session_name, inst.tmux_window, cwd, window_cmd, ssh_)) {
+        if (workspace_was_new) {
+            // Pop the workspace we just added — safe because ws points
+            // at alloc.workspaces.back() and no other code has held a
+            // pointer to it.
+            alloc.workspaces.pop_back();
+        }
+        return EngineError{"tmux new-window failed on " + alloc.cluster +
+                            "; instance not created"};
+    }
+
+    // 6. Liveness check after a short settle window. Only mark the
+    // instance Exited when the probe CONFIRMS the window is dead —
+    // a transient ssh failure (Liveness::Unknown) must NOT fire the
+    // "exited immediately" notification; that historically caused
+    // false-positives any time ssh hiccupped right after launch.
+    clock_.sleep_for(std::chrono::seconds(2));
+    const auto liveness = tmux_.is_window_alive(
+        target, session_name, inst.tmux_window, ssh_);
+    if (liveness == Liveness::Dead) {
+        inst.state = InstanceState::Exited;
+        notify_.desktop(
+            "Instance exited immediately",
+            alloc.cluster + " · " + spec.workspace + "/" + inst.tmux_window +
+                " — command exited right after launch");
+    }
+
+    ws->instances.push_back(inst);
+    if (save_) save_();
+    return inst;
+}
+
+// ── attach ─────────────────────────────────────────────────────────
+
+ClusterResult<Instance> ClusterEngine::attach(const AttachSpec& spec) {
+    if (spec.workspace.empty() || spec.instance.empty()) {
+        return EngineError{"--workspace and --instance are required"};
+    }
+
+    auto lk = reg_.lock();
+    // Collect every (allocation, workspace, instance) that matches.
+    struct Match { Allocation* a; Workspace* w; Instance* i; };
+    std::vector<Match> matches;
+    for (auto& a : reg_.mutable_allocations()) {
+        if (spec.alloc_id && a.id != *spec.alloc_id) continue;
+        for (auto& w : a.workspaces) {
+            if (w.name != spec.workspace) continue;
+            for (auto& i : w.instances) {
+                const bool id_match   = (i.id == spec.instance);
+                const bool name_match = i.name.has_value() && *i.name == spec.instance;
+                if (id_match || name_match) matches.push_back({&a, &w, &i});
+            }
+        }
+    }
+
+    if (spec.alloc_id && matches.empty()) {
+        // Could be: alloc id doesn't exist, or it does but has no such ws/inst.
+        if (!reg_.find_allocation(*spec.alloc_id)) {
+            return EngineError{"no allocation with id: " + *spec.alloc_id};
+        }
+        return EngineError{"allocation " + *spec.alloc_id +
+                            " has no workspace/instance matching '" +
+                            spec.workspace + "/" + spec.instance + "'"};
+    }
+
+    if (matches.empty()) {
+        // Distinguish missing-workspace from missing-instance for a
+        // clearer error message.
+        bool any_workspace = false;
+        for (auto& a : reg_.mutable_allocations()) {
+            for (auto& w : a.workspaces) {
+                if (w.name == spec.workspace) { any_workspace = true; break; }
+            }
+            if (any_workspace) break;
+        }
+        if (!any_workspace) {
+            return EngineError{
+                "no workspace named '" + spec.workspace + "'" +
+                    format_did_you_mean(nearest_workspaces(reg_, spec.workspace)),
+                ErrorCode::NotFound, std::nullopt, false};
+        }
+        return EngineError{"no instance '" + spec.instance +
+                            "' in workspace '" + spec.workspace + "'",
+                            ErrorCode::NotFound, std::nullopt, false};
+    }
+
+    if (matches.size() > 1u) {
+        // Prefer Running allocations when only one is live. Matches
+        // the kill() behaviour — the user should rarely have to
+        // name --alloc just because a prior run's registry row is
+        // still hanging around as Ended.
+        std::vector<Match> live;
+        for (auto& m : matches)
+            if (m.a->state == AllocationState::Running) live.push_back(m);
+        if (live.size() == 1u) {
+            matches = std::move(live);
+        } else {
+        std::string msg = "ambiguous: '" + spec.workspace + "/" + spec.instance +
+                           "' present in multiple allocations (";
+        for (std::size_t i = 0; i < matches.size(); ++i) {
+            if (i) msg += ", ";
+            msg += matches[i].a->id;
+        }
+        msg += "); pass --alloc to pick one";
+        return EngineError{std::move(msg), ErrorCode::Conflict, std::nullopt, false};
+        }
+    }
+
+    // Exactly one — dispatch.
+    const auto& m = matches.front();
+
+    // Fast-fail on Ended allocation: the tmux server on the compute
+    // node died when the SLURM job ended, so ssh + tmux attach would
+    // succeed in connecting to the login node and then fail with
+    // "can't find window" — a confusing error buried in a dead ssh
+    // session. Point the user at prune instead.
+    if (m.a->state == AllocationState::Ended) {
+        return EngineError{
+            "allocation " + m.a->id + " has ended; nothing to attach to. "
+                "Run `cluster prune` to clean the registry, then `cluster up` "
+                "for a new allocation.",
+            ErrorCode::NotFound, m.a->cluster, false};
+    }
+
+    const RemoteTarget target{m.a->cluster, m.a->node, m.a->jobid};
+    // exec_attach replaces this process image. Persist the registry
+    // *now* so the running allocation / workspace / instance state
+    // the user just set up isn't lost when the next tash session
+    // starts from a stale on-disk snapshot.
+    if (save_) save_();
+    tmux_.exec_attach(target, m.w->tmux_session, m.i->tmux_window);
+    return *m.i;
+}
+
+// ── up ─────────────────────────────────────────────────────────────
+
+ClusterResult<Allocation> ClusterEngine::up(const UpSpec& spec) {
+    // 1. Resolve resource.
+    const Resource* res = find_resource(cfg_, spec.resource);
+    if (!res) {
+        return EngineError{"unknown resource: " + spec.resource,
+                            ErrorCode::Config, std::nullopt, false};
+    }
+    if (res->routes.empty()) {
+        return EngineError{"resource '" + spec.resource + "' has no routes declared",
+                            ErrorCode::Config, std::nullopt, false};
+    }
+    auto lk = reg_.lock();
+
+    // 2. Pick candidate routes.
+    std::vector<const Route*> candidates;
+    if (spec.via) {
+        for (const auto& r : res->routes) {
+            if (r.cluster == *spec.via) { candidates.push_back(&r); break; }
+        }
+        if (candidates.empty()) {
+            return EngineError{"resource '" + spec.resource +
+                                "' has no route via cluster '" + *spec.via + "'"};
+        }
+    } else {
+        for (const auto& r : res->routes) candidates.push_back(&r);
+    }
+
+    // 3. Probe each candidate's sinfo; pick first with idle capacity.
+    //    Fall back to the first declared candidate if none have idle.
+    const Route* chosen = candidates.front();
+    for (const auto* r : candidates) {
+        if (route_has_idle(slurm_, ssh_, *r)) { chosen = r; break; }
+    }
+
+    // 4. Build & submit.
+    const SubmitSpec sub = build_submit_spec(*res, *chosen, spec);
+    const std::string submitted_at = iso8601_utc_now();
+    SubmitResult sr = slurm_.sbatch(sub, ssh_);
+    if (sr.jobid.empty()) {
+        return EngineError{
+            "sbatch rejected: " +
+                (sr.raw_stdout.empty() ? std::string("<empty response>")
+                                        : sr.raw_stdout),
+            ErrorCode::Slurm, chosen->cluster, /*retryable=*/false};
+    }
+
+    // 5. Poll squeue until R or wait-timeout.
+    //
+    // Transient squeue failures (ssh glitch, Duo expired) are tolerated
+    // up to `max_consecutive_probe_failures` in a row; past that we
+    // bail out rather than pretend the job is just still queued. This
+    // prevents an unreachable cluster from silently eating the full
+    // wait_timeout without surfacing any ssh-level signal.
+    constexpr int max_consecutive_probe_failures = 3;
+    auto   deadline = clock_.now() + spec.wait_timeout;
+    bool   running  = false;
+    int    consecutive_probe_failures = 0;
+    std::string node;
+
+    while (true) {
+        const auto jobs = slurm_.squeue(chosen->cluster, ssh_);
+        if (!jobs) {
+            if (++consecutive_probe_failures >= max_consecutive_probe_failures) {
+                return EngineError{
+                    "squeue failed " +
+                        std::to_string(consecutive_probe_failures) +
+                        " times in a row on " + chosen->cluster +
+                        " while polling job " + sr.jobid +
+                        "; registry has the allocation as Pending — retry with `cluster sync " +
+                        chosen->cluster + "` once ssh is back",
+                    ErrorCode::Ssh, chosen->cluster, /*retryable=*/true};
+            }
+            clock_.sleep_for(std::chrono::milliseconds(250));
+            continue;
+        }
+        consecutive_probe_failures = 0;
+
+        const JobState* mine = nullptr;
+        for (const auto& j : *jobs) {
+            if (j.jobid == sr.jobid) { mine = &j; break; }
+        }
+        if (mine && mine->state == "R") {
+            running = true;
+            node    = mine->node;
+            break;
+        }
+
+        if (clock_.now() >= deadline) {
+            const char c = prompt_.choice(
+                "job " + sr.jobid + " still queued — [c]ancel [k]eep [d]etach?",
+                "ckd");
+            if (c == 'c') {
+                const bool cancelled = slurm_.scancel(chosen->cluster, sr.jobid, ssh_);
+                if (!cancelled) {
+                    return EngineError{"scancel refused job " + sr.jobid +
+                                        " on " + chosen->cluster +
+                                        "; job may still be queued"};
+                }
+                return EngineError{"cancelled while queued (job " + sr.jobid + ")"};
+            }
+            if (c == 'd' || c == '\0') {
+                // '\0' means non-interactive (e.g., the real StdinPrompt
+                // can't read std::cin inside a builtin). Auto-detach so
+                // we don't busy-loop forever re-prompting no one.
+                break;
+            }
+            // 'k' → keep waiting; extend deadline by one full interval.
+            deadline = clock_.now() + spec.wait_timeout;
+        }
+
+        clock_.sleep_for(std::chrono::milliseconds(250));
+    }
+
+    // 6. Build the Allocation record.
+    Allocation alloc;
+    alloc.id           = chosen->cluster + ":" + sr.jobid;
+    alloc.cluster      = chosen->cluster;
+    alloc.jobid        = sr.jobid;
+    alloc.resource     = res->name;
+    alloc.node         = node;                    // empty when detached-pending
+    alloc.submitted_at = submitted_at;
+    alloc.started_at   = running ? iso8601_utc_now() : std::string{};
+    alloc.state        = running ? AllocationState::Running
+                                   : AllocationState::Pending;
+    // 7. Persist.
+    reg_.add_allocation(alloc);
+    if (save_) save_();
+
+    return alloc;
+}
+
+}  // namespace tash::cluster

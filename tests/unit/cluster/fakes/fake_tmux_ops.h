@@ -1,0 +1,134 @@
+// FakeTmuxOps — header-only test double for ITmuxOps.
+//
+// Void methods just record; list_sessions pulls from a FIFO queue.
+// exec_attach (exec-style) also just records — the test never actually
+// replaces the process; we assert the intent.
+
+#ifndef TASH_CLUSTER_FAKE_TMUX_OPS_H
+#define TASH_CLUSTER_FAKE_TMUX_OPS_H
+
+#include "tash/cluster/tmux_ops.h"
+
+#include <deque>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+namespace tash::cluster::testing {
+
+class FakeTmuxOps : public ITmuxOps {
+public:
+    struct NewSessionCall {
+        RemoteTarget target;
+        std::string  session;
+        std::string  cwd;
+    };
+    struct NewWindowCall {
+        RemoteTarget target;
+        std::string  session;
+        std::string  window;
+        std::string  cwd;
+        std::string  cmd;
+    };
+    struct ListSessionsCall { RemoteTarget target; };
+    struct KillWindowCall      { RemoteTarget target; std::string session; std::string window; };
+    struct IsWindowAliveCall   { RemoteTarget target; std::string session; std::string window; };
+    struct ExecAttachCall      { RemoteTarget target; std::string session; std::string window; };
+
+    std::vector<NewSessionCall>       new_session_calls;
+    std::vector<NewWindowCall>        new_window_calls;
+    std::vector<ListSessionsCall>     list_sessions_calls;
+    std::vector<KillWindowCall>       kill_window_calls;
+    std::vector<IsWindowAliveCall>    is_window_alive_calls;
+    std::vector<ExecAttachCall>       exec_attach_calls;
+
+    std::deque<std::vector<SessionInfo>> list_sessions_queue;
+
+    // Windows flagged as dead; keyed by "<session>/<window>". Tests use
+    // mark_dead() to simulate a command that exited immediately.
+    std::unordered_set<std::string> dead_windows;
+
+    // Windows whose liveness probe fails (e.g. transient ssh error).
+    // Tests use mark_unknown() to exercise the tri-state Unknown path.
+    // Takes precedence over dead_windows for the same key.
+    std::unordered_set<std::string> unknown_windows;
+
+    void queue_list_sessions(std::vector<SessionInfo> s) { list_sessions_queue.push_back(std::move(s)); }
+    void mark_dead(const std::string& session, const std::string& window) {
+        dead_windows.insert(session + "/" + window);
+    }
+    void mark_unknown(const std::string& session, const std::string& window) {
+        unknown_windows.insert(session + "/" + window);
+    }
+
+    // Default: both creation calls succeed. Tests that want to
+    // exercise the "remote tmux refused" path flip these to false.
+    bool new_session_result = true;
+    bool new_window_result  = true;
+
+    bool new_session(const RemoteTarget& t, const std::string& s,
+                      const std::string& cwd, ISshClient&) override {
+        new_session_calls.push_back({t, s, cwd});
+        return new_session_result;
+    }
+
+    bool new_window(const RemoteTarget& t, const std::string& s,
+                     const std::string& w, const std::string& cwd,
+                     const std::string& cmd, ISshClient&) override {
+        new_window_calls.push_back({t, s, w, cwd, cmd});
+        return new_window_result;
+    }
+
+    std::vector<SessionInfo> list_sessions(const RemoteTarget& t, ISshClient&) override {
+        list_sessions_calls.push_back({t});
+        if (list_sessions_queue.empty()) return {};
+        auto r = list_sessions_queue.front(); list_sessions_queue.pop_front();
+        return r;
+    }
+
+    // If set, kill_window DOES NOT mark the window dead — simulates a
+    // tmux kill that was refused (e.g., permission error, stale PID).
+    // Default false means: kill_window marks the window dead so a
+    // subsequent is_window_alive() check returns false.
+    bool kill_window_refuses = false;
+
+    void kill_window(const RemoteTarget& t, const std::string& s,
+                      const std::string& w, ISshClient&) override {
+        kill_window_calls.push_back({t, s, w});
+        if (!kill_window_refuses) {
+            dead_windows.insert(s + "/" + w);
+        }
+    }
+
+    Liveness is_window_alive(const RemoteTarget& t, const std::string& s,
+                                const std::string& w, ISshClient&) override {
+        is_window_alive_calls.push_back({t, s, w});
+        const auto key = s + "/" + w;
+        if (unknown_windows.count(key)) return Liveness::Unknown;
+        if (dead_windows.count(key))    return Liveness::Dead;
+        return Liveness::Alive;
+    }
+
+    void exec_attach(const RemoteTarget& t, const std::string& s,
+                      const std::string& w) override {
+        exec_attach_calls.push_back({t, s, w});
+    }
+
+    void reset() {
+        new_session_calls.clear();
+        new_window_calls.clear();
+        list_sessions_calls.clear();
+        kill_window_calls.clear();
+        is_window_alive_calls.clear();
+        exec_attach_calls.clear();
+        list_sessions_queue.clear();
+        dead_windows.clear();
+        kill_window_refuses = false;
+        new_session_result  = true;
+        new_window_result   = true;
+    }
+};
+
+}  // namespace tash::cluster::testing
+
+#endif  // TASH_CLUSTER_FAKE_TMUX_OPS_H
